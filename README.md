@@ -1,16 +1,38 @@
-# chalakchar_mart
+# ChalakChar Mart
 
-ChalakChar Mart Ecommerce App
+ChalakChar Mart is a Flutter-based multi-vendor e-commerce marketplace application built with Firebase.
 
-## Getting Started
+## Features
 
-This project is a starting point for a Flutter application.
+- Multi-vendor marketplace
+- User authentication
+- Vendor registration and dashboard
+- Admin dashboard
+- Product management
+- Cart and order system
+- Delivery partner module
+- Referral system
+- Wallet system
+- Firebase Firestore database
+- Firebase Storage integration
+- Firebase Hosting support
+- Android, Web, Desktop support
 
-A few resources to get you started if this is your first Flutter project:
+## Technologies Used
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+- Flutter
+- Dart
+- Firebase Authentication
+- Cloud Firestore
+- Firebase Storage
+- Firebase Hosting
+- Firebase Functions
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Project Type
+
+E-Commerce Marketplace / Multi Vendor App
+
+## Developer
+
+Masud Parvaz  
+Flutter & Firebase Developer
