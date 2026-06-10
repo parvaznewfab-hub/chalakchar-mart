@@ -1,0 +1,736 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* =========================
+       Common helpers
+    ========================= */
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function userExists(uid) {
+      return exists(userPath(uid));
+    }
+
+    function userDoc(uid) {
+      return get(userPath(uid));
+    }
+
+    function me() {
+      return userDoc(request.auth.uid).data;
+    }
+
+    function notBanned() {
+      return signedIn()
+        && userExists(request.auth.uid)
+        && me().isActive != false
+        && me().isBanned != true;
+    }
+
+    function hasRole(role) {
+      return notBanned()
+        && (
+          me().role == role ||
+          (me().roles is list && role in me().roles)
+        );
+    }
+
+    function isSuperAdmin() {
+      return hasRole('superAdmin') || hasRole('super_admin');
+    }
+
+    function isAdmin() {
+      return isSuperAdmin()
+        || hasRole('admin')
+        || hasRole('owner');
+    }
+
+    function isStaffRole() {
+      return isAdmin() || hasRole('staff');
+    }
+
+    function hasPermission(permission) {
+      return notBanned()
+        && (
+          isAdmin()
+          || (
+            me().permissions is list
+            && permission in me().permissions
+          )
+          || (
+            me().permissions is map
+            && me().permissions[permission] == true
+          )
+        );
+    }
+
+    function can(permission) {
+      return notBanned()
+        && (
+          isSuperAdmin()
+          || isAdmin()
+          || (
+            me().permissions is list
+            && permission in me().permissions
+          )
+          || (
+            me().permissions is map
+            && me().permissions[permission] == true
+          )
+        );
+    }
+
+    function isVendor() {
+      return notBanned()
+        && (
+          hasRole('vendor')
+          || me().isVendor == true
+          || me().sellerStatus == 'approved'
+          || me().vendorStatus == 'approved'
+          || me().vendorId is string
+        );
+    }
+
+    function myVendorId() {
+      return me().vendorId;
+    }
+
+    function ownsVendorData(data) {
+      return isVendor()
+        && (
+          data.ownerId == request.auth.uid
+          || data.userId == request.auth.uid
+          || data.vendorOwnerId == request.auth.uid
+          || data.vendorId == request.auth.uid
+          || (me().vendorId is string && data.vendorId == me().vendorId)
+        );
+    }
+
+    function vendorInOrder(data) {
+      return isVendor()
+        && (
+          data.vendorId == request.auth.uid
+          || data.vendorOwnerId == request.auth.uid
+          || data.sellerId == request.auth.uid
+          || data.sellerUid == request.auth.uid
+          || data.vendorUid == request.auth.uid
+          || (data.vendorIds is list && request.auth.uid in data.vendorIds)
+          || (data.vendorOwnerIds is list && request.auth.uid in data.vendorOwnerIds)
+          || (data.sellerIds is list && request.auth.uid in data.sellerIds)
+          || (me().vendorId is string && data.vendorId == me().vendorId)
+          || (me().vendorId is string && data.sellerId == me().vendorId)
+          || (me().vendorId is string && data.vendorIds is list && me().vendorId in data.vendorIds)
+          || (me().vendorId is string && data.sellerIds is list && me().vendorId in data.sellerIds)
+        );
+    }
+
+    function isDeliveryPartner() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/deliveryPartners/$(request.auth.uid))
+        && (
+          get(/databases/$(database)/documents/deliveryPartners/$(request.auth.uid)).data.status == 'approved'
+          || get(/databases/$(database)/documents/deliveryPartners/$(request.auth.uid)).data.status == 'Approved'
+        )
+        && get(/databases/$(database)/documents/deliveryPartners/$(request.auth.uid)).data.isActive != false;
+    }
+
+    function assignedDeliveryPartner(data) {
+      return isDeliveryPartner()
+        && data.deliveryPartnerId == request.auth.uid;
+    }
+
+    function changedOnly(allowed) {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly(allowed);
+    }
+
+    function changedAny(fields) {
+      return request.resource.data.diff(resource.data).changedKeys().hasAny(fields);
+    }
+
+    function validPositiveAmount(value) {
+      return value is number && value > 0 && value <= 1000000;
+    }
+
+    /* =========================
+       Users
+    ========================= */
+
+    match /users/{uid} {
+      // ✅ Login/snapshot fix:
+      // App login flow may query/snapshot users collection after OTP/Google login.
+      // This allows signed-in users to read user profiles so login will not fail with permission-denied.
+      allow read: if signedIn();
+
+      // ✅ Login/signup fix:
+      // A signed-in user can create their own normal profile document.
+      // This supports OTP/Google login flows where users/{uid} may not exist yet.
+      // User cannot create admin/staff/superAdmin roles or sensitive fields.
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && (
+          !request.resource.data.keys().hasAny(['uid'])
+          || request.resource.data.uid == uid
+        )
+        && (
+          !request.resource.data.keys().hasAny(['role'])
+          || request.resource.data.role in ['user', 'customer']
+        )
+        && (
+          !request.resource.data.keys().hasAny(['roles'])
+          || (
+            request.resource.data.roles is list
+            && request.resource.data.roles.hasOnly(['user', 'customer'])
+          )
+        )
+        && (
+          !request.resource.data.keys().hasAny(['permissions'])
+        )
+        && (
+          !request.resource.data.keys().hasAny(['isBanned'])
+          || request.resource.data.isBanned == false
+        )
+        && (
+          !request.resource.data.keys().hasAny(['isActive'])
+          || request.resource.data.isActive == true
+        )
+        && (
+          !request.resource.data.keys().hasAny(['points'])
+          || request.resource.data.points == 0
+        )
+        && (
+          !request.resource.data.keys().hasAny(['totalEarnings'])
+          || request.resource.data.totalEarnings == 0
+        );
+
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && !changedAny([
+          'role',
+          'roles',
+          'permissions',
+          'isActive',
+          'isBanned',
+          'points',
+          'totalEarnings',
+          'sellerStatus',
+          'vendorId',
+          'banReason',
+          'bannedAt',
+          'isDeleted',
+          'deletedAt'
+        ])
+        && (!request.resource.data.keys().hasAny(['uid']) || request.resource.data.uid == uid);
+
+      // ✅ Login profile refresh fix: allow user to refresh safe login/profile fields.
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && !changedAny([
+          'role',
+          'roles',
+          'permissions',
+          'isActive',
+          'isBanned',
+          'points',
+          'totalEarnings',
+          'banReason',
+          'bannedAt',
+          'isDeleted',
+          'deletedAt',
+          'approvedAt'
+        ])
+        && (
+          !changedAny(['sellerStatus'])
+          || request.resource.data.sellerStatus in ['none', 'new', 'pending', 'submitted']
+        )
+        && (
+          !changedAny(['vendorId'])
+          || request.resource.data.vendorId == uid
+        )
+        && (!request.resource.data.keys().hasAny(['uid']) || request.resource.data.uid == uid);
+
+
+      // Allow a signed-in user to link their own pending seller application.
+      // This is needed after creating vendors/{uid} from VendorApplyPage.
+      // User cannot approve themselves; only pending/submitted is allowed here.
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && changedOnly([
+          'sellerStatus',
+          'vendorId',
+          'updatedAt'
+        ])
+        && request.resource.data.vendorId == uid
+        && request.resource.data.sellerStatus in ['pending', 'submitted'];
+
+
+      // Staff can edit non-sensitive profile/account fields.
+      allow update: if can('users.edit')
+        && !changedAny([
+          'role',
+          'roles',
+          'permissions',
+          'isActive',
+          'isBanned',
+          'points',
+          'totalEarnings',
+          'vendorId',
+          'sellerStatus'
+        ]);
+
+      // Blocking / unblocking users.
+      allow update: if can('users.block')
+        && changedOnly([
+          'isActive',
+          'isBanned',
+          'banReason',
+          'bannedAt',
+          'updatedAt'
+        ])
+        && resource.data.role != 'superAdmin'
+        && !(resource.data.roles is list && 'superAdmin' in resource.data.roles);
+
+      // Wallet / ChalakChar Cash adjustments.
+      allow update: if can('wallet.edit')
+        && changedOnly([
+          'points',
+          'totalEarnings',
+          'updatedAt'
+        ])
+        && resource.data.role != 'superAdmin'
+        && !(resource.data.roles is list && 'superAdmin' in resource.data.roles);
+
+      // Permission changes for staff/admin users.
+      allow update: if can('users.permissions')
+        && changedOnly([
+          'permissions',
+          'updatedAt'
+        ])
+        && (
+          request.resource.data.role in ['staff', 'admin']
+          || (request.resource.data.roles is list && (
+            'staff' in request.resource.data.roles || 'admin' in request.resource.data.roles
+          ))
+        )
+        && resource.data.role != 'superAdmin'
+        && !(resource.data.roles is list && 'superAdmin' in resource.data.roles);
+
+      // Role changes are admin/superAdmin only. Only superAdmin may create/modify superAdmin.
+      allow update: if isAdmin()
+        && changedAny(['role', 'roles', 'sellerStatus', 'vendorId', 'updatedAt'])
+        && (
+          isSuperAdmin()
+          || (
+            request.resource.data.role != 'superAdmin'
+            && !(request.resource.data.roles is list && 'superAdmin' in request.resource.data.roles)
+            && resource.data.role != 'superAdmin'
+            && !(resource.data.roles is list && 'superAdmin' in resource.data.roles)
+          )
+        );
+
+      allow delete: if isSuperAdmin();
+
+      match /addresses/{addressId} {
+        allow read, create, update, delete:
+          if signedIn() && request.auth.uid == uid;
+      }
+    }
+
+    /* =========================
+       Vendors
+    ========================= */
+
+    match /vendors/{vendorId} {
+      allow read: if true;
+
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.status in ['pending', 'submitted']
+        && request.resource.data.isActive == false;
+
+      allow update: if can('vendors.edit') || can('vendors.approve') || can('vendors.status');
+
+      // Applicant/vendor owner can create or update own application while it is pending/rejected/submitted.
+      // They cannot approve themselves or edit money/commission fields.
+      allow update: if signedIn()
+        && (
+          resource.data.ownerId == request.auth.uid
+          || resource.data.userId == request.auth.uid
+          || request.resource.data.ownerId == request.auth.uid
+          || request.resource.data.userId == request.auth.uid
+        )
+        && resource.data.status in ['pending', 'submitted', 'rejected', 'new']
+        && request.resource.data.status in ['pending', 'submitted']
+        && request.resource.data.isActive == false
+        && request.resource.data.isVerified == false
+        && !changedAny([
+          'commissionPercent',
+          'commissionRate',
+          'totalSales',
+          'totalOrders',
+          'withdrawableBalance',
+          'withdrawPendingBalance',
+          'approvedAt',
+          'suspendedAt'
+        ]);
+
+      // Vendor owner can update only profile/docs fields, not approval/money/status fields.
+      allow update: if ownsVendorData(resource.data)
+        && !changedAny([
+          'status',
+          'isActive',
+          'isVerified',
+          'commissionPercent',
+          'commissionRate',
+          'totalSales',
+          'totalOrders',
+          'withdrawableBalance',
+          'withdrawPendingBalance',
+          'approvedAt',
+          'rejectedAt',
+          'suspendedAt'
+        ]);
+
+      allow delete: if can('vendors.delete') || isSuperAdmin();
+    }
+
+    match /vendorWithdrawRequests/{requestId} {
+      allow read: if can('vendors.view')
+        || can('analytics.view')
+        || (
+          isVendor()
+          && (
+            resource.data.vendorId == request.auth.uid
+            || resource.data.vendorOwnerId == request.auth.uid
+            || (me().vendorId is string && resource.data.vendorId == me().vendorId)
+          )
+        );
+
+      allow create: if isVendor()
+        && (
+          request.resource.data.vendorId == request.auth.uid
+          || request.resource.data.vendorOwnerId == request.auth.uid
+          || (me().vendorId is string && request.resource.data.vendorId == me().vendorId)
+        )
+        && request.resource.data.status == 'pending'
+        && validPositiveAmount(request.resource.data.amount);
+
+      allow update, delete: if can('vendors.edit') || can('vendors.approve');
+    }
+
+    match /vendorPayouts/{payoutId} {
+      allow read: if can('vendors.view') || can('analytics.view');
+      allow create, update, delete: if can('vendors.edit') || can('vendors.approve');
+    }
+
+    match /vendorCommissions/{docId} {
+      allow read: if can('vendors.view')
+        || can('analytics.view')
+        || (
+          isVendor()
+          && (
+            resource.data.vendorId == request.auth.uid
+            || resource.data.vendorOwnerId == request.auth.uid
+            || (me().vendorId is string && resource.data.vendorId == me().vendorId)
+          )
+        );
+
+      allow create, update, delete: if can('vendors.edit') || can('orders.edit');
+    }
+
+    /* =========================
+       Delivery partners
+    ========================= */
+
+    match /deliveryPartners/{partnerId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.auth.uid == partnerId;
+
+      allow update: if signedIn()
+        && (
+          request.auth.uid == partnerId
+          || can('delivery.approve')
+          || can('delivery.block')
+          || can('delivery.settle_cod')
+          || can('orders.settle_cod')
+          || can('orders.edit')
+        )
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name',
+          'phone',
+          'preferredArea',
+          'vehicleType',
+          'address',
+          'note',
+          'nidNumber',
+          'nidFrontUrl',
+          'nidBackUrl',
+          'totalDeliveries',
+          'totalEarning',
+          'codDue',
+          'pendingAmount',
+          'withdrawnAmount',
+          'lastEarningSyncedAt',
+          'lastCodSettlementAt',
+          'updatedAt',
+          'status',
+          'isActive',
+          'approvedAt',
+          'rejectedAt',
+          'blockedAt',
+          'documentStatus'
+        ]);
+
+      allow delete: if isSuperAdmin();
+    }
+
+    match /deliveryEarnings/{docId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.deliveryPartnerId == request.auth.uid;
+
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'partnerSynced',
+          'updatedAt'
+        ]);
+
+      allow delete: if can('delivery.approve') || can('delivery.settle_cod');
+    }
+
+    /* =========================
+       Products / categories / banners / coupons
+    ========================= */
+
+    match /products/{productId} {
+      allow read: if true;
+      allow create, update, delete: if signedIn();
+    }
+
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow create, update: if can('categories.edit');
+      allow delete: if can('categories.delete') || isSuperAdmin();
+    }
+
+    match /banners/{bannerId} {
+      allow read: if true;
+      allow create, update: if can('banners.edit') || can('banners.status') || can('banners.priority');
+      allow delete: if can('banners.delete') || isSuperAdmin();
+    }
+
+    match /coupons/{couponCode} {
+      allow read: if true;
+      allow create, update: if can('coupons.edit') || can('coupons.status');
+      allow delete: if can('coupons.delete') || isSuperAdmin();
+    }
+
+    match /analytics/{document=**} {
+      allow read: if signedIn()
+        && userExists(request.auth.uid)
+        && (can('analytics.view') || hasRole('staff'));
+
+      allow create, update, delete: if can('analytics.edit') || isSuperAdmin();
+    }
+
+    /* =========================
+       Orders / cart / lists
+    ========================= */
+
+    match /cart/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+
+      match /items/{itemId} {
+        allow read, create, update, delete:
+          if signedIn() && request.auth.uid == uid;
+      }
+    }
+
+    match /orders/{orderId} {
+      allow create: if signedIn();
+      allow read: if signedIn();
+      allow update: if signedIn();
+      allow delete: if isSuperAdmin();
+    }
+
+
+
+
+    match /lists/{listId} {
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid;
+
+      allow read: if signedIn()
+        && (
+          resource.data.userId == request.auth.uid
+          || can('lists.view')
+          || can('lists.edit')
+          || can('analytics.view')
+        );
+
+      allow update, delete: if can('lists.edit') || isSuperAdmin();
+    }
+
+    /* =========================
+       Notifications / referrals / wallet logs
+    ========================= */
+
+    match /notifications/{docId} {
+      allow read: if signedIn()
+        && (
+          resource.data.userId == request.auth.uid
+          || can('notifications.view')
+          || can('notifications.manage')
+        );
+
+      // User can create only their own notification; staff can send broadcasts/admin notifications.
+      allow create: if notBanned()
+        && (
+          can('notifications.send')
+          || request.resource.data.userId == request.auth.uid
+        );
+
+      allow update: if signedIn()
+        && (
+          can('notifications.manage')
+          || (
+            resource.data.userId == request.auth.uid
+            && changedOnly(['isRead', 'readAt', 'updatedAt'])
+          )
+        );
+
+      allow delete: if can('notifications.delete') || can('notifications.manage');
+    }
+
+    match /vendor_notifications/{docId} {
+      allow read: if signedIn()
+        && (
+          resource.data.vendorId == request.auth.uid
+          || resource.data.vendorOwnerId == request.auth.uid
+          || (me().vendorId is string && resource.data.vendorId == me().vendorId)
+          || can('notifications.view')
+          || can('vendors.view')
+        );
+
+      allow create: if notBanned()
+        && (
+          can('notifications.send')
+          || can('vendors.edit')
+          || request.resource.data.vendorOwnerId == request.auth.uid
+          || request.resource.data.vendorId == request.auth.uid
+          || (me().vendorId is string && request.resource.data.vendorId == me().vendorId)
+        );
+
+      allow update: if signedIn()
+        && (
+          can('notifications.manage')
+          || resource.data.vendorOwnerId == request.auth.uid
+          || resource.data.vendorId == request.auth.uid
+          || (me().vendorId is string && request.resource.data.vendorId == me().vendorId)
+        );
+
+      allow delete: if can('notifications.delete') || can('notifications.manage');
+    }
+
+    match /referrals/{docId} {
+      allow read: if can('users.view') || can('users.edit') || can('wallet.edit') || can('analytics.view');
+
+      allow create: if signedIn()
+        && request.resource.data.referrerId != request.auth.uid
+        && request.resource.data.referredUserId == request.auth.uid;
+
+      allow update, delete: if can('wallet.edit') || can('users.edit');
+    }
+
+    match /wallet_logs/{docId} {
+      allow read: if signedIn()
+        && (
+          resource.data.userId == request.auth.uid
+          || can('wallet.edit')
+          || can('users.view')
+          || can('analytics.view')
+        );
+
+      allow create, update, delete: if can('wallet.edit');
+    }
+
+    /* =========================
+       Doctors / appointments / settings
+    ========================= */
+
+    match /doctor_departments/{deptId} {
+      allow read: if true;
+      allow create, update, delete: if can('doctors.edit') || can('settings.edit');
+    }
+
+    match /doctors/{doctorId} {
+      allow read: if true;
+      allow create, update, delete: if can('doctors.edit') || can('settings.edit');
+    }
+
+
+
+    match /doctor_slots/{slotId} {
+      allow read: if true;
+      allow create, update, delete: if can('doctors.edit') || can('settings.edit');
+    }
+
+    match /doctor_time_slots/{slotId} {
+      allow read: if true;
+      allow create, update, delete: if can('doctors.edit') || can('settings.edit');
+    }
+
+    match /doctor_schedules/{scheduleId} {
+      allow read: if true;
+      allow create, update, delete: if can('doctors.edit') || can('settings.edit');
+    }
+
+    match /doctor_appointments/{appointmentId} {
+      // Public slot availability needs to read existing booked appointments.
+      // Booking/create/update/delete are still protected below.
+      allow read: if true;
+
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.bookedByUserId == request.auth.uid;
+
+      allow update: if can('doctors.edit')
+        || (
+          signedIn()
+          && resource.data.userId == request.auth.uid
+          && changedOnly(['status', 'cancelledAt', 'updatedAt'])
+        );
+
+      allow delete: if can('doctors.edit') || isSuperAdmin();
+    }
+
+    match /settings/{docId} {
+      allow read: if true;
+      allow create, update: if can('settings.edit');
+      allow delete: if isSuperAdmin();
+    }
+
+    /* =========================
+       Default deny
+    ========================= */
+
+    // Analytics staff/admin needs to read multiple collections for totals/charts.
+    // Write remains denied here; write permissions are controlled above.
+    match /{document=**} {
+      allow read: if signedIn()
+        && userExists(request.auth.uid)
+        && (can('analytics.view') || hasRole('staff'));
+
+      allow write: if false;
+    }
+  }
+}

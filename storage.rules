@@ -1,0 +1,227 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc(uid) {
+      return firestore.get(/databases/(default)/documents/users/$(uid));
+    }
+
+    function userExists(uid) {
+      return firestore.exists(/databases/(default)/documents/users/$(uid));
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function hasRole(role) {
+      return signedIn()
+        && userExists(request.auth.uid)
+        && (
+          userDoc(request.auth.uid).data.role == role
+          || (
+            userDoc(request.auth.uid).data.roles is list
+            && role in userDoc(request.auth.uid).data.roles
+          )
+        );
+    }
+
+    function isStaff() {
+      return hasRole('admin')
+        || hasRole('superAdmin')
+        || hasRole('super_admin')
+        || hasRole('staff')
+        || hasRole('owner');
+    }
+
+    function isVendor() {
+      return signedIn()
+        && userExists(request.auth.uid)
+        && (
+          hasRole('vendor')
+          || userDoc(request.auth.uid).data.sellerStatus == 'approved'
+          || (userDoc(request.auth.uid).data.vendorId is string
+              && userDoc(request.auth.uid).data.vendorId.size() > 0)
+        );
+    }
+
+    function vendorDoc(vendorId) {
+      return firestore.get(/databases/(default)/documents/vendors/$(vendorId));
+    }
+
+    function isVendorOwner(vendorId) {
+      return signedIn()
+        && firestore.exists(/databases/(default)/documents/vendors/$(vendorId))
+        && vendorDoc(vendorId).data.ownerId == request.auth.uid;
+    }
+
+    function isJpegPngWebp() {
+      return request.resource.contentType.matches('image/.*')
+        || request.resource.contentType == 'application/octet-stream';
+    }
+
+    function isSafeImage(maxBytes) {
+      return request.resource != null
+        && request.resource.size > 0
+        && request.resource.size <= maxBytes
+        && isJpegPngWebp();
+    }
+
+    function isImageUnder5MB() {
+      return isSafeImage(5 * 1024 * 1024);
+    }
+
+    function isImageUnder10MB() {
+      return isSafeImage(10 * 1024 * 1024);
+    }
+
+    // =========================
+    // USER LIST / PRESCRIPTION IMAGES
+    // =========================
+    match /lists/{uid}/{fileName} {
+      allow read: if isOwner(uid) || isStaff();
+      allow create, update: if isOwner(uid) && isImageUnder5MB();
+      allow delete: if isOwner(uid) || isStaff();
+    }
+
+    match /prescriptions/{uid}/{fileName} {
+      allow read: if isOwner(uid) || isStaff();
+      allow create, update: if isOwner(uid) && isImageUnder5MB();
+      allow delete: if isOwner(uid) || isStaff();
+    }
+
+    match /prescription_images/{uid}/{fileName} {
+      allow read: if isOwner(uid) || isStaff();
+      allow create, update: if isOwner(uid) && isImageUnder5MB();
+      allow delete: if isOwner(uid) || isStaff();
+    }
+
+    // =========================
+    // DELIVERY PARTNER DOCUMENTS
+    // =========================
+    match /delivery_partner_documents/{uid}/{fileName} {
+      allow read: if isOwner(uid) || isStaff();
+      allow create, update: if isOwner(uid) && isImageUnder5MB();
+      allow delete: if isOwner(uid) || isStaff();
+    }
+
+    // =========================
+    // PUBLIC CATEGORY IMAGES
+    // =========================
+    match /categories/{fileName} {
+      allow read: if true;
+      allow create, update: if isStaff() && isImageUnder5MB();
+      allow delete: if isStaff();
+    }
+
+    match /category_images/{fileName} {
+      allow read: if true;
+      allow create, update: if isStaff() && isImageUnder5MB();
+      allow delete: if isStaff();
+    }
+
+    // =========================
+    // PUBLIC PRODUCT IMAGES
+    // Admin/staff can upload official products.
+    // Approved vendors can upload only safe product images; delete remains staff-only here.
+    // Prefer vendor_products/{vendorId}/... for vendor-owned images.
+    // =========================
+    match /products/{fileName} {
+      allow read: if true;
+      allow create, update: if (isStaff() || isVendor()) && isImageUnder10MB();
+      allow delete: if isStaff();
+    }
+
+    match /product_images/{fileName} {
+      allow read: if true;
+      allow create, update: if (isStaff() || isVendor()) && isImageUnder10MB();
+      allow delete: if isStaff();
+    }
+
+    // =========================
+    // PUBLIC BANNERS
+    // =========================
+    match /banners/{fileName} {
+      allow read: if true;
+      allow create, update: if isStaff() && isImageUnder5MB();
+      allow delete: if isStaff();
+    }
+
+    // =========================
+    // VENDOR DOCUMENTS
+    // IMPORTANT: vendorId may be vendor document ID, not Firebase Auth UID.
+    // Read is restricted to real vendor owner from vendors/{vendorId}.ownerId or staff.
+    // Create/update also supports initial application path where vendorId == request.auth.uid.
+    // =========================
+    match /vendors/{vendorId}/documents/{fileName} {
+      // Seller application document upload.
+      // Supports both cases:
+      // 1) vendorId == Firebase Auth UID during first application
+      // 2) vendorId is a vendor document id where vendors/{vendorId}.ownerId == auth.uid
+      allow read: if isOwner(vendorId) || isVendorOwner(vendorId) || isStaff();
+
+      allow create, update: if signedIn()
+        && (request.auth.uid == vendorId || isVendorOwner(vendorId) || isStaff())
+        && isImageUnder5MB();
+
+      allow delete: if isOwner(vendorId) || isVendorOwner(vendorId) || isStaff();
+    }
+
+    // =========================
+    // VENDOR PRODUCT IMAGES
+    // =========================
+    match /vendor_products/{vendorId}/{fileName} {
+      allow read: if true;
+      allow create, update: if (isVendorOwner(vendorId) || isOwner(vendorId)) && isImageUnder10MB();
+      allow delete: if isVendorOwner(vendorId) || isStaff();
+    }
+
+    // =========================
+    // GENERAL PUBLIC READ
+    // =========================
+    match /public/{allPaths=**} {
+      allow read: if true;
+      allow create, update: if isStaff() && isImageUnder5MB();
+      allow delete: if isStaff();
+    }
+
+    // =========================
+    // DOCTOR / DEPARTMENT IMAGES
+    // =========================
+    match /doctor_departments/{allPaths=**} {
+      allow read: if true;
+      allow create, update: if isStaff() && isImageUnder5MB();
+      allow delete: if isStaff();
+    }
+
+    match /doctor_depts/{allPaths=**} {
+      allow read: if true;
+      allow create, update: if isStaff() && isImageUnder5MB();
+      allow delete: if isStaff();
+    }
+
+    match /doctor_department_images/{allPaths=**} {
+      allow read: if true;
+      allow create, update: if isStaff() && isImageUnder5MB();
+      allow delete: if isStaff();
+    }
+
+    match /doctors/{allPaths=**} {
+      allow read: if true;
+      allow create, update: if isStaff() && isImageUnder5MB();
+      allow delete: if isStaff();
+    }
+
+    // =========================
+    // DEFAULT DENY
+    // =========================
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

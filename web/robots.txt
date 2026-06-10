@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://chalakcharmart.com/sitemap.xml

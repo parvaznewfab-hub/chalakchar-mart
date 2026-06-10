@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "1036870421759",
+    "project_id": "chalakchar-mart",
+    "storage_bucket": "chalakchar-mart.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1036870421759:android:6504de8a098e1d7bac10ca",
+        "android_client_info": {
+          "package_name": "com.chalakcharmart.chalakchar_mart"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1036870421759-lfmi6c59kc0jb3pi15c1mm2dq542b18i.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.chalakcharmart.chalakchar_mart",
+            "certificate_hash": "3fc3910446e6910740223e035fe5d3945fe5e862"
+          }
+        },
+        {
+          "client_id": "1036870421759-eqmorc0gh4ik21cgtf2l3p85n4guveke.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAd4GS9dsKlldYx-rIut-SwWxathYqxXWE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1036870421759-eqmorc0gh4ik21cgtf2l3p85n4guveke.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "1036870421759-gqeil4f4mlsorkh1jbquf0c24s21ppur.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.chalakcharmart.chalakcharMart"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
+
