@@ -4,11 +4,11 @@ import 'package:firebase_storage/firebase_storage.dart';
 
 class ImageUploadService {
   static Future<String> upload(
-    File? file, {
-    Uint8List? webImage,
-    String folder = 'products',
-    String? fileName,
-  }) async {
+      File? file, {
+        Uint8List? webImage,
+        String folder = 'products',
+        String? fileName,
+      }) async {
     final safeFileName = fileName ?? '${DateTime.now().millisecondsSinceEpoch}.jpg';
 
     final ref = FirebaseStorage.instance.ref().child('$folder/$safeFileName');

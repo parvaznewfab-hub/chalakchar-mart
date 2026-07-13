@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../services/auth_service.dart';
-import 'connect_account_page.dart';
 import '../wishlist_page.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -23,6 +22,9 @@ class _ProfilePageState extends State<ProfilePage> {
   final upazilaController = TextEditingController();
   String imageUrl = '';
   String gender = 'Male';
+  String whatsappNumber = '';
+  bool whatsappOptIn = false;
+  bool whatsappSaving = false;
 
   @override
   void initState() {
@@ -57,6 +59,8 @@ class _ProfilePageState extends State<ProfilePage> {
       districtController.text = data['district'] ?? '';
       upazilaController.text = data['upazila'] ?? '';
       imageUrl = data['image'] ?? '';
+      whatsappNumber = (data['whatsappNumber'] ?? '').toString();
+      whatsappOptIn = data['whatsappOptIn'] == true;
     });
   }
 
@@ -128,6 +132,82 @@ class _ProfilePageState extends State<ProfilePage> {
       padding: const EdgeInsets.only(bottom: 10),
       child: TextField(controller: c, keyboardType: keyboardType, decoration: InputDecoration(labelText: l)),
     );
+  }
+
+  Future<void> _showWhatsAppPreferencesDialog() async {
+    final pageContext = context;
+    final controller = TextEditingController(
+      text: whatsappNumber.isNotEmpty ? whatsappNumber : phoneController.text,
+    );
+    bool enabled = whatsappOptIn;
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('WhatsApp Offers'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Receive WhatsApp product offers'),
+                  subtitle: const Text('You can unsubscribe at any time.'),
+                  value: enabled,
+                  onChanged: whatsappSaving ? null : (value) => setDialogState(() => enabled = value),
+                ),
+                if (enabled)
+                  TextField(
+                    controller: controller,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'WhatsApp number',
+                      hintText: '01XXXXXXXXX',
+                      prefixIcon: Icon(Icons.phone),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                const Text(
+                  'By turning this on, you agree to receive promotional product messages from ChalakChar Mart on WhatsApp. Standard messaging charges may apply.',
+                  style: TextStyle(fontSize: 12, color: Colors.black54, height: 1.4),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: whatsappSaving ? null : () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: whatsappSaving ? null : () async {
+                setDialogState(() => whatsappSaving = true);
+                try {
+                  await AuthService().updateWhatsAppPreference(
+                    optIn: enabled,
+                    whatsappNumber: controller.text,
+                  );
+                  await loadData();
+                  if (dialogContext.mounted) Navigator.pop(dialogContext);
+                  if (pageContext.mounted) {
+                    ScaffoldMessenger.of(pageContext).showSnackBar(
+                      SnackBar(content: Text(enabled ? 'WhatsApp offers enabled' : 'WhatsApp offers disabled')),
+                    );
+                  }
+                } catch (e) {
+                  if (dialogContext.mounted) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text(e.toString())));
+                  }
+                } finally {
+                  whatsappSaving = false;
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
   }
 
   void _showSellerDialog() {
@@ -219,11 +299,19 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 const SizedBox(height: 12),
                 _tile(Icons.phone, 'Phone', phoneController.text),
+                Card(
+                  child: ListTile(
+                    leading: Icon(Icons.chat, color: whatsappOptIn ? Colors.green : Colors.grey),
+                    title: const Text('WhatsApp Offers'),
+                    subtitle: Text(whatsappOptIn ? 'Subscribed: $whatsappNumber' : 'Not subscribed'),
+                    trailing: Switch.adaptive(value: whatsappOptIn, onChanged: (_) => _showWhatsAppPreferencesDialog()),
+                    onTap: _showWhatsAppPreferencesDialog,
+                  ),
+                ),
                 _tile(Icons.location_on, 'Address', addressController.text),
                 _tile(Icons.map, 'Area', '${divisionController.text} -> ${districtController.text} -> ${upazilaController.text}'),
                 _action(Icons.favorite, 'Wishlist', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WishlistPage()))),
                 _action(Icons.storefront, sellerStatus == 'approved' ? 'Seller dashboard' : 'Become a seller', _showSellerDialog),
-                _action(Icons.link, 'Connect your account', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ConnectAccountPage()))),
               ],
             ),
           );

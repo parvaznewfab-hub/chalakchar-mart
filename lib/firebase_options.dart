@@ -27,14 +27,14 @@ class DefaultFirebaseOptions {
       case TargetPlatform.macOS:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for macos - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
+              'you can reconfigure this by running the FlutterFire CLI again.',
         );
       case TargetPlatform.windows:
         return windows;
       case TargetPlatform.linux:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for linux - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
+              'you can reconfigure this by running the FlutterFire CLI again.',
         );
       default:
         throw UnsupportedError(
@@ -48,7 +48,7 @@ class DefaultFirebaseOptions {
     appId: '1:1036870421759:web:b383cdae330f8453ac10ca',
     messagingSenderId: '1036870421759',
     projectId: 'chalakchar-mart',
-    authDomain: 'auth.chalakcharmart.com',
+    authDomain: 'chalakchar-mart.firebaseapp.com',
     storageBucket: 'chalakchar-mart.firebasestorage.app',
     measurementId: 'G-QVQY7EKFK9',
   );
@@ -83,5 +83,3 @@ class DefaultFirebaseOptions {
   );
 
 }
-
-

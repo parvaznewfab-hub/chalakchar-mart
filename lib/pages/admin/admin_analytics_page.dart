@@ -322,7 +322,7 @@ class _AdminAnalyticsPageState extends State<AdminAnalyticsPage> {
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.035),
+            color: Colors.black.withValues(alpha: 0.035),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
@@ -331,7 +331,7 @@ class _AdminAnalyticsPageState extends State<AdminAnalyticsPage> {
       child: Row(
         children: [
           CircleAvatar(
-            backgroundColor: color.withOpacity(0.12),
+            backgroundColor: color.withValues(alpha: 0.12),
             child: Icon(icon, color: color),
           ),
           const SizedBox(width: 12),
@@ -451,7 +451,7 @@ class _AdminAnalyticsPageState extends State<AdminAnalyticsPage> {
             Row(
               children: [
                 CircleAvatar(
-                  backgroundColor: const Color(0xFF32A8C7).withOpacity(0.12),
+                  backgroundColor: const Color(0xFF32A8C7).withValues(alpha: 0.12),
                   child: Icon(icon, color: const Color(0xFF1592B3)),
                 ),
                 const SizedBox(width: 12),
@@ -614,7 +614,7 @@ class _AdminAnalyticsPageState extends State<AdminAnalyticsPage> {
         return ListTile(
           contentPadding: EdgeInsets.zero,
           leading: CircleAvatar(
-            backgroundColor: stock <= 0 ? Colors.red.withOpacity(0.12) : Colors.orange.withOpacity(0.12),
+            backgroundColor: stock <= 0 ? Colors.red.withValues(alpha: 0.12) : Colors.orange.withValues(alpha: 0.12),
             child: Icon(
               stock <= 0 ? Icons.remove_shopping_cart_rounded : Icons.warning_amber_rounded,
               color: stock <= 0 ? Colors.red : Colors.orange,

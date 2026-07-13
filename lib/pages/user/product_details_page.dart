@@ -6,10 +6,13 @@ import '../../widgets/product_card.dart';
 import '../../widgets/global_web_header.dart';
 import '../../widgets/global_web_footer.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
-import 'package:share_plus/share_plus.dart';
 import '../../services/product_service.dart';
 import '../../services/guest_cart_service.dart';
+import '../../services/web_seo_service.dart';
 import 'package:vector_math/vector_math_64.dart' show Vector3;
+import 'package:flutter/foundation.dart';
+import 'package:share_plus/share_plus.dart';
+import 'wishlist_page.dart';
 
 class ProductDetailsPage extends StatefulWidget {
   final Map<String, dynamic> data;
@@ -29,6 +32,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
   int _selectedImageIndex = 0;
   bool _showMobileTopBar = false;
   bool _addingCart = false;
+  bool _wishlistWorking = false;
   static const double _reviewRewardAmount = 2;
   bool _submittingReview = false;
 
@@ -44,6 +48,9 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
     final normalized = ProductService.normalizeProductData(widget.data);
     final units = ProductService.getUnits(normalized);
     _selectedUnit = units.isNotEmpty ? units.first : 'piece';
+    if (kIsWeb) {
+      _updateProductSeo(normalized);
+    }
 
     _scrollController.addListener(() {
       final shouldShow = _scrollController.offset > 35;
@@ -57,6 +64,38 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
   void dispose() {
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _updateProductSeo(Map<String, dynamic> rawData) {
+    if (!kIsWeb) return;
+
+    final product = ProductService.normalizeProductData(rawData);
+    final productId = ProductService.productIdFrom(product).trim();
+    if (productId.isEmpty) return;
+
+    WebSeoService.setProductSeo(
+      product: product,
+      productId: productId,
+      price: ProductService.getDisplayPrice(product, unit: _selectedUnit),
+      stock: ProductService.getStock(product, unit: _selectedUnit),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant ProductDetailsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.data != widget.data && kIsWeb) {
+      final normalized = ProductService.normalizeProductData(widget.data);
+      final units = ProductService.getUnits(normalized);
+
+      if (units.isNotEmpty && !units.contains(_selectedUnit)) {
+        _selectedUnit = units.first;
+        _quantity = 1;
+      }
+
+      _updateProductSeo(normalized);
+    }
   }
 
   String _text(dynamic v, [String fallback = '']) {
@@ -94,27 +133,51 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
     return List<String>.from(product['images'] ?? []);
   }
 
+  String _productVideoUrl(Map<String, dynamic> data) {
+    final product = ProductService.normalizeProductData(data);
+    return _text(
+      product['videoUrl'] ??
+          product['youtubeUrl'] ??
+          product['youtubeLink'] ??
+          product['videoLink'] ??
+          product['video'],
+    );
+  }
+
   String? _youtubeVideoId(String url) {
-    final uri = Uri.tryParse(url.trim());
+    final input = url.trim();
+    if (input.isEmpty) return null;
+
+    // Allow admins to paste only the YouTube video id.
+    if (RegExp(r'^[a-zA-Z0-9_-]{11}$').hasMatch(input)) return input;
+
+    final uri = Uri.tryParse(input);
     if (uri == null) return null;
 
-    if (uri.host.contains('youtu.be')) {
-      return uri.pathSegments.isNotEmpty ? uri.pathSegments.first : null;
+    final host = uri.host.toLowerCase();
+    final segments = uri.pathSegments.where((e) => e.trim().isNotEmpty).toList();
+
+    if (host.contains('youtu.be')) {
+      return segments.isNotEmpty ? segments.first : null;
     }
 
-    if (uri.host.contains('youtube.com')) {
+    if (host.contains('youtube.com') || host.contains('youtube-nocookie.com')) {
       final watchId = uri.queryParameters['v'];
-      if (watchId != null && watchId.isNotEmpty) return watchId;
+      if (watchId != null && watchId.trim().isNotEmpty) return watchId.trim();
 
-      final segments = uri.pathSegments;
-      final embedIndex = segments.indexOf('embed');
-      if (embedIndex != -1 && segments.length > embedIndex + 1) return segments[embedIndex + 1];
-
-      final shortsIndex = segments.indexOf('shorts');
-      if (shortsIndex != -1 && segments.length > shortsIndex + 1) return segments[shortsIndex + 1];
+      for (final marker in ['embed', 'shorts', 'live']) {
+        final index = segments.indexOf(marker);
+        if (index != -1 && segments.length > index + 1) {
+          return segments[index + 1];
+        }
+      }
     }
 
     return null;
+  }
+
+  String _youtubeThumbnail(String videoId) {
+    return 'https://img.youtube.com/vi/$videoId/hqdefault.jpg';
   }
 
   void _snack(String msg) {
@@ -129,43 +192,58 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
   }
 
 
-  Future<void> _shareProduct(Map<String, dynamic> data) async {
-    final name = _text(data['name'], 'Product');
-    final strength = _text(data['strength']);
-    final unitPrice = ProductService.getDisplayPrice(data, unit: _selectedUnit);
-    final productId = _productId(data);
-    final shareText = [
-      'Check this product from ChalakChar Mart:',
-      strength.isEmpty ? name : '$name ($strength)',
-      'Price: ৳${unitPrice.toStringAsFixed(2)}',
-      if (productId.isNotEmpty) 'Product ID: $productId',
-    ].join('\n');
 
-    await Share.share(shareText, subject: name);
-  }
-
-  Future<bool> _canReviewProduct(String productId) async {
+  Future<bool> _canReviewProduct(Map<String, dynamic> productData) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return false;
+
+    final productId = _productId(productData);
+    final productName = _text(productData['name']).toLowerCase();
 
     try {
       final orders = await db
           .collection('orders')
           .where('userId', isEqualTo: user.uid)
-          .where('status', whereIn: ['delivered', 'received', 'completed'])
           .get();
 
       for (final order in orders.docs) {
-        final items = order.data()['items'];
+        final orderData = order.data();
+        final status = _text(orderData['status']).toLowerCase();
+
+        if (!['delivered', 'received', 'completed'].contains(status)) {
+          continue;
+        }
+
+        final items = orderData['items'];
+
         if (items is List) {
           for (final item in items) {
-            if (item is Map && _text(item['productId']) == productId) {
-              return true;
+            if (item is Map) {
+              final itemProductId = _text(
+                item['productId'] ??
+                    item['id'] ??
+                    item['product_id'] ??
+                    item['productDocId'] ??
+                    item['pid'],
+              );
+
+              final itemName = _text(
+                item['name'] ??
+                    item['productName'] ??
+                    item['title'],
+              ).toLowerCase();
+
+              if (itemProductId == productId ||
+                  (productName.isNotEmpty && itemName == productName)) {
+                return true;
+              }
             }
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('CAN REVIEW ERROR: $e');
+    }
 
     return false;
   }
@@ -298,7 +376,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
     setState(() => _submittingReview = true);
 
     try {
-      final canReview = await _canReviewProduct(productId);
+      final canReview = await _canReviewProduct(productData);
       if (!canReview) {
         _snack('Review allowed after product received');
         return;
@@ -355,6 +433,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
           productRef,
           {
             'reviewCount': FieldValue.increment(1),
+            'ratingCount': FieldValue.increment(1),
             'ratingTotal': FieldValue.increment(rating),
             'updatedAt': FieldValue.serverTimestamp(),
           },
@@ -401,6 +480,154 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _toggleWishlistForProduct(Map<String, dynamic> data) async {
+    if (_wishlistWorking) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _snack('Please login first');
+      return;
+    }
+
+    final product = ProductService.normalizeProductData(data);
+    final productId = _productId(product);
+
+    if (productId.trim().isEmpty) {
+      _snack('Invalid product data');
+      return;
+    }
+
+    setState(() => _wishlistWorking = true);
+
+    try {
+      final ref = db
+          .collection('users')
+          .doc(user.uid)
+          .collection('wishlist')
+          .doc(productId);
+
+      final before = await ref.get();
+
+      await WishlistPage.toggleWishlist({
+        ...product,
+        'id': productId,
+        'productId': productId,
+      });
+
+      _snack(before.exists ? 'Removed from Wishlist' : 'Added to Wishlist');
+    } catch (e, s) {
+      debugPrint('WISHLIST TOGGLE ERROR: $e');
+      debugPrintStack(stackTrace: s);
+      final msg = e.toString().replaceFirst('Exception:', '').trim();
+      _snack(msg.isEmpty ? 'Wishlist update failed' : msg);
+    } finally {
+      if (mounted) setState(() => _wishlistWorking = false);
+    }
+  }
+
+  Widget _wishlistButton(Map<String, dynamic> data) {
+    final user = FirebaseAuth.instance.currentUser;
+    final product = ProductService.normalizeProductData(data);
+    final productId = _productId(product);
+
+    if (user == null || productId.trim().isEmpty) {
+      return _roundActionButton(
+        icon: Icons.favorite_border,
+        color: Colors.grey.shade700,
+        tooltip: 'Add to Wishlist',
+        onPressed: () => _toggleWishlistForProduct(product),
+      );
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: db
+          .collection('users')
+          .doc(user.uid)
+          .collection('wishlist')
+          .doc(productId)
+          .snapshots(),
+      builder: (context, snap) {
+        final saved = snap.data?.exists == true;
+
+        return _roundActionButton(
+          icon: saved ? Icons.favorite : Icons.favorite_border,
+          color: saved ? Colors.red : Colors.grey.shade700,
+          tooltip: saved ? 'Remove from Wishlist' : 'Add to Wishlist',
+          onPressed: _wishlistWorking ? null : () => _toggleWishlistForProduct(product),
+        );
+      },
+    );
+  }
+
+  Widget _roundActionButton({
+    required IconData icon,
+    required Color color,
+    required String tooltip,
+    required VoidCallback? onPressed,
+  }) {
+    final disabled = onPressed == null;
+
+    return Tooltip(
+      message: tooltip,
+      child: SizedBox(
+        width: 42,
+        height: 42,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            border: Border.all(color: _borderColor),
+          ),
+          child: Material(
+            color: Colors.transparent,
+            shape: const CircleBorder(),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onPressed,
+              child: Center(
+                child: Icon(
+                  icon,
+                  color: disabled ? color.withValues(alpha: 0.45) : color,
+                  size: 24,
+                  fill: icon == Icons.favorite ? 1 : 0,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _shareProduct(Map<String, dynamic> data, double price) async {
+    final product = ProductService.normalizeProductData(data);
+    final productId = _productId(product);
+    final name = _text(product['name'], 'Product');
+    final category = _text(product['category']);
+    final productUrl = 'https://chalakcharmart.com/product/${Uri.encodeComponent(productId)}';
+
+    final shareText = [
+      '🛒 ChalakChar Mart',
+      '',
+      name,
+      if (category.isNotEmpty) 'Category: $category',
+      if (price > 0) 'Price: ৳${price.toStringAsFixed(0)}',
+      '',
+      productUrl,
+    ].join('\n');
+
+    try {
+      await Share.share(
+        shareText,
+        subject: name,
+      );
+      _snack('Product shared');
+    } catch (e) {
+      debugPrint('PRODUCT SHARE ERROR: $e');
+      _snack('Share failed');
+    }
   }
 
   Future<void> _addToCart({
@@ -546,15 +773,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
     return Scaffold(
       backgroundColor: _softBg,
       appBar: isMobile ? null : const GlobalWebHeader(),
-      bottomNavigationBar: isMobile
-          ? _buildMobileBottomCart(
-              data: data,
-              totalPrice: totalPrice,
-              unitPrice: unitPrice,
-              unitOldPrice: unitOldPrice,
-              selectedStock: selectedStock,
-            )
-          : null,
+      bottomNavigationBar: null,
       body: Stack(
         children: [
           SafeArea(
@@ -660,45 +879,12 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
               ),
             ),
           ),
-          if (isMobile) _buildMobileFloatingSearchBar(data),
+          if (isMobile) _buildMobileBackButton(),
         ],
       ),
     );
   }
 
-  Widget _roundIconButton({
-    required String tooltip,
-    required IconData icon,
-    required VoidCallback onTap,
-  }) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(15),
-          onTap: onTap,
-          child: Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(15),
-              border: Border.all(color: _borderColor),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.035),
-                  blurRadius: 12,
-                  offset: const Offset(0, 5),
-                ),
-              ],
-            ),
-            child: Icon(icon, color: _primaryColor, size: 21),
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _buildTrustStrip() {
     final items = [
@@ -757,79 +943,6 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
     );
   }
 
-  Widget _buildMobileBottomCart({
-    required Map<String, dynamic> data,
-    required double totalPrice,
-    required double unitPrice,
-    required double unitOldPrice,
-    required int selectedStock,
-  }) {
-    return SafeArea(
-      top: false,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: const Border(top: BorderSide(color: _borderColor)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.08),
-              blurRadius: 18,
-              offset: const Offset(0, -6),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Total Price', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 2),
-                  Text('৳${totalPrice.toStringAsFixed(2)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: _primaryColor)),
-                ],
-              ),
-            ),
-            const SizedBox(width: 10),
-            OutlinedButton(
-              onPressed: () => _shareProduct(data),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size(48, 48),
-                padding: EdgeInsets.zero,
-                side: const BorderSide(color: _borderColor),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              ),
-              child: const Icon(Icons.share_rounded, color: _primaryColor),
-            ),
-            const SizedBox(width: 10),
-            ElevatedButton.icon(
-              onPressed: selectedStock <= 0 || _addingCart
-                  ? null
-                  : () => _addToCart(
-                        data: data,
-                        unitPrice: unitPrice,
-                        unitOldPrice: unitOldPrice,
-                        selectedStock: selectedStock,
-                      ),
-              icon: _addingCart
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.shopping_cart_checkout_rounded),
-              label: Text(_addingCart ? 'Adding...' : 'Add'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _primaryColor,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                minimumSize: const Size(122, 48),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _sectionTitle(String text) {
     return Text(
@@ -837,129 +950,78 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
       style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
     );
   }
-
-  Widget _buildMobileFloatingSearchBar(Map<String, dynamic> data) {
+  Widget _buildMobileBackButton() {
     return Positioned(
       top: 0,
       left: 0,
-      right: 0,
       child: SafeArea(
         bottom: false,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 260),
-          curve: Curves.easeOut,
-          padding: EdgeInsets.fromLTRB(8, 8, 12, _showMobileTopBar ? 8 : 0),
-          decoration: BoxDecoration(
-            color: _showMobileTopBar ? Colors.white.withValues(alpha: 0.97) : Colors.transparent,
-            boxShadow: _showMobileTopBar
-                ? [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.08),
-                blurRadius: 12,
-                offset: const Offset(0, 3),
-              ),
-            ]
-                : [],
-          ),
-          child: Row(
-            children: [
-              Material(
-                color: _showMobileTopBar ? Colors.white : Colors.white.withValues(alpha: 0.92),
-                borderRadius: BorderRadius.circular(22),
-                elevation: _showMobileTopBar ? 0 : 2,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(22),
-                  onTap: () => Navigator.maybePop(context),
-                  child: const SizedBox(
-                    width: 42,
-                    height: 42,
-                    child: Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.black87),
-                  ),
+        child: Padding(
+          padding: const EdgeInsets.only(left: 8, top: 8),
+          child: Material(
+            color: Colors.white.withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(22),
+            elevation: 2,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(22),
+              onTap: () => Navigator.maybePop(context),
+              child: const SizedBox(
+                width: 42,
+                height: 42,
+                child: Icon(
+                  Icons.arrow_back_ios_new_rounded,
+                  size: 20,
+                  color: Colors.black87,
                 ),
               ),
-              AnimatedSize(
-                duration: const Duration(milliseconds: 260),
-                child: _showMobileTopBar ? const SizedBox(width: 8) : const SizedBox(width: 0),
-              ),
-              Expanded(
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 220),
-                  opacity: _showMobileTopBar ? 1 : 0,
-                  child: IgnorePointer(
-                    ignoring: !_showMobileTopBar,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 260),
-                      height: _showMobileTopBar ? 42 : 0,
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(color: Colors.grey.shade300),
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.search, size: 20, color: Colors.grey),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Search product...',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(color: Colors.grey, fontSize: 14),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              AnimatedSize(
-                duration: const Duration(milliseconds: 260),
-                child: _showMobileTopBar ? const SizedBox(width: 8) : const SizedBox(width: 0),
-              ),
-              AnimatedOpacity(
-                duration: const Duration(milliseconds: 220),
-                opacity: _showMobileTopBar ? 1 : 0,
-                child: IgnorePointer(
-                  ignoring: !_showMobileTopBar,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 260),
-                    width: _showMobileTopBar ? 46 : 0,
-                    height: _showMobileTopBar ? 46 : 0,
-                    child: Material(
-                      color: const Color(0xFF32A8C7).withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(23),
-                      child: IconButton(
-                        tooltip: 'Share',
-                        onPressed: () => _shareProduct(data),
-                        icon: const Icon(Icons.share, color: Color(0xFF32A8C7)),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
 
+
   Widget _buildImageSection(Map<String, dynamic> data, double height) {
     final images = _getProductImages(data);
-    final videoUrl = _text(data['videoUrl']);
-    final hasVideo = videoUrl.isNotEmpty;
+    final videoUrl = _productVideoUrl(data);
+    final videoId = _youtubeVideoId(videoUrl);
+    final hasVideo = videoId != null && videoId.isNotEmpty;
+    final videoThumbnail = hasVideo ? _youtubeThumbnail(videoId) : '';
 
     if (_selectedImageIndex >= images.length) _selectedImageIndex = 0;
     final selectedImage = images.isNotEmpty ? images[_selectedImageIndex] : '';
+
+    Widget mainMedia() {
+      if (selectedImage.isNotEmpty) {
+        return _HoverMagnifierImage(imageUrl: selectedImage);
+      }
+
+      if (hasVideo) {
+        return Image.network(
+          videoThumbnail,
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => const Icon(
+            Icons.play_circle_fill_rounded,
+            size: 100,
+            color: Color(0xFF32A8C7),
+          ),
+        );
+      }
+
+      return const Icon(Icons.image, size: 100, color: Colors.grey);
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Center(
           child: GestureDetector(
-            onTap: images.isEmpty ? null : () => _openImagePreview(images, _selectedImageIndex),
+            onTap: hasVideo && selectedImage.isEmpty
+                ? () => _openVideo(videoUrl)
+                : images.isEmpty
+                ? null
+                : () => _openImagePreview(images, _selectedImageIndex),
             child: Container(
               height: height,
               width: double.infinity,
@@ -969,9 +1031,49 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(color: Colors.grey.shade100),
               ),
-              child: selectedImage.isNotEmpty
-                  ? _HoverMagnifierImage(imageUrl: selectedImage)
-                  : const Icon(Icons.image, size: 100, color: Colors.grey),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Positioned.fill(child: mainMedia()),
+                  if (hasVideo)
+                    Positioned(
+                      right: 12,
+                      bottom: 12,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(40),
+                        onTap: () => _openVideo(videoUrl),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.72),
+                            borderRadius: BorderRadius.circular(40),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.play_circle_fill_rounded,
+                                color: Colors.white,
+                                size: 24,
+                              ),
+                              SizedBox(width: 6),
+                              Text(
+                                'Watch Video',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -987,40 +1089,48 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
                   return GestureDetector(
                     onTap: () => _openVideo(videoUrl),
                     child: Container(
-                      width: 86,
+                      width: 110,
                       height: 86,
                       margin: const EdgeInsets.only(right: 10),
                       decoration: BoxDecoration(
                         color: const Color(0xFF32A8C7).withValues(alpha: 0.10),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFF32A8C7), width: 1.5),
+                        border: Border.all(
+                          color: const Color(0xFF32A8C7),
+                          width: 1.5,
+                        ),
                       ),
-                      child: const Stack(
-                        alignment: Alignment.center,
+                      clipBehavior: Clip.antiAlias,
+                      child: Stack(
+                        fit: StackFit.expand,
                         children: [
-                          Icon(Icons.play_circle_fill, color: Color(0xFF32A8C7), size: 42),
-                          Positioned(
-                            top: 7,
-                            left: 4,
-                            right: 4,
-                            child: Text(
-                              'Video',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: Color(0xFF32A8C7),
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
+                          Image.network(
+                            videoThumbnail,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              color: const Color(0xFF32A8C7).withValues(alpha: 0.10),
                             ),
                           ),
-                          Positioned(
-                            bottom: 7,
-                            left: 4,
-                            right: 4,
+                          Container(color: Colors.black.withValues(alpha: 0.25)),
+                          const Center(
+                            child: Icon(
+                              Icons.play_circle_fill_rounded,
+                              color: Colors.white,
+                              size: 42,
+                            ),
+                          ),
+                          const Positioned(
+                            left: 6,
+                            right: 6,
+                            bottom: 6,
                             child: Text(
-                              'Watch',
+                              'VIDEO',
                               textAlign: TextAlign.center,
-                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
                           ),
                         ],
@@ -1058,7 +1168,9 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
           ),
           const SizedBox(height: 6),
           Text(
-            hasVideo ? 'Tap image for zoom preview • Tap video icon to watch' : 'Tap image for zoom preview',
+            hasVideo
+                ? 'Tap image for zoom preview • Tap video to watch'
+                : 'Tap image for zoom preview',
             style: const TextStyle(fontSize: 12, color: Colors.grey),
           ),
         ],
@@ -1091,11 +1203,14 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
                 style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: _darkText, height: 1.18),
               ),
             ),
-            const SizedBox(width: 10),
-            _roundIconButton(
-              tooltip: 'Share product',
+            const SizedBox(width: 8),
+            _wishlistButton(data),
+            const SizedBox(width: 8),
+            _roundActionButton(
               icon: Icons.share_rounded,
-              onTap: () => _shareProduct(data),
+              color: _primaryColor,
+              tooltip: 'Share Product',
+              onPressed: () => _shareProduct(data, unitPrice),
             ),
           ],
         ),
@@ -1115,18 +1230,12 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
         ),
         const SizedBox(height: 20),
         Container(
+          width: double.infinity,
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.grey.shade200),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.025),
-                blurRadius: 14,
-                offset: const Offset(0, 6),
-              ),
-            ],
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: _borderColor),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1220,6 +1329,10 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
                             _selectedUnit = v;
                             _quantity = 1;
                           });
+
+                          if (kIsWeb) {
+                            _updateProductSeo(data);
+                          }
                         },
                       ),
                     ),
@@ -1371,7 +1484,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
         const SizedBox(height: 12),
         FutureBuilder<List<bool>>(
           future: Future.wait([
-            _canReviewProduct(productId),
+            _canReviewProduct(data),
             _alreadyReviewed(productId),
           ]),
           builder: (context, snap) {
@@ -1592,7 +1705,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> {
         }
 
         return SizedBox(
-          height: 240,
+          height: 205,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             itemCount: products.length,
@@ -1626,21 +1739,27 @@ class _HoverMagnifierImageState extends State<_HoverMagnifierImage> {
   Offset _mousePosition = Offset.zero;
   bool _isHovering = false;
 
-  static const double _lensSize = 150;
-  static const double _zoom = 2.4;
+
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = MediaQuery.of(context).size.width >= 800;
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final height = constraints.maxHeight;
 
         return MouseRegion(
-          cursor: SystemMouseCursors.zoomIn,
-          onEnter: (_) => setState(() => _isHovering = true),
-          onExit: (_) => setState(() => _isHovering = false),
+          cursor: isDesktop ? SystemMouseCursors.zoomIn : SystemMouseCursors.basic,
+          onEnter: (_) {
+            if (isDesktop) setState(() => _isHovering = true);
+          },
+          onExit: (_) {
+            if (isDesktop) setState(() => _isHovering = false);
+          },
           onHover: (event) {
+            if (!isDesktop) return;
             final box = context.findRenderObject() as RenderBox?;
             if (box == null) return;
             final local = box.globalToLocal(event.position);
@@ -1658,42 +1777,30 @@ class _HoverMagnifierImageState extends State<_HoverMagnifierImage> {
                 child: Image.network(
                   widget.imageUrl,
                   fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, size: 100, color: Colors.grey),
+                  errorBuilder: (_, __, ___) => const Icon(
+                    Icons.broken_image,
+                    size: 100,
+                    color: Colors.grey,
+                  ),
                 ),
               ),
               if (_isHovering && width > 0 && height > 0)
-                Positioned(
-                  left: (_mousePosition.dx - _lensSize / 2).clamp(0.0, width - _lensSize),
-                  top: (_mousePosition.dy - _lensSize / 2).clamp(0.0, height - _lensSize),
+                Positioned.fill(
                   child: IgnorePointer(
                     child: Container(
-                      width: _lensSize,
-                      height: _lensSize,
                       decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: const Color(0xFF32A8C7), width: 2),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.18),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
+                        borderRadius: BorderRadius.circular(18),
                       ),
                       clipBehavior: Clip.antiAlias,
-                      child: Transform.translate(
-                        offset: Offset(
-                          (_lensSize / 2) - (_mousePosition.dx * _zoom),
-                          (_lensSize / 2) - (_mousePosition.dy * _zoom),
+                      child: Transform.scale(
+                        scale: 1.8,
+                        alignment: Alignment(
+                          (_mousePosition.dx / width) * 2 - 1,
+                          (_mousePosition.dy / height) * 2 - 1,
                         ),
-                        child: SizedBox(
-                          width: width * _zoom,
-                          height: height * _zoom,
-                          child: Image.network(
-                            widget.imageUrl,
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.grey),
-                          ),
+                        child: Image.network(
+                          widget.imageUrl,
+                          fit: BoxFit.contain,
                         ),
                       ),
                     ),

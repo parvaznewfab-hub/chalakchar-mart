@@ -253,6 +253,99 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
     return doc.data() ?? {};
   }
 
+
+  Future<void> _syncVendorUser(String vendorId, Map<String, dynamic> data) async {
+    if (_denyUnless(canApproveVendors || canEditVendors, 'Permission denied: vendors.approve or vendors.edit required')) return;
+
+    final ownerId = _vendorOwnerId(vendorId, data);
+    if (ownerId.isEmpty) {
+      _snack('Owner/User ID missing. Edit vendor and set the seller Firebase Auth UID first.');
+      return;
+    }
+
+    final status = _text(data['status'], 'pending').toLowerCase();
+    final approved = status == 'approved';
+
+    final userUpdate = <String, dynamic>{
+      'sellerStatus': status,
+      'vendorId': vendorId,
+      'isVendor': approved,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    if (approved) {
+      userUpdate['role'] = 'vendor';
+      userUpdate['roles'] = FieldValue.arrayUnion(['user', 'vendor']);
+      userUpdate['isActive'] = true;
+      userUpdate['isBanned'] = false;
+    } else if (status == 'rejected' || status == 'suspended') {
+      userUpdate['role'] = 'user';
+      userUpdate['roles'] = FieldValue.arrayRemove(['vendor']);
+    }
+
+    await db.collection('users').doc(ownerId).set(userUpdate, SetOptions(merge: true));
+    _snack('Vendor user synced');
+  }
+
+  Future<void> _syncAllApprovedVendors() async {
+    if (_denyUnless(canApproveVendors || canEditVendors, 'Permission denied: vendors.approve or vendors.edit required')) return;
+
+    final ok = await _confirm(
+      title: 'Sync approved vendors?',
+      message: 'This will update linked user role for all approved vendors.',
+      confirmText: 'Sync All',
+      danger: false,
+    );
+
+    if (ok != true) return;
+
+    try {
+      final snap = await db
+          .collection('vendors')
+          .where('status', isEqualTo: 'approved')
+          .limit(300)
+          .get();
+
+      int synced = 0;
+      WriteBatch batch = db.batch();
+      int batchCount = 0;
+
+      Future<void> commitIfNeeded({bool force = false}) async {
+        if (batchCount == 0) return;
+        if (force || batchCount >= 450) {
+          await batch.commit();
+          batch = db.batch();
+          batchCount = 0;
+        }
+      }
+
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final ownerId = _vendorOwnerId(doc.id, data);
+        if (ownerId.isEmpty) continue;
+
+        batch.set(db.collection('users').doc(ownerId), {
+          'role': 'vendor',
+          'roles': FieldValue.arrayUnion(['user', 'vendor']),
+          'sellerStatus': 'approved',
+          'vendorId': doc.id,
+          'isVendor': true,
+          'isActive': true,
+          'isBanned': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        batchCount++;
+        synced++;
+        await commitIfNeeded();
+      }
+
+      await commitIfNeeded(force: true);
+      _snack('Synced $synced approved vendor users');
+    } catch (e) {
+      _snack('Sync failed: $e');
+    }
+  }
+
   Future<void> _approveVendor(String vendorId, Map<String, dynamic> data) async {
     if (_denyUnless(canApproveVendors, 'Permission denied: vendors.approve required')) return;
 
@@ -285,9 +378,10 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
 
     batch.set(db.collection('users').doc(ownerId), {
       'role': 'vendor',
-      'roles': FieldValue.arrayUnion(['vendor']),
+      'roles': FieldValue.arrayUnion(['user', 'vendor']),
       'sellerStatus': 'approved',
       'vendorId': vendorId,
+      'isVendor': true,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
@@ -319,10 +413,15 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    batch.set(db.collection('users').doc(ownerId), {
-      'sellerStatus': 'rejected',
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    if (ownerId.isNotEmpty) {
+      batch.set(db.collection('users').doc(ownerId), {
+        'role': 'user',
+        'roles': FieldValue.arrayRemove(['vendor']),
+        'sellerStatus': 'rejected',
+        'isVendor': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
 
     await batch.commit();
     _snack('Vendor rejected');
@@ -351,10 +450,15 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    batch.set(db.collection('users').doc(ownerId), {
-      'sellerStatus': 'suspended',
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    if (ownerId.isNotEmpty) {
+      batch.set(db.collection('users').doc(ownerId), {
+        'role': 'user',
+        'roles': FieldValue.arrayRemove(['vendor']),
+        'sellerStatus': 'suspended',
+        'isVendor': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
 
     await batch.commit();
     _snack('Vendor suspended');
@@ -504,8 +608,11 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
                   await db.collection('users').doc(ownerId.text.trim()).set({
                     'vendorId': doc.id,
                     'sellerStatus': status,
+                    'isVendor': status == 'approved',
                     if (status == 'approved') 'role': 'vendor',
-                    if (status == 'approved') 'roles': FieldValue.arrayUnion(['vendor']),
+                    if (status == 'approved') 'roles': FieldValue.arrayUnion(['user', 'vendor']),
+                    if (status == 'rejected' || status == 'suspended') 'role': 'user',
+                    if (status == 'rejected' || status == 'suspended') 'roles': FieldValue.arrayRemove(['vendor']),
                     'updatedAt': FieldValue.serverTimestamp(),
                   }, SetOptions(merge: true));
                 }
@@ -518,8 +625,11 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
                   await db.collection('users').doc(ownerId.text.trim()).set({
                     'vendorId': id,
                     'sellerStatus': status,
+                    'isVendor': status == 'approved',
                     if (status == 'approved') 'role': 'vendor',
-                    if (status == 'approved') 'roles': FieldValue.arrayUnion(['vendor']),
+                    if (status == 'approved') 'roles': FieldValue.arrayUnion(['user', 'vendor']),
+                    if (status == 'rejected' || status == 'suspended') 'role': 'user',
+                    if (status == 'rejected' || status == 'suspended') 'roles': FieldValue.arrayRemove(['vendor']),
                     'updatedAt': FieldValue.serverTimestamp(),
                   }, SetOptions(merge: true));
                 }
@@ -569,7 +679,7 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: ['pending', 'approved', 'rejected', 'suspended'].contains(status) ? status : 'pending',
+                      initialValue: ['pending', 'approved', 'rejected', 'suspended'].contains(status) ? status : 'pending',
                       decoration: const InputDecoration(labelText: 'Status', border: OutlineInputBorder()),
                       items: const [
                         DropdownMenuItem(value: 'pending', child: Text('Pending')),
@@ -743,7 +853,7 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.035),
+            color: Colors.black.withValues(alpha: 0.035),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
@@ -752,7 +862,7 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
       child: Row(
         children: [
           CircleAvatar(
-            backgroundColor: color.withOpacity(0.12),
+            backgroundColor: color.withValues(alpha: 0.12),
             child: Icon(icon, color: color),
           ),
           const SizedBox(width: 12),
@@ -798,7 +908,7 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
             );
 
             final status = DropdownButtonFormField<String>(
-              value: statusFilter,
+              initialValue: statusFilter,
               decoration: const InputDecoration(labelText: 'Status', border: OutlineInputBorder(), isDense: true),
               items: const [
                 DropdownMenuItem(value: 'all', child: Text('All')),
@@ -811,7 +921,7 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
             );
 
             final active = DropdownButtonFormField<String>(
-              value: activeFilter,
+              initialValue: activeFilter,
               decoration: const InputDecoration(labelText: 'Active', border: OutlineInputBorder(), isDense: true),
               items: const [
                 DropdownMenuItem(value: 'all', child: Text('All')),
@@ -863,7 +973,7 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(30),
       ),
       child: Text(
@@ -915,7 +1025,7 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
 
                 final avatar = CircleAvatar(
                   radius: 30,
-                  backgroundColor: _statusColor(status).withOpacity(0.12),
+                  backgroundColor: _statusColor(status).withValues(alpha: 0.12),
                   child: Icon(Icons.storefront_rounded, color: _statusColor(status), size: 30),
                 );
 
@@ -966,6 +1076,12 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
                   runSpacing: 6,
                   alignment: WrapAlignment.end,
                   children: [
+                    if (canApproveVendors || canEditVendors)
+                      OutlinedButton.icon(
+                        onPressed: () => _syncVendorUser(vendorId, data),
+                        icon: const Icon(Icons.sync_rounded, size: 18, color: Colors.blue),
+                        label: const Text('Sync User', style: TextStyle(color: Colors.blue)),
+                      ),
                     if (canApproveVendors && status != 'approved')
                       OutlinedButton.icon(
                         onPressed: () => _approveVendor(vendorId, data),
@@ -1120,32 +1236,58 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
-      body: ListView(
-        padding: const EdgeInsets.all(18),
-        children: [
-          Row(
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final bool isMobile = constraints.maxWidth < 600;
+
+          final title = const Text(
+            'Vendor Manager Pro',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+          );
+
+          final actions = Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: isMobile ? WrapAlignment.start : WrapAlignment.end,
             children: [
-              const Expanded(
-                child: Text(
-                  'Vendor Manager Pro',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+              if (canApproveVendors || canEditVendors)
+                OutlinedButton.icon(
+                  onPressed: _syncAllApprovedVendors,
+                  icon: const Icon(Icons.sync_rounded, size: 18),
+                  label: const Text('Sync All'),
                 ),
-              ),
               if (canEditVendors)
                 ElevatedButton.icon(
                   onPressed: () => _showVendorDialog(),
-                  icon: const Icon(Icons.add_business_rounded),
+                  icon: const Icon(Icons.add_business_rounded, size: 18),
                   label: const Text('Add Vendor'),
                 ),
             ],
-          ),
-          const SizedBox(height: 14),
-          _vendorList(),
-        ],
+          );
+
+          return ListView(
+            padding: EdgeInsets.all(isMobile ? 14 : 18),
+            children: [
+              if (isMobile) ...[
+                title,
+                const SizedBox(height: 10),
+                actions,
+              ] else
+                Row(
+                  children: [
+                    Expanded(child: title),
+                    const SizedBox(width: 12),
+                    actions,
+                  ],
+                ),
+              const SizedBox(height: 14),
+              _vendorList(),
+            ],
+          );
+        },
       ),
     );
   }
 }
-
-
-

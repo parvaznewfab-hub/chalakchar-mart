@@ -1388,75 +1388,134 @@ class _ManageBannersProPageState extends State<ManageBannersProPage> {
     }
 
     final String previewImage = url.isNotEmpty ? url : gridImage;
+    final String bannerName = layoutType == 'amazon_grid'
+        ? 'Amazon Grid: ${title.isEmpty ? categoryName : title}'
+        : categoryName;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: active ? Colors.white : Colors.grey.shade100,
-        border: Border.all(color: Colors.grey.shade200),
-        borderRadius: BorderRadius.circular(12),
+    Widget preview({double size = 64}) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: previewImage.isNotEmpty
+            ? Image.network(
+          previewImage,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => _bannerIcon(layoutType),
+        )
+            : _bannerIcon(layoutType),
+      );
+    }
+
+    Widget chips() {
+      return Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          _chip(layoutType),
+          _chip(active ? 'Active' : 'Inactive', color: active ? Colors.green : Colors.red),
+          _chip('Priority: $priority'),
+          if (data['showOnMobile'] != false) _chip('Mobile'),
+          if (data['showOnDesktop'] != false) _chip('Desktop'),
+        ],
+      );
+    }
+
+    final List<Widget> actionButtons = [
+      IconButton(
+        tooltip: 'Move up',
+        icon: const Icon(Icons.arrow_upward, size: 20),
+        onPressed: canChangePriority ? () => _quickPriority(id, priority, 1) : null,
       ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        leading: ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: previewImage.isNotEmpty
-              ? Image.network(
-            previewImage,
-            width: 64,
-            height: 64,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => _bannerIcon(layoutType),
+      IconButton(
+        tooltip: 'Move down',
+        icon: const Icon(Icons.arrow_downward, size: 20),
+        onPressed: canChangePriority ? () => _quickPriority(id, priority, -1) : null,
+      ),
+      Switch(
+        value: active,
+        onChanged: canChangeStatus ? (v) => _toggleActive(id, v) : null,
+      ),
+      IconButton(
+        tooltip: 'Edit',
+        icon: const Icon(Icons.edit_outlined),
+        onPressed: canEditBanners ? () => _editBanner(id, data) : null,
+      ),
+      IconButton(
+        tooltip: 'Delete',
+        icon: const Icon(Icons.delete_outline, color: Colors.red),
+        onPressed: canDeleteBanners ? () => _deleteBanner(id) : null,
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bool isMobile = constraints.maxWidth < 520;
+
+        return Container(
+          decoration: BoxDecoration(
+            color: active ? Colors.white : Colors.grey.shade100,
+            border: Border.all(color: Colors.grey.shade200),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: isMobile
+              ? Padding(
+            padding: const EdgeInsets.all(10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    preview(size: 54),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            bannerName,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 6),
+                          chips(),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const Divider(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Wrap(
+                    spacing: 0,
+                    runSpacing: 0,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: actionButtons,
+                  ),
+                ),
+              ],
+            ),
           )
-              : _bannerIcon(layoutType),
-        ),
-        title: Text(
-          layoutType == 'amazon_grid'
-              ? 'Amazon Grid: ${title.isEmpty ? categoryName : title}'
-              : categoryName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Wrap(
-          spacing: 8,
-          runSpacing: 4,
-          children: [
-            _chip(layoutType),
-            _chip(active ? 'Active' : 'Inactive', color: active ? Colors.green : Colors.red),
-            _chip('Priority: $priority'),
-            if (data['showOnMobile'] != false) _chip('Mobile'),
-            if (data['showOnDesktop'] != false) _chip('Desktop'),
-          ],
-        ),
-        trailing: Wrap(
-          spacing: 2,
-          children: [
-            IconButton(
-              tooltip: 'Move up',
-              icon: const Icon(Icons.arrow_upward, size: 20),
-              onPressed: canChangePriority ? () => _quickPriority(id, priority, 1) : null,
+              : ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            leading: preview(),
+            title: Text(
+              bannerName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            IconButton(
-              tooltip: 'Move down',
-              icon: const Icon(Icons.arrow_downward, size: 20),
-              onPressed: canChangePriority ? () => _quickPriority(id, priority, -1) : null,
+            subtitle: chips(),
+            trailing: Wrap(
+              spacing: 2,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: actionButtons,
             ),
-            Switch(
-              value: active,
-              onChanged: canChangeStatus ? (v) => _toggleActive(id, v) : null,
-            ),
-            IconButton(
-              tooltip: 'Edit',
-              icon: const Icon(Icons.edit_outlined),
-              onPressed: canEditBanners ? () => _editBanner(id, data) : null,
-            ),
-            IconButton(
-              tooltip: 'Delete',
-              icon: const Icon(Icons.delete_outline, color: Colors.red),
-              onPressed: canDeleteBanners ? () => _deleteBanner(id) : null,
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 

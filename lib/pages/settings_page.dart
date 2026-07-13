@@ -106,13 +106,6 @@ class SettingsPage extends StatelessWidget {
                 );
               }),
 
-              _item(context, "Medical Disclaimer", Icons.medical_information, () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const MedicalDisclaimerPage()),
-                );
-              }),
-
               _item(context, "Return Policy", Icons.assignment_return, () {
                 Navigator.push(
                   context,
@@ -285,5 +278,3 @@ class SettingsPage extends StatelessWidget {
     }
   }
 }
-
-

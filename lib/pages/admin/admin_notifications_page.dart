@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/auth_service.dart';
 import '../../services/notification_service.dart';
 import 'admin_edit_order_page.dart';
@@ -14,6 +14,14 @@ class AdminNotificationsPage extends StatefulWidget {
 }
 
 class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
+  static const List<String> adminNotificationPermissions = [
+    'notifications.view',
+    'notifications.send',
+    'notifications.manage',
+    'notifications.delete',
+    'notifications.read',
+    'notifications.open_related',
+  ];
   final FirebaseFirestore db = FirebaseFirestore.instance;
   final AuthService authService = AuthService();
 
@@ -50,6 +58,44 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
 
   Future<void> _loadPermissions() async {
     try {
+      final user = FirebaseAuth.instance.currentUser;
+
+      if (user == null) {
+        if (!mounted) return;
+        setState(() => permissionLoading = false);
+        return;
+      }
+
+      final userRef = db.collection('users').doc(user.uid);
+      final userSnap = await userRef.get();
+      final userData = userSnap.data() ?? {};
+
+      final role = _text(userData['role']);
+      final roles = userData['roles'] is List
+          ? List<String>.from((userData['roles'] as List).map((e) => e.toString()))
+          : <String>[];
+
+      final isSuperAdmin = role == 'superAdmin' || roles.contains('superAdmin');
+      final isAdmin = role == 'admin' || roles.contains('admin');
+
+      if (isSuperAdmin || isAdmin) {
+        await userRef.set({
+          'permissions': FieldValue.arrayUnion(adminNotificationPermissions),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        if (!mounted) return;
+        setState(() {
+          canView = true;
+          canSend = true;
+          canManage = true;
+          canDelete = true;
+          canOpenRelated = true;
+          permissionLoading = false;
+        });
+        return;
+      }
+
       final view = await _hasAnyPermission(['notifications.view', 'notifications.send']);
       final send = await _hasAnyPermission(['notifications.send']);
       final manage = await _hasAnyPermission([
@@ -210,6 +256,8 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
       return;
     }
 
+    if (!mounted) return;
+
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -260,7 +308,8 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
 
             try {
               await NotificationService.sendToAll(title: title, body: body);
-              if (context.mounted) Navigator.pop(context);
+              if (!context.mounted) return;
+              Navigator.pop(context);
               _snack('Broadcast notification created for all users');
             } catch (e) {
               _snack('Send failed: $e');
@@ -340,8 +389,7 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
 
   Widget _summaryGrid(List<QueryDocumentSnapshot> docs) {
     int unread = 0;
-    int orders = 0;
-    int lists = 0;
+    int orders = 0; int lists = 0;
     int vendors = 0;
 
     for (final doc in docs) {
@@ -385,7 +433,7 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.035),
+            color: Colors.black.withValues(alpha: 0.035),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
@@ -394,7 +442,7 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
       child: Row(
         children: [
           CircleAvatar(
-            backgroundColor: color.withOpacity(0.12),
+            backgroundColor: color.withValues(alpha: 0.12),
             child: Icon(icon, color: color),
           ),
           const SizedBox(width: 12),
@@ -440,7 +488,7 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
             );
 
             final type = DropdownButtonFormField<String>(
-              value: typeFilter,
+              initialValue: typeFilter,
               decoration: const InputDecoration(
                 labelText: 'Type',
                 border: OutlineInputBorder(),
@@ -460,7 +508,7 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
             );
 
             final read = DropdownButtonFormField<String>(
-              value: readFilter,
+              initialValue: readFilter,
               decoration: const InputDecoration(
                 labelText: 'Read',
                 border: OutlineInputBorder(),
@@ -519,7 +567,7 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
       margin: const EdgeInsets.only(bottom: 10),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
-        side: BorderSide(color: isRead ? const Color(0xFFE5E7EB) : Colors.orange.withOpacity(0.35)),
+        side: BorderSide(color: isRead ? const Color(0xFFE5E7EB) : Colors.orange.withValues(alpha: 0.35)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -528,7 +576,7 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
             final compact = c.maxWidth < 850;
 
             final icon = CircleAvatar(
-              backgroundColor: color.withOpacity(0.12),
+              backgroundColor: color.withValues(alpha: 0.12),
               child: Icon(_typeIcon(type), color: color),
             );
 
@@ -625,7 +673,7 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(30),
       ),
       child: Text(
@@ -773,6 +821,16 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
                 ),
               ),
+              OutlinedButton.icon(
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Open Marketing Center from Admin sidebar')),
+                  );
+                },
+                icon: const Icon(Icons.campaign_rounded),
+                label: const Text('Marketing Center'),
+              ),
+              const SizedBox(width: 8),
               ElevatedButton.icon(
                 onPressed: canSend ? _sendBroadcastDialog : null,
                 icon: const Icon(Icons.campaign_rounded),
@@ -802,6 +860,3 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
     );
   }
 }
-
-
-

@@ -171,9 +171,119 @@ class _AdminDeliveryPartnerApprovalPageState
         SetOptions(merge: true),
       );
 
+      await db.collection('users').doc(uid).set(
+        _deliveryUserSyncData(uid, status),
+        SetOptions(merge: true),
+      );
+
       _snack('Delivery partner $status');
     } catch (e) {
       _snack('Update failed: $e', error: true);
+    }
+  }
+
+
+  Map<String, dynamic> _deliveryUserSyncData(String uid, String status) {
+    final data = <String, dynamic>{
+      'isDeliveryPartner': status == 'approved',
+      'deliveryPartnerStatus': status,
+      'deliveryPartnerId': uid,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    if (status == 'approved') {
+      data['role'] = 'deliveryPartner';
+      data['roles'] = FieldValue.arrayUnion(['user', 'deliveryPartner']);
+      data['isActive'] = true;
+      data['isBanned'] = false;
+    } else if (status == 'rejected' || status == 'blocked') {
+      data['roles'] = FieldValue.arrayRemove(['deliveryPartner']);
+      data['isDeliveryPartner'] = false;
+    }
+
+    return data;
+  }
+
+  Future<void> _syncPartnerUser(
+      String uid,
+      String status,
+      _DeliveryPermissions p,
+      ) async {
+    if (!p.approve) {
+      _permissionDenied('delivery.approve permission required.');
+      return;
+    }
+
+    if (status != 'approved') {
+      _snack('Only approved delivery partner can be synced.', error: true);
+      return;
+    }
+
+    try {
+      await db.collection('users').doc(uid).set(
+        _deliveryUserSyncData(uid, status),
+        SetOptions(merge: true),
+      );
+
+      _snack('User role synced as delivery partner');
+    } catch (e) {
+      _snack('User sync failed: $e', error: true);
+    }
+  }
+
+  Future<void> _syncAllApprovedPartners(_DeliveryPermissions p) async {
+    if (!p.approve) {
+      _permissionDenied('delivery.approve permission required.');
+      return;
+    }
+
+    final ok = await _confirm(
+      title: 'Sync approved delivery partners?',
+      message: 'This will update users collection role/roles for all approved delivery partners.',
+      confirmText: 'Sync All',
+    );
+
+    if (!ok) return;
+
+    try {
+      final snap = await db
+          .collection('deliveryPartners')
+          .where('status', isEqualTo: 'approved')
+          .get();
+
+      if (snap.docs.isEmpty) {
+        _snack('No approved delivery partner found');
+        return;
+      }
+
+      WriteBatch batch = db.batch();
+      var opCount = 0;
+      var synced = 0;
+
+      for (final doc in snap.docs) {
+        final uid = doc.id;
+        batch.set(
+          db.collection('users').doc(uid),
+          _deliveryUserSyncData(uid, 'approved'),
+          SetOptions(merge: true),
+        );
+        opCount++;
+        synced++;
+
+        if (opCount >= 400) {
+          await batch.commit();
+          batch = db.batch();
+          opCount = 0;
+        }
+      }
+
+      if (opCount > 0) {
+        await batch.commit();
+      }
+
+      _snack('$synced approved delivery partner user synced');
+    } catch (e) {
+      _snack('Sync all failed: $e', error: true);
     }
   }
 
@@ -380,6 +490,13 @@ class _AdminDeliveryPartnerApprovalPageState
               title: const Text('Delivery Partner Management'),
               backgroundColor: const Color(0xFF32A8C7),
               foregroundColor: Colors.white,
+              actions: [
+                IconButton(
+                  tooltip: 'Sync approved partners to users',
+                  onPressed: () => _syncAllApprovedPartners(p),
+                  icon: const Icon(Icons.sync_rounded),
+                ),
+              ],
               bottom: const TabBar(
                 tabs: [
                   Tab(text: 'Partners'),
@@ -555,6 +672,12 @@ class _PartnersTab extends StatelessWidget {
                             onPressed: phone.isEmpty ? null : () => state?._call(phone, permissions),
                             icon: const Icon(Icons.call),
                             label: const Text('Call'),
+                          ),
+                        if (permissions.approve && status == 'approved')
+                          OutlinedButton.icon(
+                            onPressed: () => state?._syncPartnerUser(uid, status, permissions),
+                            icon: const Icon(Icons.sync_rounded),
+                            label: const Text('Sync User'),
                           ),
                       ],
                     ),

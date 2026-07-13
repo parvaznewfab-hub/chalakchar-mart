@@ -219,9 +219,11 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
+      if (!mounted) return;
       _clearForm();
       _snack('Category added successfully');
     } catch (e) {
+      if (!mounted) return;
       _snack('Error: $e');
     } finally {
       if (mounted) setState(() => saving = false);
@@ -254,10 +256,11 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
     File? newImageFile;
     Uint8List? newWebImage;
 
+    if (!mounted) return;
     await showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => StatefulBuilder(
+      builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
           Widget imageBox() {
             Widget child;
@@ -331,7 +334,8 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
               'updatedAt': FieldValue.serverTimestamp(),
             });
 
-            if (context.mounted) Navigator.pop(context);
+            if (!context.mounted) return;
+            Navigator.pop(context);
             _snack('Category updated');
           }
 
@@ -410,6 +414,7 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
 
     final count = await _productCount(_text(data['name']));
 
+    if (!mounted) return;
     if (count > 0) {
       _snack('Cannot delete. $count products are using this category.');
       return;
@@ -433,6 +438,7 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
 
     if (ok == true) {
       await db.collection('categories').doc(id).delete();
+      if (!mounted) return;
       _snack('Category deleted');
     }
   }
@@ -705,7 +711,7 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.035),
+            color: Colors.black.withValues(alpha: 0.035),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
@@ -714,7 +720,7 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
       child: Row(
         children: [
           CircleAvatar(
-            backgroundColor: color.withOpacity(0.12),
+            backgroundColor: color.withValues(alpha: 0.12),
             child: Icon(icon, color: color),
           ),
           const SizedBox(width: 12),
@@ -760,7 +766,7 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
             );
 
             final status = DropdownButtonFormField<String>(
-              value: statusFilter,
+              initialValue: statusFilter,
               decoration: const InputDecoration(
                 labelText: 'Filter',
                 border: OutlineInputBorder(),
@@ -828,7 +834,7 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(30),
       ),
       child: Text(
@@ -1023,7 +1029,7 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
                 Chip(
                   avatar: const Icon(Icons.visibility_rounded, size: 18),
                   label: const Text('Read Only'),
-                  backgroundColor: Colors.orange.withOpacity(0.12),
+                  backgroundColor: Colors.orange.withValues(alpha: 0.12),
                 ),
             ],
           ),
@@ -1047,6 +1053,3 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
     );
   }
 }
-
-
-

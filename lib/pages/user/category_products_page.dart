@@ -24,6 +24,22 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
   bool onlyMarketplace = false;
   bool onlyPharmacy = false;
 
+  String _normalizeSlug(String value) {
+    return value
+        .trim()
+        .toLowerCase()
+        .replaceAll('&', 'and')
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'-+'), '-')
+        .replaceAll(RegExp(r'^-|-$'), '');
+  }
+
+  void _syncCategoryUrl(String categoryName) {
+    // URL is handled by named route /category/{slug}.
+    // Do not use history.replaceState here; it can overwrite /product/{id}
+    // when this page rebuilds behind the product page.
+  }
+
   double _priceOf(Map<String, dynamic> data) {
     final variants = data['variants'];
     if (variants is List && variants.isNotEmpty) {
@@ -101,11 +117,11 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
       appBar: (isDesktop
           ? const GlobalWebHeader()
           : AppBar(
-              title: Text(widget.category),
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.black,
-              elevation: 0,
-            )) as PreferredSizeWidget?,
+        title: Text(widget.category),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+        elevation: 0,
+      )) as PreferredSizeWidget?,
       body: StreamBuilder<List<CategoryModel>>(
         stream: CategoryService.watchActiveCategories(),
         builder: (context, categorySnap) {
@@ -126,11 +142,21 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
           final activeCategories =
               categorySnap.data ?? const <CategoryModel>[];
 
-          final exists = activeCategories.any(
-                (c) =>
-            c.name.trim().toLowerCase() ==
-                widget.category.trim().toLowerCase(),
-          );
+          final requestedSlug = _normalizeSlug(widget.category);
+
+          final matchedList = activeCategories.where((c) {
+            final categorySlug = _normalizeSlug(c.name);
+            return categorySlug == requestedSlug;
+          }).toList();
+
+          final CategoryModel? matchedCategory =
+          matchedList.isNotEmpty ? matchedList.first : null;
+
+          final exists = matchedCategory != null;
+
+          if (exists) {
+            _syncCategoryUrl(matchedCategory.name);
+          }
 
           if (!exists) {
             return Center(
@@ -168,7 +194,7 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
                 child: StreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance
                       .collection('products')
-                      .where('category', isEqualTo: widget.category)
+                      .where('category', isEqualTo: matchedCategory.name)
                       .where('isActive', isEqualTo: true)
                       .where('approvalStatus', isEqualTo: 'approved')
                       .snapshots(),
@@ -207,6 +233,7 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
                             CrossAxisAlignment.start,
                             children: [
                               _header(
+                                matchedCategory.name,
                                 allProducts.length,
                                 products.length,
                               ),
@@ -223,17 +250,13 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
                                     final data = doc.data() as Map<String, dynamic>;
                                     data['id'] = doc.id;
 
-                                    return SizedBox(
-                                      width: 190,
-                                      height: 230,
-                                      child: ProductCard(data: data),
-                                    );
+                                    return ProductCard(data: data);
                                   }).toList(),
                                 )
                               else
                                 LayoutBuilder(
                                   builder: (context, constraints) {
-                                    int crossAxisCount = (constraints.maxWidth / 190).floor();
+                                    int crossAxisCount = 2;
 
                                     if (crossAxisCount < 2) crossAxisCount = 2;
                                     if (crossAxisCount > 6) crossAxisCount = 6;
@@ -244,16 +267,16 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
                                       itemCount: products.length,
                                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                                         crossAxisCount: crossAxisCount,
-                                        childAspectRatio: 0.88,
-                                        crossAxisSpacing: 12,
-                                        mainAxisSpacing: 12,
+                                        childAspectRatio: 150 / 205,
+                                        crossAxisSpacing: 8,
+                                        mainAxisSpacing: 8,
                                       ),
                                       itemBuilder: (context, index) {
                                         final doc = products[index];
                                         final data = doc.data() as Map<String, dynamic>;
                                         data['id'] = doc.id;
 
-                                        return ProductCard(data: data);
+                                        return Center(child: ProductCard(data: data));
                                       },
                                     );
                                   },
@@ -278,7 +301,7 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
     );
   }
 
-  Widget _header(int total, int showing) {
+  Widget _header(String categoryName, int total, int showing) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -298,8 +321,11 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  widget.category,
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                  categoryName,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
                 const SizedBox(height: 3),
                 Text(
@@ -391,6 +417,3 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
     );
   }
 }
-
-
-

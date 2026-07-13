@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+
 /// Central product schema/service for ChalakChar Mart.
 ///
 /// Goal:
@@ -91,7 +92,7 @@ class ProductService {
       'stock': toInt(product['stock']),
     };
 
-    final totalStock = variants.fold<int>(0, (sum, v) => sum + toInt(v['stock']));
+    final totalStock = variants.fold<int>(0, (total, v) => total + toInt(v['stock']));
     final units = variants
         .map((v) => text(v['name'], 'Default'))
         .where((v) => v.isNotEmpty)
@@ -120,7 +121,12 @@ class ProductService {
       'image': text(product['image'] ?? product['imageUrl']),
       'imageUrl': text(product['imageUrl'] ?? product['image']),
       'images': normalizeImages(product['images'], product['image'] ?? product['imageUrl']),
-      'videoUrl': text(product['videoUrl']),
+      'videoUrl': text(product['videoUrl'] ?? product['youtubeUrl'] ?? product['youtubeLink'] ?? product['videoLink']),
+      'youtubeUrl': text(product['youtubeUrl'] ?? product['videoUrl'] ?? product['youtubeLink'] ?? product['videoLink']),
+      'youtubeVideoId': text(product['youtubeVideoId']),
+      'videoThumbnailUrl': text(product['videoThumbnailUrl']),
+      'videoDuration': text(product['videoDuration']),
+      'hasVideo': text(product['videoUrl'] ?? product['youtubeUrl'] ?? product['youtubeLink'] ?? product['videoLink']).isNotEmpty || text(product['youtubeVideoId']).isNotEmpty,
       'isActive': product['isActive'] != false,
       'isMarketplace': product['isMarketplace'] == true || vendorId != 'super_admin',
       'vendorId': vendorId,
@@ -137,8 +143,22 @@ class ProductService {
       'stock': variants.isEmpty ? toInt(first['stock']) : totalStock,
       'variants': variants.isEmpty ? [first] : variants,
       'piecesPerStrip': toInt(product['piecesPerStrip'], 10),
+      'metaTitle': text(product['metaTitle']),
+      'metaDescription': text(product['metaDescription']),
+      'searchKeywords': product['searchKeywords'] ?? [],
+      'seoTags': product['seoTags'] ?? [],
+      'facebookCaption': text(product['facebookCaption']),
+      'whatsappCaption': text(product['whatsappCaption']),
+      'banglaTitle': text(product['banglaTitle']),
+      'banglaDescription': text(product['banglaDescription']),
+      'suggestedCategory': text(product['suggestedCategory']),
+      'suggestedSubCategory': text(product['suggestedSubCategory']),
+      'productType': text(product['productType']),
     };
   }
+
+
+
 
   static List<String> normalizeImages(dynamic rawImages, dynamic mainImage) {
     final images = <String>[];
@@ -409,6 +429,9 @@ class ProductService {
     String image = '',
     List<String> images = const [],
     String videoUrl = '',
+    String youtubeVideoId = '',
+    String videoThumbnailUrl = '',
+    String videoDuration = '',
     bool isActive = true,
     bool isMarketplace = false,
     String vendorId = 'super_admin',
@@ -422,7 +445,7 @@ class ProductService {
     if (error != null) throw Exception(error);
 
     final first = cleanVariants.first;
-    final totalStock = cleanVariants.fold<int>(0, (sum, v) => sum + toInt(v['stock']));
+    final totalStock = cleanVariants.fold<int>(0, (total, v) => total + toInt(v['stock']));
     final cleanImages = normalizeImages(images, image);
 
     final cleanVendorId = text(vendorId, 'super_admin');
@@ -433,6 +456,7 @@ class ProductService {
 
     final payload = <String, dynamic>{
       'name': text(name),
+      'slug': safeId(name),
       'generic': text(generic),
       'manufacturer': text(manufacturer),
       'brand': text(manufacturer),
@@ -445,6 +469,11 @@ class ProductService {
       'imageUrl': cleanImages.isNotEmpty ? cleanImages.first : text(image),
       'images': cleanImages,
       'videoUrl': text(videoUrl),
+      'youtubeUrl': text(videoUrl),
+      'youtubeVideoId': text(youtubeVideoId),
+      'videoThumbnailUrl': text(videoThumbnailUrl),
+      'videoDuration': text(videoDuration),
+      'hasVideo': text(videoUrl).isNotEmpty || text(youtubeVideoId).isNotEmpty,
       'isActive': isActive,
       'isVisible': isActive,
       'isPublished': isActive,
@@ -655,7 +684,7 @@ class ProductService {
         variants.first['stock'] = currentStock - qty;
       }
 
-      final totalStock = variants.fold<int>(0, (sum, v) => sum + toInt(v['stock']));
+      final totalStock = variants.fold<int>(0, (total, v) => total + toInt(v['stock']));
       final first = variants.first;
 
       transaction.set(productRef, {
@@ -712,7 +741,7 @@ class ProductService {
       variants.first['stock'] = newStock < 0 ? 0 : newStock;
     }
 
-    final totalStock = variants.fold<int>(0, (sum, v) => sum + toInt(v['stock']));
+    final totalStock = variants.fold<int>(0, (total, v) => total + toInt(v['stock']));
     final first = variants.first;
 
     batch.set(productRef, {

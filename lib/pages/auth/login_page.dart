@@ -2,9 +2,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import '../../services/auth_service.dart';
 import '../../services/notification_service.dart';
+import '../../services/referral_service.dart';
 import '../../utils/web_recaptcha_helper.dart';
 import '../main_navigation_page.dart';
 import 'package:firebase_auth_platform_interface/firebase_auth_platform_interface.dart';
@@ -87,60 +87,8 @@ class _LoginPageState extends State<LoginPage> {
     if (enteredCode.isEmpty) return;
 
     try {
-      final usersRef = FirebaseFirestore.instance.collection('users');
-      final currentUserRef = usersRef.doc(user.uid);
-      final currentUserDoc = await currentUserRef.get();
-      final currentUserData = currentUserDoc.data() ?? {};
-
-      final alreadyUsedReferral =
-          (currentUserData['referredByUid'] ?? '').toString().trim().isNotEmpty ||
-              (currentUserData['referredByCode'] ?? '').toString().trim().isNotEmpty;
-
-      if (alreadyUsedReferral) {
-        debugPrint('Referral skipped: user already has referral data.');
-        return;
-      }
-
-      final ownRefCode = _normalizeReferralCode(
-        (currentUserData['refCode'] ?? '').toString(),
-      );
-
-      if (ownRefCode.isNotEmpty && ownRefCode == enteredCode) {
-        _showMessage('You cannot use your own referral code.');
-        return;
-      }
-
-      final referrerQuery = await usersRef
-          .where('refCode', isEqualTo: enteredCode)
-          .limit(1)
-          .get();
-
-      if (referrerQuery.docs.isEmpty) {
-        _showMessage('Referral code not found. Account created without referral.');
-        return;
-      }
-
-      final referrerDoc = referrerQuery.docs.first;
-
-      if (referrerDoc.id == user.uid) {
-        _showMessage('You cannot use your own referral code.');
-        return;
-      }
-
-      await currentUserRef.set({
-        'referredByUid': referrerDoc.id,
-        'referredByCode': enteredCode,
-        'referralAppliedAt': FieldValue.serverTimestamp(),
-        'referralFirstOrderRewarded': false,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
-      await referrerDoc.reference.set({
-        'referralCount': FieldValue.increment(1),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
-      _showMessage('Referral code applied successfully.');
+      final result = await ReferralService.applyReferral(enteredCode);
+      _showMessage(result);
     } catch (e) {
       debugPrint('Referral apply failed: $e');
       _showMessage('Referral code could not be applied now.');
@@ -451,32 +399,26 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _facebookLogin() async {
-    if (kIsWeb) {
-      _showMessage('Facebook login is not supported on web yet.');
-      return;
-    }
+    if (loading) return;
 
     setState(() => loading = true);
 
     try {
-      final result = await FacebookAuth.instance.login(
-        permissions: ['email', 'public_profile'],
-      );
+      await _authService.signInWithFacebook();
 
-      if (result.status == LoginStatus.success && result.accessToken != null) {
-        final credential = FacebookAuthProvider.credential(
-          result.accessToken!.token,
-        );
-
-        await _auth.signInWithCredential(credential);
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null) {
         await _afterLogin();
-      } else {
-        _showMessage(result.message ?? 'Facebook login failed');
+        return;
       }
+
+      _showMessage('Facebook login cancelled or failed');
     } catch (e) {
-      _showMessage(e.toString());
+      _showMessage('Facebook login failed: $e');
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (mounted) {
+        setState(() => loading = false);
+      }
     }
   }
 
@@ -656,36 +598,55 @@ class _LoginPageState extends State<LoginPage> {
 
                       Container(
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.18),
+                          color: Colors.white,
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.75)),
                         ),
                         child: Row(
                           children: [
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 16),
-                              decoration: const BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.only(
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                borderRadius: const BorderRadius.only(
                                   topLeft: Radius.circular(14),
                                   bottomLeft: Radius.circular(14),
+                                ),
+                                border: Border(
+                                  right: BorderSide(color: Colors.grey.shade300),
                                 ),
                               ),
                               child: const Text(
                                 '+88',
-                                style: TextStyle(fontWeight: FontWeight.w900),
+                                style: TextStyle(
+                                  color: Color(0xFF1F2937),
+                                  fontWeight: FontWeight.w900,
+                                ),
                               ),
                             ),
                             Expanded(
                               child: TextField(
                                 controller: phoneController,
                                 enabled: !loading,
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                                cursorColor: primaryColor,
+                                style: const TextStyle(
+                                  color: Color(0xFF111827),
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 16,
+                                ),
                                 decoration: const InputDecoration(
+                                  filled: true,
+                                  fillColor: Colors.white,
                                   hintText: '01XXXXXXXXX',
-                                  hintStyle: TextStyle(color: Colors.white70),
+                                  hintStyle: TextStyle(
+                                    color: Color(0xFF9CA3AF),
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                   border: InputBorder.none,
-                                  contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                                  enabledBorder: InputBorder.none,
+                                  focusedBorder: InputBorder.none,
+                                  disabledBorder: InputBorder.none,
+                                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 15),
                                 ),
                                 keyboardType: TextInputType.phone,
                                 textInputAction: TextInputAction.done,
@@ -702,24 +663,34 @@ class _LoginPageState extends State<LoginPage> {
                         const SizedBox(height: 14),
                         Container(
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.18),
+                            color: Colors.white,
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.75)),
                           ),
                           child: TextField(
                             controller: referralCodeController,
                             enabled: !loading,
+                            cursorColor: primaryColor,
                             textCapitalization: TextCapitalization.characters,
                             style: const TextStyle(
-                              color: Colors.white,
+                              color: Color(0xFF111827),
                               fontWeight: FontWeight.w800,
                               letterSpacing: 0.8,
+                              fontSize: 15,
                             ),
                             decoration: const InputDecoration(
-                              prefixIcon: Icon(Icons.card_giftcard, color: Colors.white),
+                              filled: true,
+                              fillColor: Colors.white,
+                              prefixIcon: Icon(Icons.card_giftcard, color: Color(0xFF32A8C7)),
                               hintText: 'Referral Code (Optional)',
-                              hintStyle: TextStyle(color: Colors.white70),
+                              hintStyle: TextStyle(
+                                color: Color(0xFF9CA3AF),
+                                fontWeight: FontWeight.w600,
+                              ),
                               border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              disabledBorder: InputBorder.none,
                               contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 16),
                             ),
                           ),
@@ -749,8 +720,6 @@ class _LoginPageState extends State<LoginPage> {
                             _policyTextSpan('Terms of Service', const TermsConditionsPage()),
                             const TextSpan(text: ', '),
                             _policyTextSpan('Privacy Policy', const PrivacyPolicyPage()),
-                            const TextSpan(text: ', '),
-                            _policyTextSpan('Medical Disclaimer', const MedicalDisclaimerPage()),
                             const TextSpan(text: ' & '),
                             _policyTextSpan('Refund-Return Policy', const ReturnPolicyPage()),
                           ],

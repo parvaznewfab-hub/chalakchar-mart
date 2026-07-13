@@ -1,7 +1,14 @@
+import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../services/auth_service.dart';
+import '../../services/image_upload_service.dart';
+import '../../services/tiktok_connection_service.dart';
+
 
 class AppSettingsPage extends StatefulWidget {
   const AppSettingsPage({super.key});
@@ -23,10 +30,33 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   final addressController = TextEditingController();
   final googleMapController = TextEditingController();
   final businessHoursController = TextEditingController();
+  final logoUrlController = TextEditingController();
+  final faviconUrlController = TextEditingController();
+  final websiteUrlController = TextEditingController();
+  final appDomainController = TextEditingController();
+  final privacyPolicyUrlController = TextEditingController();
+  final termsUrlController = TextEditingController();
+  final dataDeletionUrlController = TextEditingController();
+  final headerNoticeController = TextEditingController();
+  final searchPlaceholderController = TextEditingController();
+  final taglineController = TextEditingController();
+  final footerQuickLinksTitleController = TextEditingController();
+  final footerSupportTitleController = TextEditingController();
+  final footerAddressTitleController = TextEditingController();
+  final footerLegalTitleController = TextEditingController();
+  final footerSocialTitleController = TextEditingController();
+  final footerAboutLabelController = TextEditingController();
+  final footerTermsLabelController = TextEditingController();
+  final footerPrivacyLabelController = TextEditingController();
+  final footerDataDeletionLabelController = TextEditingController();
+  final footerReturnPolicyLabelController = TextEditingController();
+  final footerContactLabelController = TextEditingController();
+  final footerFaqLabelController = TextEditingController();
+  final copyrightTextController = TextEditingController();
+  final paymentBadgesController = TextEditingController();
 
   final tradeLicenseController = TextEditingController();
   final dbidController = TextEditingController();
-  final drugLicenseController = TextEditingController();
 
   final minimumOrderController = TextEditingController();
   final freeDeliveryMinController = TextEditingController();
@@ -38,6 +68,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   final referralRewardController = TextEditingController();
   final refereeRewardController = TextEditingController();
   final maxAbdCashRedeemController = TextEditingController();
+  final referralSearchController = TextEditingController();
 
   final helpYoutubeController = TextEditingController();
   final referralYoutubeController = TextEditingController();
@@ -47,8 +78,23 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   final youtubeController = TextEditingController();
   final tiktokController = TextEditingController();
 
+  final facebookPageIdController = TextEditingController();
+  final facebookPageTokenController = TextEditingController();
+  final instagramBusinessIdController = TextEditingController();
+  final instagramAccessTokenController = TextEditingController();
+  final whatsappPhoneNumberIdController = TextEditingController();
+  final whatsappAccessTokenController = TextEditingController();
+  final whatsappTemplateController = TextEditingController();
+  final tiktokClientKeyController = TextEditingController();
+  // tiktokClientSecretController removed: the client secret must live only in
+  // Firebase Secret Manager (functions/tiktok/config.js), never in the
+  // world-readable settings/app document or a Flutter text field.
+  final defaultMarketingCaptionController = TextEditingController();
+
   bool loading = true;
   bool saving = false;
+  bool uploadingLogo = false;
+  bool uploadingFavicon = false;
   bool canViewSettings = false;
   bool canEditSettings = false;
 
@@ -56,6 +102,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   bool forceUpdate = false;
   bool blockRegistration = false;
   bool disableCOD = false;
+  bool showHeaderLogo = true;
 
   bool showFlashSale = true;
   bool showSponsoredProducts = true;
@@ -66,6 +113,22 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   bool enableOrderNotifications = true;
   bool enableAdminNotifications = true;
   bool enableRiderNotifications = true;
+
+  bool autoMarketingEnabled = true;
+  bool defaultPushMarketing = true;
+  bool defaultInAppMarketing = true;
+  bool defaultFacebookQueue = false;
+  bool defaultInstagramQueue = false;
+  bool defaultWhatsappQueue = false;
+  bool defaultMessengerQueue = false;
+  bool defaultTiktokQueue = false;
+  bool hideSocialTokens = true;
+
+  String defaultMarketingAudience = 'everyone';
+  String defaultMarketingPublishTime = 'immediately';
+
+  String referralStatusFilter = 'all';
+  String referralSearchText = '';
 
   @override
   void initState() {
@@ -106,10 +169,33 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     addressController.dispose();
     googleMapController.dispose();
     businessHoursController.dispose();
+    logoUrlController.dispose();
+    faviconUrlController.dispose();
+    websiteUrlController.dispose();
+    appDomainController.dispose();
+    privacyPolicyUrlController.dispose();
+    termsUrlController.dispose();
+    dataDeletionUrlController.dispose();
+    headerNoticeController.dispose();
+    searchPlaceholderController.dispose();
+    taglineController.dispose();
+    footerQuickLinksTitleController.dispose();
+    footerSupportTitleController.dispose();
+    footerAddressTitleController.dispose();
+    footerLegalTitleController.dispose();
+    footerSocialTitleController.dispose();
+    footerAboutLabelController.dispose();
+    footerTermsLabelController.dispose();
+    footerPrivacyLabelController.dispose();
+    footerDataDeletionLabelController.dispose();
+    footerReturnPolicyLabelController.dispose();
+    footerContactLabelController.dispose();
+    footerFaqLabelController.dispose();
+    copyrightTextController.dispose();
+    paymentBadgesController.dispose();
 
     tradeLicenseController.dispose();
     dbidController.dispose();
-    drugLicenseController.dispose();
 
     minimumOrderController.dispose();
     freeDeliveryMinController.dispose();
@@ -121,6 +207,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     referralRewardController.dispose();
     refereeRewardController.dispose();
     maxAbdCashRedeemController.dispose();
+    referralSearchController.dispose();
 
     helpYoutubeController.dispose();
     referralYoutubeController.dispose();
@@ -129,6 +216,16 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     instagramController.dispose();
     youtubeController.dispose();
     tiktokController.dispose();
+
+    facebookPageIdController.dispose();
+    facebookPageTokenController.dispose();
+    instagramBusinessIdController.dispose();
+    instagramAccessTokenController.dispose();
+    whatsappPhoneNumberIdController.dispose();
+    whatsappAccessTokenController.dispose();
+    whatsappTemplateController.dispose();
+    tiktokClientKeyController.dispose();
+    defaultMarketingCaptionController.dispose();
 
     super.dispose();
   }
@@ -165,14 +262,40 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       pharmacyNameController.text = _text(data['pharmacyName'], 'ChalakChar Mart');
       supportPhoneController.text = _text(data['supportPhone'], '01975838764');
       whatsappController.text = _text(data['whatsappNumber'], '01975838764');
-      emailController.text = _text(data['email'], 'abdullahpharmacy.chalakchar@gmail.com');
+      emailController.text = _text(data['email'], 'chalakcharmart@gmail.com');
       addressController.text = _text(data['address'], 'Chalak Char Bazar, Monohardi, Narsingdi, Bangladesh');
       googleMapController.text = _text(data['googleMapLink']);
       businessHoursController.text = _text(data['businessHours'], '9:00 AM - 11:00 PM');
+      logoUrlController.text = _text(data['logoUrl']);
+      faviconUrlController.text = _text(data['faviconUrl']);
+      websiteUrlController.text = _text(data['websiteUrl'], 'https://chalakcharmart.com');
+      appDomainController.text = _text(data['appDomain'], 'chalakcharmart.com');
+      privacyPolicyUrlController.text = _text(data['privacyPolicyUrl'], 'https://chalakcharmart.com/privacy-policy');
+      termsUrlController.text = _text(data['termsUrl'] ?? data['termsOfServiceUrl'], 'https://chalakcharmart.com/terms-conditions');
+      dataDeletionUrlController.text = _text(data['dataDeletionUrl'], 'https://chalakcharmart.com/data-deletion');
+      headerNoticeController.text = _text(data['headerNotice']);
+      searchPlaceholderController.text = _text(data['searchPlaceholder'], 'Search ChalakChar Mart');
+      taglineController.text = _text(data['tagline'], 'সব প্রয়োজন, এক জায়গায়');
+      footerQuickLinksTitleController.text = _text(data['footerQuickLinksTitle'], 'Quick Links');
+      footerSupportTitleController.text = _text(data['footerSupportTitle'], 'Support');
+      footerAddressTitleController.text = _text(data['footerAddressTitle'], 'Address');
+      footerLegalTitleController.text = _text(data['footerLegalTitle'], 'Legal');
+      footerSocialTitleController.text = _text(data['footerSocialTitle'], 'Social');
+      footerAboutLabelController.text = _text(data['footerAboutLabel'], 'About us');
+      footerTermsLabelController.text = _text(data['footerTermsLabel'], 'Terms & Conditions');
+      footerPrivacyLabelController.text = _text(data['footerPrivacyLabel'], 'Privacy Policy');
+      footerDataDeletionLabelController.text = _text(data['footerDataDeletionLabel'], 'Data Deletion');
+      footerReturnPolicyLabelController.text = _text(data['footerReturnPolicyLabel'], 'Return Policy');
+      footerContactLabelController.text = _text(data['footerContactLabel'], 'Contact Us');
+      footerFaqLabelController.text = _text(data['footerFaqLabel'], 'FAQ');
+      copyrightTextController.text = _text(data['copyrightText'], '');
+      final paymentBadges = data['paymentBadges'];
+      paymentBadgesController.text = paymentBadges is List
+          ? paymentBadges.map((e) => e.toString()).join(', ')
+          : _text(paymentBadges, 'COD, bKash, Nagad, Card');
 
       tradeLicenseController.text = _text(data['tradeLicenseNo'], '528');
       dbidController.text = _text(data['dbidNo'], '000000000');
-      drugLicenseController.text = _text(data['drugLicenseNo'], 'নর - ৯২৮');
 
       minimumOrderController.text = _double(data['minimumOrderAmount'], 300).toStringAsFixed(0);
       freeDeliveryMinController.text = _double(data['freeDeliveryMinAmount'], 0).toStringAsFixed(0);
@@ -187,16 +310,54 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
 
       helpYoutubeController.text = _text(data['helpYoutubeLink']);
       referralYoutubeController.text = _text(data['referralYoutubeLink']);
-      facebookController.text = _text(data['facebookLink']);
-      messengerController.text = _text(data['messengerLink']);
-      instagramController.text = _text(data['instagramLink']);
-      youtubeController.text = _text(data['youtubeLink']);
-      tiktokController.text = _text(data['tiktokLink']);
+
+      final socialLinks = data['socialLinks'] is Map
+          ? Map<String, dynamic>.from(data['socialLinks'] as Map)
+          : <String, dynamic>{};
+
+      facebookController.text = _text(data['facebookLink'] ?? socialLinks['facebook']);
+      messengerController.text = _text(data['messengerLink'] ?? socialLinks['messenger']);
+      instagramController.text = _text(data['instagramLink'] ?? socialLinks['instagram']);
+      youtubeController.text = _text(data['youtubeLink'] ?? socialLinks['youtube']);
+      tiktokController.text = _text(data['tiktokLink'] ?? socialLinks['tiktok']);
+
+      final socialApi = data['socialApi'] is Map
+          ? Map<String, dynamic>.from(data['socialApi'] as Map)
+          : <String, dynamic>{};
+
+      final marketingDefaults = data['marketingDefaults'] is Map
+          ? Map<String, dynamic>.from(data['marketingDefaults'] as Map)
+          : <String, dynamic>{};
+
+      facebookPageIdController.text = _text(socialApi['facebookPageId'] ?? data['facebookPageId']);
+      facebookPageTokenController.text = _text(socialApi['facebookPageAccessToken'] ?? data['facebookPageAccessToken']);
+      instagramBusinessIdController.text = _text(socialApi['instagramBusinessId'] ?? data['instagramBusinessId']);
+      instagramAccessTokenController.text = _text(socialApi['instagramAccessToken'] ?? data['instagramAccessToken']);
+      whatsappPhoneNumberIdController.text = _text(socialApi['whatsappPhoneNumberId'] ?? data['whatsappPhoneNumberId']);
+      whatsappAccessTokenController.text = _text(socialApi['whatsappAccessToken'] ?? data['whatsappAccessToken']);
+      whatsappTemplateController.text = _text(socialApi['whatsappTemplateName'] ?? data['whatsappTemplateName'], 'new_product_alert');
+      tiktokClientKeyController.text = _text(socialApi['tiktokClientKey'] ?? data['tiktokClientKey']);
+      defaultMarketingCaptionController.text = _text(
+        marketingDefaults['captionTemplate'] ?? data['defaultMarketingCaption'],
+        '🛒 {productName}\nPrice: ৳{price}\nOrder now: {productUrl}',
+      );
+
+      autoMarketingEnabled = _bool(marketingDefaults['enabled'] ?? data['autoMarketingEnabled'], true);
+      defaultPushMarketing = _bool(marketingDefaults['pushNotification'] ?? data['defaultPushMarketing'], true);
+      defaultInAppMarketing = _bool(marketingDefaults['inAppNotification'] ?? data['defaultInAppMarketing'], true);
+      defaultFacebookQueue = _bool(marketingDefaults['facebook'] ?? data['defaultFacebookQueue'], false);
+      defaultInstagramQueue = _bool(marketingDefaults['instagram'] ?? data['defaultInstagramQueue'], false);
+      defaultWhatsappQueue = _bool(marketingDefaults['whatsapp'] ?? data['defaultWhatsappQueue'], false);
+      defaultMessengerQueue = _bool(marketingDefaults['messenger'] ?? data['defaultMessengerQueue'], false);
+      defaultTiktokQueue = _bool(marketingDefaults['tiktok'] ?? data['defaultTiktokQueue'], false);
+      defaultMarketingAudience = _text(marketingDefaults['audience'] ?? data['defaultMarketingAudience'], 'everyone');
+      defaultMarketingPublishTime = _text(marketingDefaults['publishTime'] ?? data['defaultMarketingPublishTime'], 'immediately');
 
       maintenanceMode = _bool(data['maintenanceMode'], false);
       forceUpdate = _bool(data['forceUpdate'], false);
       blockRegistration = _bool(data['blockRegistration'], false);
       disableCOD = _bool(data['disableCOD'], false);
+      showHeaderLogo = _bool(data['showHeaderLogo'], true);
 
       showFlashSale = _bool(data['showFlashSale'], true);
       showSponsoredProducts = _bool(data['showSponsoredProducts'], true);
@@ -234,10 +395,38 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
         'address': addressController.text.trim(),
         'googleMapLink': googleMapController.text.trim(),
         'businessHours': businessHoursController.text.trim(),
+        'logoUrl': logoUrlController.text.trim(),
+        'faviconUrl': faviconUrlController.text.trim(),
+        'showHeaderLogo': showHeaderLogo,
+        'websiteUrl': websiteUrlController.text.trim(),
+        'appDomain': appDomainController.text.trim(),
+        'privacyPolicyUrl': privacyPolicyUrlController.text.trim(),
+        'termsUrl': termsUrlController.text.trim(),
+        'dataDeletionUrl': dataDeletionUrlController.text.trim(),
+        'headerNotice': headerNoticeController.text.trim(),
+        'searchPlaceholder': searchPlaceholderController.text.trim(),
+        'tagline': taglineController.text.trim(),
+        'footerQuickLinksTitle': footerQuickLinksTitleController.text.trim(),
+        'footerSupportTitle': footerSupportTitleController.text.trim(),
+        'footerAddressTitle': footerAddressTitleController.text.trim(),
+        'footerLegalTitle': footerLegalTitleController.text.trim(),
+        'footerSocialTitle': footerSocialTitleController.text.trim(),
+        'footerAboutLabel': footerAboutLabelController.text.trim(),
+        'footerTermsLabel': footerTermsLabelController.text.trim(),
+        'footerPrivacyLabel': footerPrivacyLabelController.text.trim(),
+        'footerDataDeletionLabel': footerDataDeletionLabelController.text.trim(),
+        'footerReturnPolicyLabel': footerReturnPolicyLabelController.text.trim(),
+        'footerContactLabel': footerContactLabelController.text.trim(),
+        'footerFaqLabel': footerFaqLabelController.text.trim(),
+        'copyrightText': copyrightTextController.text.trim(),
+        'paymentBadges': paymentBadgesController.text
+            .split(',')
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList(),
 
         'tradeLicenseNo': tradeLicenseController.text.trim(),
         'dbidNo': dbidController.text.trim(),
-        'drugLicenseNo': drugLicenseController.text.trim(),
 
         'minimumOrderAmount': double.tryParse(minimumOrderController.text.trim()) ?? 300,
         'freeDeliveryMinAmount': double.tryParse(freeDeliveryMinController.text.trim()) ?? 0,
@@ -257,6 +446,42 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
         'instagramLink': instagramController.text.trim(),
         'youtubeLink': youtubeController.text.trim(),
         'tiktokLink': tiktokController.text.trim(),
+
+        'socialLinks': {
+          'facebook': facebookController.text.trim(),
+          'messenger': messengerController.text.trim(),
+          'instagram': instagramController.text.trim(),
+          'youtube': youtubeController.text.trim(),
+          'tiktok': tiktokController.text.trim(),
+          'whatsapp': whatsappController.text.trim(),
+        },
+
+        'socialApi': {
+          'facebookPageId': facebookPageIdController.text.trim(),
+          'facebookPageAccessToken': facebookPageTokenController.text.trim(),
+          'instagramBusinessId': instagramBusinessIdController.text.trim(),
+          'instagramAccessToken': instagramAccessTokenController.text.trim(),
+          'whatsappPhoneNumberId': whatsappPhoneNumberIdController.text.trim(),
+          'whatsappAccessToken': whatsappAccessTokenController.text.trim(),
+          'whatsappTemplateName': whatsappTemplateController.text.trim(),
+          'tiktokClientKey': tiktokClientKeyController.text.trim(),
+          // tiktokClientSecret intentionally not written here — see removal
+          // note on the controller declaration above.
+        },
+
+        'marketingDefaults': {
+          'enabled': autoMarketingEnabled,
+          'pushNotification': defaultPushMarketing,
+          'inAppNotification': defaultInAppMarketing,
+          'facebook': defaultFacebookQueue,
+          'instagram': defaultInstagramQueue,
+          'whatsapp': defaultWhatsappQueue,
+          'messenger': defaultMessengerQueue,
+          'tiktok': defaultTiktokQueue,
+          'audience': defaultMarketingAudience,
+          'publishTime': defaultMarketingPublishTime,
+          'captionTemplate': defaultMarketingCaptionController.text.trim(),
+        },
 
         'maintenanceMode': maintenanceMode,
         'forceUpdate': forceUpdate,
@@ -283,6 +508,188 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     } finally {
       if (mounted) setState(() => saving = false);
     }
+  }
+
+
+  Future<void> _pickAndUploadBrandImage({required bool favicon}) async {
+    if (!canEditSettings) {
+      _snack('You do not have permission to edit settings.');
+      return;
+    }
+
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: favicon ? 90 : 92,
+      maxWidth: favicon ? 512 : 1200,
+      maxHeight: favicon ? 512 : 600,
+    );
+
+    if (pickedFile == null) return;
+
+    setState(() {
+      if (favicon) {
+        uploadingFavicon = true;
+      } else {
+        uploadingLogo = true;
+      }
+    });
+
+    try {
+      final folder = favicon ? 'branding/favicons' : 'branding/logos';
+      final fileName = '${favicon ? 'favicon' : 'logo'}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      String url = '';
+
+      if (kIsWeb) {
+        final bytes = await pickedFile.readAsBytes();
+        url = await ImageUploadService.upload(null, webImage: bytes, folder: folder, fileName: fileName);
+      } else {
+        url = await ImageUploadService.upload(File(pickedFile.path), folder: folder, fileName: fileName);
+      }
+
+      if (url.trim().isEmpty) {
+        _snack('Upload failed. Please try again.');
+        return;
+      }
+
+      setState(() {
+        if (favicon) {
+          faviconUrlController.text = url;
+        } else {
+          logoUrlController.text = url;
+          showHeaderLogo = true;
+        }
+      });
+
+      await db.collection('settings').doc('app').set({
+        favicon ? 'faviconUrl' : 'logoUrl': url,
+        if (!favicon) 'showHeaderLogo': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      _snack(favicon ? 'Favicon uploaded successfully' : 'Header logo uploaded successfully');
+    } catch (e) {
+      _snack('Upload failed: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          if (favicon) {
+            uploadingFavicon = false;
+          } else {
+            uploadingLogo = false;
+          }
+        });
+      }
+    }
+  }
+
+  Future<void> _removeBrandImage({required bool favicon}) async {
+    if (!canEditSettings) {
+      _snack('You do not have permission to edit settings.');
+      return;
+    }
+
+    setState(() {
+      if (favicon) {
+        faviconUrlController.clear();
+      } else {
+        logoUrlController.clear();
+      }
+    });
+
+    await db.collection('settings').doc('app').set({
+      favicon ? 'faviconUrl' : 'logoUrl': '',
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    _snack(favicon ? 'Favicon removed' : 'Header logo removed');
+  }
+
+  Widget _brandImageManager({
+    required String title,
+    required String subtitle,
+    required TextEditingController controller,
+    required bool favicon,
+    required bool uploading,
+  }) {
+    final url = controller.text.trim();
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: favicon ? 54 : 110,
+                height: 54,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE5E7EB)),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: url.isEmpty
+                    ? Icon(favicon ? Icons.web_asset_rounded : Icons.image_rounded, color: Colors.grey)
+                    : Image.network(
+                  url,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_rounded, color: Colors.red),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+                    const SizedBox(height: 3),
+                    Text(subtitle, style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: controller,
+            enabled: canEditSettings,
+            decoration: InputDecoration(
+              labelText: favicon ? 'Favicon URL' : 'Header Logo URL',
+              prefixIcon: Icon(favicon ? Icons.web_asset_rounded : Icons.image_rounded),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+              filled: true,
+              fillColor: Colors.white,
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ElevatedButton.icon(
+                onPressed: uploading || !canEditSettings ? null : () => _pickAndUploadBrandImage(favicon: favicon),
+                icon: uploading
+                    ? const SizedBox(width: 15, height: 15, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.upload_rounded),
+                label: Text(uploading ? 'Uploading...' : 'Upload'),
+              ),
+              OutlinedButton.icon(
+                onPressed: !canEditSettings || url.isEmpty ? null : () => _removeBrandImage(favicon: favicon),
+                icon: const Icon(Icons.delete_outline_rounded),
+                label: const Text('Remove'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   void _snack(String text) {
@@ -324,6 +731,283 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
         filled: true,
         fillColor: Colors.white,
+      ),
+    );
+  }
+
+
+  Widget _secretField({
+    required String label,
+    required TextEditingController controller,
+    IconData? icon,
+    String? hint,
+  }) {
+    return TextFormField(
+      controller: controller,
+      enabled: canEditSettings,
+      obscureText: hideSocialTokens,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        prefixIcon: icon == null ? null : Icon(icon),
+        suffixIcon: IconButton(
+          tooltip: hideSocialTokens ? 'Show tokens' : 'Hide tokens',
+          onPressed: () => setState(() => hideSocialTokens = !hideSocialTokens),
+          icon: Icon(
+            hideSocialTokens
+                ? Icons.visibility_rounded
+                : Icons.visibility_off_rounded,
+          ),
+        ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+        filled: true,
+        fillColor: Colors.white,
+      ),
+    );
+  }
+
+  bool _tiktokActionInFlight = false;
+  Future<({String redirectUri, bool clientKeyConfigured})>? _tiktokOAuthConfigFuture;
+
+  ({String label, Color color}) _tiktokStatusPresentation(TikTokConnectionStatus status) {
+    switch (status) {
+      case TikTokConnectionStatus.connected:
+        return (label: 'Connected', color: Colors.green.shade700);
+      case TikTokConnectionStatus.connecting:
+        return (label: 'Connecting…', color: Colors.blue.shade700);
+      case TikTokConnectionStatus.tokenExpiring:
+        return (label: 'Token expiring soon', color: Colors.orange.shade800);
+      case TikTokConnectionStatus.authorizationRevoked:
+        return (label: 'Authorization revoked', color: Colors.red.shade700);
+      case TikTokConnectionStatus.reconnectRequired:
+        return (label: 'Reconnect required', color: Colors.red.shade700);
+      case TikTokConnectionStatus.notConnected:
+        return (label: 'Not connected', color: Colors.grey.shade600);
+    }
+  }
+
+  Future<void> _handleTikTokConnect() async {
+    setState(() => _tiktokActionInFlight = true);
+    try {
+      await TikTokConnectionService.instance.startConnect();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not start the TikTok connection. Please try again.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _tiktokActionInFlight = false);
+    }
+  }
+
+  Future<void> _handleTikTokDisconnect(String? connectionId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Disconnect TikTok?'),
+        content: const Text(
+          'This revokes the stored access to this TikTok account. Product posting to TikTok will stop until it is reconnected.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Disconnect')),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() => _tiktokActionInFlight = true);
+    try {
+      await TikTokConnectionService.instance.disconnect(connectionId: connectionId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('TikTok account disconnected.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not disconnect the TikTok account. Please try again.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _tiktokActionInFlight = false);
+    }
+  }
+
+  Widget _buildTikTokConnectionCard() {
+    return StreamBuilder<TikTokConnectionInfo>(
+      stream: TikTokConnectionService.instance.watchStatus(),
+      initialData: TikTokConnectionInfo.notConnected,
+      builder: (context, snapshot) {
+        final info = snapshot.data ?? TikTokConnectionInfo.notConnected;
+        final presentation = _tiktokStatusPresentation(info.status);
+        final busy = _tiktokActionInFlight || info.status == TikTokConnectionStatus.connecting;
+
+        final connectLabel = info.status == TikTokConnectionStatus.notConnected
+            ? 'Connect TikTok'
+            : 'Reconnect TikTok';
+
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.grey.shade300),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.music_note_rounded),
+                  const SizedBox(width: 8),
+                  const Text('TikTok Connection', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900)),
+                  const Spacer(),
+                  IconButton(
+                    tooltip: 'Refresh status',
+                    onPressed: busy ? null : () => TikTokConnectionService.instance.refreshNow(),
+                    icon: const Icon(Icons.refresh_rounded, size: 20),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(color: presentation.color, shape: BoxShape.circle),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(presentation.label, style: TextStyle(color: presentation.color, fontWeight: FontWeight.w700)),
+                  if (info.lastConnectedAt != null) ...[
+                    const SizedBox(width: 12),
+                    Text(
+                      'Connected ${info.lastConnectedAt}',
+                      style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  if (info.status != TikTokConnectionStatus.connected)
+                    ElevatedButton.icon(
+                      onPressed: (!canEditSettings || busy) ? null : _handleTikTokConnect,
+                      icon: const Icon(Icons.link_rounded, size: 18),
+                      label: Text(connectLabel),
+                    ),
+                  if (info.isActionable)
+                    OutlinedButton.icon(
+                      onPressed: (!canEditSettings || busy) ? null : () => _handleTikTokDisconnect(info.connectionId),
+                      icon: const Icon(Icons.link_off_rounded, size: 18),
+                      label: const Text('Disconnect'),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              _buildTikTokRedirectUriInfo(),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// Read-only display of the backend's fixed OAuth callback URL, for
+  /// registering in the TikTok Developer Portal. Not an input — this value
+  /// cannot be changed from Flutter and does not control backend behavior.
+  Widget _buildTikTokRedirectUriInfo() {
+    _tiktokOAuthConfigFuture ??= TikTokConnectionService.instance.fetchOAuthConfig();
+
+    return FutureBuilder<({String redirectUri, bool clientKeyConfigured})>(
+      future: _tiktokOAuthConfigFuture,
+      builder: (context, snapshot) {
+        final config = snapshot.data;
+        final redirectUri = config?.redirectUri ?? '';
+
+        String helperText;
+        if (snapshot.connectionState != ConnectionState.done) {
+          helperText = 'Loading backend configuration…';
+        } else if (redirectUri.isEmpty) {
+          helperText = 'Not configured on the backend yet — set TIKTOK_REDIRECT_URI at deploy time.';
+        } else {
+          helperText = 'Register this exact URL in the TikTok Developer Portal. Configured on the backend only — not editable here.';
+        }
+
+        return Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('OAuth callback URL', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 4),
+              SelectableText(
+                redirectUri.isEmpty ? '—' : redirectUri,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+              ),
+              const SizedBox(height: 4),
+              Text(helperText, style: TextStyle(color: Colors.grey.shade600, fontSize: 11.5)),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _marketingDropdown({
+    required String label,
+    required String value,
+    required List<DropdownMenuItem<String>> items,
+    required ValueChanged<String?> onChanged,
+    IconData? icon,
+  }) {
+    return DropdownButtonFormField<String>(
+      initialValue: value,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: icon == null ? null : Icon(icon),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+        filled: true,
+        fillColor: Colors.white,
+      ),
+      items: items,
+      onChanged: canEditSettings ? onChanged : null,
+    );
+  }
+
+  Widget _smallSwitch({
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+    required IconData icon,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: SwitchListTile(
+        value: value,
+        onChanged: canEditSettings ? onChanged : null,
+        dense: true,
+        contentPadding: EdgeInsets.zero,
+        secondary: Icon(icon, color: const Color(0xFF1592B3)),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
       ),
     );
   }
@@ -397,27 +1081,29 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   Widget _responsiveGrid(List<Widget> children) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final count = constraints.maxWidth >= 980
-            ? 3
-            : constraints.maxWidth >= 650
-            ? 2
-            : 1;
+        final maxWidth = constraints.maxWidth;
+        final itemWidth = maxWidth >= 1150
+            ? (maxWidth - 24) / 3
+            : maxWidth >= 720
+            ? (maxWidth - 12) / 2
+            : maxWidth;
 
-        return GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: children.length,
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: count,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: count == 1 ? 5.6 : 4.2,
-          ),
-          itemBuilder: (_, i) => children[i],
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: children
+              .map(
+                (child) => SizedBox(
+              width: itemWidth.clamp(260.0, maxWidth),
+              child: child,
+            ),
+          )
+              .toList(),
         );
       },
     );
   }
+
 
   Widget _quickStatsCard() {
     return StreamBuilder<DocumentSnapshot>(
@@ -472,6 +1158,413 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       ),
     );
   }
+
+
+
+  String _short(dynamic value) {
+    final id = _text(value);
+    return id.length > 8 ? '${id.substring(0, 8)}...' : id;
+  }
+
+  String _date(dynamic value) {
+    if (value is! Timestamp) return 'N/A';
+    final d = value.toDate();
+    return '${d.day.toString().padLeft(2, '0')}-${d.month.toString().padLeft(2, '0')}-${d.year}';
+  }
+
+  Future<Map<String, dynamic>> _userInfo(String uid) async {
+    if (uid.isEmpty) return {};
+    final doc = await db.collection('users').doc(uid).get();
+    return doc.data() ?? {};
+  }
+
+  Future<bool?> _confirmReferralAction({
+    required String title,
+    required String message,
+    required String confirmText,
+    bool danger = false,
+  }) {
+    return showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: danger ? Colors.red : Colors.green,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(confirmText),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _approveReferral(String docId, Map<String, dynamic> data) async {
+    if (!canEditSettings) {
+      _snack('You do not have permission to approve referrals.');
+      return;
+    }
+    if (data['status'] == 'Approved') {
+      _snack('Already approved');
+      return;
+    }
+
+    final ok = await _confirmReferralAction(
+      title: 'Approve Referral?',
+      message: 'Reward will be added to referrer and referee accounts.',
+      confirmText: 'Approve',
+    );
+    if (ok != true) return;
+
+    try {
+      final referrerId = _text(data['referrerId']);
+      final refereeId = _text(data['refereeId']);
+      final referrerReward = _int(data['referrerReward'], 0);
+      final refereeReward = _int(data['refereeReward'], 0);
+
+      if (referrerId.isEmpty || refereeId.isEmpty) {
+        _snack('Invalid referral user ids');
+        return;
+      }
+
+      final batch = db.batch();
+      batch.update(db.collection('users').doc(referrerId), {
+        'points': FieldValue.increment(referrerReward),
+        'totalEarnings': FieldValue.increment(referrerReward),
+        'referralCount': FieldValue.increment(1),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      batch.update(db.collection('users').doc(refereeId), {
+        'points': FieldValue.increment(refereeReward),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      batch.update(db.collection('referrals').doc(docId), {
+        'status': 'Approved',
+        'approvedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      await batch.commit();
+      _snack('Referral approved');
+    } catch (e) {
+      _snack('Approve failed: $e');
+    }
+  }
+
+  Future<void> _rejectReferral(String docId) async {
+    if (!canEditSettings) {
+      _snack('You do not have permission to reject referrals.');
+      return;
+    }
+    final ok = await _confirmReferralAction(
+      title: 'Reject Referral?',
+      message: 'This referral will be marked as rejected.',
+      confirmText: 'Reject',
+      danger: true,
+    );
+    if (ok != true) return;
+
+    try {
+      await db.collection('referrals').doc(docId).update({
+        'status': 'Rejected',
+        'rejectedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      _snack('Referral rejected');
+    } catch (e) {
+      _snack('Reject failed: $e');
+    }
+  }
+
+  List<QueryDocumentSnapshot> _filterReferrals(List<QueryDocumentSnapshot> docs) {
+    final s = referralSearchText.toLowerCase().trim();
+    return docs.where((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      final status = _text(data['status'], 'Pending');
+      if (referralStatusFilter != 'all' && status != referralStatusFilter) return false;
+      if (s.isEmpty) return true;
+      return doc.id.toLowerCase().contains(s) ||
+          _text(data['referrerId']).toLowerCase().contains(s) ||
+          _text(data['refereeId']).toLowerCase().contains(s);
+    }).toList();
+  }
+
+  Widget _referralApprovalsSection() {
+    return _section(
+      title: 'Referral Approvals',
+      icon: Icons.verified_rounded,
+      children: [
+        StreamBuilder<QuerySnapshot>(
+          stream: db.collection('referrals').orderBy('createdAt', descending: true).limit(300).snapshots(),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+            final allDocs = snapshot.data!.docs;
+            final docs = _filterReferrals(allDocs);
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _summaryGrid(allDocs),
+                const SizedBox(height: 14),
+                _referralFilters(),
+                const SizedBox(height: 12),
+                Text('Referrals (${docs.length})', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 10),
+                if (docs.isEmpty)
+                  const Card(
+                    elevation: 0,
+                    child: Padding(
+                      padding: EdgeInsets.all(28),
+                      child: Center(child: Text('No matching referrals')),
+                    ),
+                  )
+                else
+                  ...docs.map((doc) => _referralCard(doc.id, doc.data() as Map<String, dynamic>)),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _summaryGrid(List<QueryDocumentSnapshot> docs) {
+    int pending = 0;
+    int approved = 0;
+    int rejected = 0;
+    int rewardPaid = 0;
+
+    for (final doc in docs) {
+      final data = doc.data() as Map<String, dynamic>;
+      final status = _text(data['status'], 'Pending');
+      if (status == 'Approved') {
+        approved++;
+        rewardPaid += _int(data['referrerReward'], 0) + _int(data['refereeReward'], 0);
+      } else if (status == 'Rejected') {
+        rejected++;
+      } else {
+        pending++;
+      }
+    }
+
+    return LayoutBuilder(
+      builder: (context, c) {
+        final count = c.maxWidth >= 900 ? 4 : c.maxWidth >= 600 ? 2 : 1;
+        return GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: count,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: count == 1 ? 4.5 : 2.15,
+          children: [
+            _summaryCard('Pending', '$pending', Icons.pending_actions_rounded, Colors.orange),
+            _summaryCard('Approved', '$approved', Icons.verified_rounded, Colors.green),
+            _summaryCard('Rejected', '$rejected', Icons.cancel_rounded, Colors.red),
+            _summaryCard('Reward Paid', '৳$rewardPaid', Icons.payments_rounded, Colors.blue),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _summaryCard(String title, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(backgroundColor: color.withValues(alpha: 0.12), child: Icon(icon, color: color)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 2),
+                Text(title, style: TextStyle(color: Colors.grey.shade600)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _referralFilters() {
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: const BorderSide(color: Color(0xFFE5E7EB)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: LayoutBuilder(
+          builder: (context, c) {
+            final small = c.maxWidth < 760;
+            final search = TextField(
+              controller: referralSearchController,
+              decoration: const InputDecoration(
+                hintText: 'Search referral, referrer id, referee id...',
+                prefixIcon: Icon(Icons.search_rounded),
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: (v) => setState(() => referralSearchText = v),
+            );
+            final status = DropdownButtonFormField<String>(
+              initialValue: referralStatusFilter,
+              decoration: const InputDecoration(labelText: 'Status', border: OutlineInputBorder(), isDense: true),
+              items: const [
+                DropdownMenuItem(value: 'all', child: Text('All')),
+                DropdownMenuItem(value: 'Pending', child: Text('Pending')),
+                DropdownMenuItem(value: 'Approved', child: Text('Approved')),
+                DropdownMenuItem(value: 'Rejected', child: Text('Rejected')),
+              ],
+              onChanged: (v) => setState(() => referralStatusFilter = v ?? 'all'),
+            );
+            if (small) return Column(children: [search, const SizedBox(height: 8), status]);
+            return Row(children: [Expanded(flex: 2, child: search), const SizedBox(width: 8), Expanded(child: status)]);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _referralCard(String id, Map<String, dynamic> data) {
+    final status = _text(data['status'], 'Pending');
+    final referrerId = _text(data['referrerId']);
+    final refereeId = _text(data['refereeId']);
+    final color = status == 'Approved' ? Colors.green : status == 'Rejected' ? Colors.red : Colors.orange;
+
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: Future.wait([_userInfo(referrerId), _userInfo(refereeId)]),
+      builder: (context, snap) {
+        final referrer = snap.data != null && snap.data!.isNotEmpty ? snap.data![0] : <String, dynamic>{};
+        final referee = snap.data != null && snap.data!.length > 1 ? snap.data![1] : <String, dynamic>{};
+
+        return Card(
+          elevation: 0,
+          color: Colors.white,
+          margin: const EdgeInsets.only(bottom: 10),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+            side: const BorderSide(color: Color(0xFFE5E7EB)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    CircleAvatar(backgroundColor: color.withValues(alpha: 0.12), child: Icon(Icons.share_rounded, color: color)),
+                    const SizedBox(width: 12),
+                    Expanded(child: Text('Referral #${_short(id)}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900))),
+                    _chip(status, color),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                LayoutBuilder(
+                  builder: (context, c) {
+                    final referrerBox = _userBox('Referrer', referrerId, referrer, _int(data['referrerReward'], 0), Icons.person_add_alt_1_rounded);
+                    final refereeBox = _userBox('Referee', refereeId, referee, _int(data['refereeReward'], 0), Icons.person_rounded);
+                    if (c.maxWidth < 700) return Column(children: [referrerBox, const SizedBox(height: 8), refereeBox]);
+                    return Row(children: [Expanded(child: referrerBox), const SizedBox(width: 8), Expanded(child: refereeBox)]);
+                  },
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _chip('Created ${_date(data['createdAt'])}', Colors.blueGrey),
+                    _chip('Total ৳${_int(data['referrerReward'], 0) + _int(data['refereeReward'], 0)}', Colors.blue),
+                  ],
+                ),
+                if (status == 'Pending') ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: canEditSettings ? () => _approveReferral(id, data) : null,
+                          icon: const Icon(Icons.check_circle_rounded),
+                          label: const Text('Approve'),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 13)),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: canEditSettings ? () => _rejectReferral(id) : null,
+                          icon: const Icon(Icons.cancel_rounded, color: Colors.red),
+                          label: const Text('Reject', style: TextStyle(color: Colors.red)),
+                          style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red), padding: const EdgeInsets.symmetric(vertical: 13)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _userBox(String title, String id, Map<String, dynamic> user, int reward, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: const Color(0xFF1592B3)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+                Text(_text(user['name'], _short(id)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                if (_text(user['phone']).isNotEmpty)
+                  Text(_text(user['phone']), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.grey.shade600)),
+              ],
+            ),
+          ),
+          Text('৳$reward', style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.green)),
+        ],
+      ),
+    );
+  }
+
+  Widget _chip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(30)),
+      child: Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -563,6 +1656,44 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                   _field(label: 'Business Hours', controller: businessHoursController, icon: Icons.access_time),
                 ]),
                 const SizedBox(height: 12),
+                LayoutBuilder(
+                  builder: (context, c) {
+                    final logo = _brandImageManager(
+                      title: 'Header Logo',
+                      subtitle: 'Shown in global website header. Recommended transparent PNG/JPG.',
+                      controller: logoUrlController,
+                      favicon: false,
+                      uploading: uploadingLogo,
+                    );
+                    final favicon = _brandImageManager(
+                      title: 'Favicon',
+                      subtitle: 'Shown in browser tab/app shortcut when implemented.',
+                      controller: faviconUrlController,
+                      favicon: true,
+                      uploading: uploadingFavicon,
+                    );
+                    if (c.maxWidth < 760) {
+                      return Column(children: [logo, const SizedBox(height: 12), favicon]);
+                    }
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: logo),
+                        const SizedBox(width: 12),
+                        Expanded(child: favicon),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 12),
+                _switchTile(
+                  title: 'Show Header Logo',
+                  subtitle: 'Turn off to hide the logo from the global web header.',
+                  value: showHeaderLogo,
+                  icon: Icons.image_outlined,
+                  onChanged: (v) => setState(() => showHeaderLogo = v),
+                ),
+                const SizedBox(height: 12),
                 _field(label: 'Address', controller: addressController, icon: Icons.location_on_outlined, maxLines: 2, validator: _required),
                 const SizedBox(height: 12),
                 _field(label: 'Google Map Link', controller: googleMapController, icon: Icons.map_outlined),
@@ -578,12 +1709,108 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                     controller: dbidController,
                     icon: Icons.verified_user_outlined,
                   ),
+                ]),
+              ],
+            ),
+
+
+            _section(
+              title: 'Website, Domain & Legal URLs',
+              icon: Icons.language_rounded,
+              children: [
+                _responsiveGrid([
                   _field(
-                    label: 'Drug License No',
-                    controller: drugLicenseController,
-                    icon: Icons.medical_information_outlined,
+                    label: 'Website URL',
+                    controller: websiteUrlController,
+                    icon: Icons.public_rounded,
+                    hint: 'https://chalakcharmart.com',
+                    validator: _required,
+                  ),
+                  _field(
+                    label: 'App Domain',
+                    controller: appDomainController,
+                    icon: Icons.domain_rounded,
+                    hint: 'chalakcharmart.com',
+                    validator: _required,
+                  ),
+                  _field(
+                    label: 'Search Placeholder',
+                    controller: searchPlaceholderController,
+                    icon: Icons.search_rounded,
+                    hint: 'Search ChalakChar Mart',
                   ),
                 ]),
+                const SizedBox(height: 12),
+                _field(
+                  label: 'Header Notice / Promo Strip',
+                  controller: headerNoticeController,
+                  icon: Icons.campaign_rounded,
+                  hint: 'Leave empty to auto show business name, support and hours',
+                ),
+                const SizedBox(height: 12),
+                _field(
+                  label: 'Footer Tagline',
+                  controller: taglineController,
+                  icon: Icons.short_text_rounded,
+                  hint: 'সব প্রয়োজন, এক জায়গায়',
+                ),
+                const SizedBox(height: 12),
+                _responsiveGrid([
+                  _field(
+                    label: 'Privacy Policy URL',
+                    controller: privacyPolicyUrlController,
+                    icon: Icons.privacy_tip_outlined,
+                    hint: 'https://chalakcharmart.com/privacy-policy',
+                    validator: _required,
+                  ),
+                  _field(
+                    label: 'Terms & Conditions URL',
+                    controller: termsUrlController,
+                    icon: Icons.description_outlined,
+                    hint: 'https://chalakcharmart.com/terms-conditions',
+                    validator: _required,
+                  ),
+                  _field(
+                    label: 'Data Deletion URL',
+                    controller: dataDeletionUrlController,
+                    icon: Icons.delete_forever_outlined,
+                    hint: 'https://chalakcharmart.com/data-deletion',
+                    validator: _required,
+                  ),
+                ]),
+              ],
+            ),
+
+
+            _section(
+              title: 'Footer CMS & Payment Badges',
+              icon: Icons.view_stream_rounded,
+              children: [
+                _responsiveGrid([
+                  _field(label: 'Quick Links Title', controller: footerQuickLinksTitleController, icon: Icons.link_rounded),
+                  _field(label: 'Support Title', controller: footerSupportTitleController, icon: Icons.support_agent_rounded),
+                  _field(label: 'Address Title', controller: footerAddressTitleController, icon: Icons.location_city_rounded),
+                  _field(label: 'Legal Title', controller: footerLegalTitleController, icon: Icons.gavel_rounded),
+                  _field(label: 'Social Title', controller: footerSocialTitleController, icon: Icons.share_rounded),
+                  _field(label: 'Payment Badges', controller: paymentBadgesController, icon: Icons.payments_rounded, hint: 'COD, bKash, Nagad, Card'),
+                ]),
+                const SizedBox(height: 12),
+                _responsiveGrid([
+                  _field(label: 'About Label', controller: footerAboutLabelController, icon: Icons.info_outline_rounded),
+                  _field(label: 'Terms Label', controller: footerTermsLabelController, icon: Icons.description_outlined),
+                  _field(label: 'Privacy Label', controller: footerPrivacyLabelController, icon: Icons.privacy_tip_outlined),
+                  _field(label: 'Data Deletion Label', controller: footerDataDeletionLabelController, icon: Icons.delete_forever_outlined),
+                  _field(label: 'Return Policy Label', controller: footerReturnPolicyLabelController, icon: Icons.assignment_return_rounded),
+                  _field(label: 'Contact Label', controller: footerContactLabelController, icon: Icons.contact_support_outlined),
+                  _field(label: 'FAQ Label', controller: footerFaqLabelController, icon: Icons.quiz_outlined),
+                ]),
+                const SizedBox(height: 12),
+                _field(
+                  label: 'Copyright Text',
+                  controller: copyrightTextController,
+                  icon: Icons.copyright_rounded,
+                  hint: 'Use {year} for current year. Empty = auto generated.',
+                ),
               ],
             ),
 
@@ -637,6 +1864,8 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                 ),
               ],
             ),
+
+            _referralApprovalsSection(),
 
             _section(
               title: 'Homepage Controls',
@@ -702,18 +1931,171 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
             ),
 
             _section(
-              title: 'Social & Help Links',
-              icon: Icons.link_rounded,
+              title: 'Social Marketing & API Integration',
+              icon: Icons.campaign_rounded,
               children: [
+                const Text(
+                  'Public links',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 10),
                 _responsiveGrid([
                   _field(label: 'Help YouTube Link', controller: helpYoutubeController, icon: Icons.play_circle_outline_rounded),
                   _field(label: 'Referral YouTube Link', controller: referralYoutubeController, icon: Icons.ondemand_video_rounded),
-                  _field(label: 'Facebook Link', controller: facebookController, icon: Icons.facebook_rounded),
+                  _field(label: 'Facebook Page URL', controller: facebookController, icon: Icons.facebook_rounded),
                   _field(label: 'Messenger Link', controller: messengerController, icon: Icons.message_rounded),
-                  _field(label: 'Instagram Link', controller: instagramController, icon: Icons.camera_alt_outlined),
-                  _field(label: 'YouTube Link', controller: youtubeController, icon: Icons.smart_display_outlined),
-                  _field(label: 'TikTok Link', controller: tiktokController, icon: Icons.music_note_rounded),
+                  _field(label: 'Instagram URL', controller: instagramController, icon: Icons.camera_alt_outlined),
+                  _field(label: 'YouTube URL', controller: youtubeController, icon: Icons.smart_display_outlined),
+                  _field(label: 'TikTok URL', controller: tiktokController, icon: Icons.music_note_rounded),
                 ]),
+                const SizedBox(height: 18),
+                const Text(
+                  'Official API credentials',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'These values are saved under settings/app and used by Cloud Functions for queued social campaigns. Keep tokens private.',
+                  style: TextStyle(color: Colors.grey.shade700, height: 1.45),
+                ),
+                const SizedBox(height: 12),
+                _responsiveGrid([
+                  _field(label: 'Facebook Page ID', controller: facebookPageIdController, icon: Icons.badge_outlined),
+                  _secretField(label: 'Facebook Page Access Token', controller: facebookPageTokenController, icon: Icons.key_rounded),
+                  _field(label: 'Instagram Business Account ID', controller: instagramBusinessIdController, icon: Icons.camera_alt_outlined),
+                  _secretField(label: 'Instagram Access Token', controller: instagramAccessTokenController, icon: Icons.key_rounded),
+                  _field(label: 'WhatsApp Phone Number ID', controller: whatsappPhoneNumberIdController, icon: Icons.chat_bubble_outline_rounded),
+                  _secretField(label: 'WhatsApp Access Token', controller: whatsappAccessTokenController, icon: Icons.key_rounded),
+                  _field(label: 'WhatsApp Template Name', controller: whatsappTemplateController, icon: Icons.text_snippet_outlined),
+                  _field(label: 'TikTok Client Key', controller: tiktokClientKeyController, icon: Icons.music_note_rounded),
+                ]),
+                const SizedBox(height: 18),
+                _buildTikTokConnectionCard(),
+                const SizedBox(height: 18),
+                const Text(
+                  'Default marketing behavior',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 10),
+                _switchTile(
+                  title: 'Enable Marketing Automation',
+                  subtitle: 'Allow Product Manager to create marketing queue items using these default settings.',
+                  value: autoMarketingEnabled,
+                  icon: Icons.auto_awesome_rounded,
+                  onChanged: (v) => setState(() => autoMarketingEnabled = v),
+                ),
+                LayoutBuilder(
+                  builder: (context, c) {
+                    final items = [
+                      _smallSwitch(
+                        title: 'Push Notification',
+                        subtitle: 'Default product campaign sends FCM push.',
+                        value: defaultPushMarketing,
+                        icon: Icons.notifications_active_rounded,
+                        onChanged: (v) => setState(() => defaultPushMarketing = v),
+                      ),
+                      _smallSwitch(
+                        title: 'In-App Notification',
+                        subtitle: 'Create app notification documents.',
+                        value: defaultInAppMarketing,
+                        icon: Icons.notifications_none_rounded,
+                        onChanged: (v) => setState(() => defaultInAppMarketing = v),
+                      ),
+                      _smallSwitch(
+                        title: 'Facebook Queue',
+                        subtitle: 'Queue posts for Facebook Page API.',
+                        value: defaultFacebookQueue,
+                        icon: Icons.facebook_rounded,
+                        onChanged: (v) => setState(() => defaultFacebookQueue = v),
+                      ),
+                      _smallSwitch(
+                        title: 'Instagram Queue',
+                        subtitle: 'Queue posts for Instagram Business API.',
+                        value: defaultInstagramQueue,
+                        icon: Icons.camera_alt_outlined,
+                        onChanged: (v) => setState(() => defaultInstagramQueue = v),
+                      ),
+                      _smallSwitch(
+                        title: 'WhatsApp Broadcast',
+                        subtitle: 'Queue approved WhatsApp template campaign.',
+                        value: defaultWhatsappQueue,
+                        icon: Icons.chat_bubble_outline_rounded,
+                        onChanged: (v) => setState(() => defaultWhatsappQueue = v),
+                      ),
+                      _smallSwitch(
+                        title: 'Messenger Campaign',
+                        subtitle: 'Queue Messenger customer campaign.',
+                        value: defaultMessengerQueue,
+                        icon: Icons.message_rounded,
+                        onChanged: (v) => setState(() => defaultMessengerQueue = v),
+                      ),
+                      _smallSwitch(
+                        title: 'TikTok Queue',
+                        subtitle: 'Prepare TikTok campaign queue.',
+                        value: defaultTiktokQueue,
+                        icon: Icons.music_note_rounded,
+                        onChanged: (v) => setState(() => defaultTiktokQueue = v),
+                      ),
+                    ];
+
+                    final itemWidth = c.maxWidth >= 980
+                        ? (c.maxWidth - 12) / 2
+                        : c.maxWidth;
+
+                    return Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: items
+                          .map(
+                            (item) => SizedBox(
+                          width: itemWidth.clamp(280.0, c.maxWidth),
+                          child: item,
+                        ),
+                      )
+                          .toList(),
+                    );
+                  },
+                ),
+                const SizedBox(height: 12),
+                LayoutBuilder(
+                  builder: (context, c) {
+                    final audience = _marketingDropdown(
+                      label: 'Default Audience',
+                      value: defaultMarketingAudience,
+                      icon: Icons.groups_rounded,
+                      items: const [
+                        DropdownMenuItem(value: 'everyone', child: Text('Everyone')),
+                        DropdownMenuItem(value: 'wishlist_users', child: Text('Wishlist Users')),
+                        DropdownMenuItem(value: 'category_interested', child: Text('Category Interested')),
+                        DropdownMenuItem(value: 'previous_buyers', child: Text('Previous Buyers')),
+                      ],
+                      onChanged: (v) => setState(() => defaultMarketingAudience = v ?? 'everyone'),
+                    );
+                    final publish = _marketingDropdown(
+                      label: 'Default Publish Time',
+                      value: defaultMarketingPublishTime,
+                      icon: Icons.schedule_rounded,
+                      items: const [
+                        DropdownMenuItem(value: 'immediately', child: Text('Immediately')),
+                        DropdownMenuItem(value: 'scheduled', child: Text('Scheduled')),
+                        DropdownMenuItem(value: 'manual_review', child: Text('Manual Review')),
+                      ],
+                      onChanged: (v) => setState(() => defaultMarketingPublishTime = v ?? 'immediately'),
+                    );
+                    if (c.maxWidth < 760) {
+                      return Column(children: [audience, const SizedBox(height: 12), publish]);
+                    }
+                    return Row(children: [Expanded(child: audience), const SizedBox(width: 12), Expanded(child: publish)]);
+                  },
+                ),
+                const SizedBox(height: 12),
+                _field(
+                  label: 'Default Marketing Caption Template',
+                  controller: defaultMarketingCaptionController,
+                  icon: Icons.text_fields_rounded,
+                  maxLines: 3,
+                  hint: 'Use {productName}, {price}, {productUrl}, {category}',
+                ),
               ],
             ),
 

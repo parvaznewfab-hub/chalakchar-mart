@@ -6,7 +6,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/foundation.dart';
 import '../../widgets/category_section.dart';
-import 'category_products_page.dart';
 import 'profile/edit_profile_page.dart';
 import '../../services/image_upload_service.dart';
 import 'chalakchar_cash_wallet_page.dart';
@@ -18,8 +17,9 @@ import 'profile/my_address_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'doctor_departments_page.dart';
 import 'search_page.dart';
-import 'product_details_page.dart';
 import '../../services/category_service.dart';
+import '../../services/web_url_service.dart';
+import '../../services/image_search_service.dart';
 
 
 
@@ -454,6 +454,27 @@ class _ProductHomePageState extends State<ProductHomePage> {
     }
   }
 
+
+  String _categorySlug(String value) {
+    final slug = value
+        .trim()
+        .toLowerCase()
+        .replaceAll('&', 'and')
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'-+'), '-')
+        .replaceAll(RegExp(r'^-|-$'), '');
+    return Uri.encodeComponent(slug);
+  }
+
+  void _openCategorySeo(String categoryName) {
+    final name = categoryName.trim();
+    if (name.isEmpty) return;
+
+    final path = '/category/${_categorySlug(name)}';
+    WebUrlService.push(path);
+    Navigator.of(context, rootNavigator: true).pushNamed(path);
+  }
+
   void _openSearch([String query = '']) {
     Navigator.push(
       context,
@@ -463,39 +484,73 @@ class _ProductHomePageState extends State<ProductHomePage> {
     );
   }
 
-  Future<void> _openProductById(String productId) async {
-    final id = productId.trim();
-    if (id.isEmpty) return;
+  Future<void> _pickAndSearchByImage() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('ছবি তুলুন'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('গ্যালারি থেকে বাছুন'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (source == null || !mounted) return;
+
+    final picked = await ImagePicker().pickImage(source: source, imageQuality: 85);
+    if (picked == null || !mounted) return;
+
+    setState(() => _isUploading = true);
 
     try {
-      final doc = await db.collection('products').doc(id).get();
-      if (!doc.exists) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Product not found")),
-          );
-        }
+      final result = await ImageSearchService.searchByImage(picked);
+      if (!mounted) return;
+
+      if (result == null || result.searchQuery.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ছবি থেকে প্রোডাক্ট শনাক্ত করা যায়নি।')),
+        );
         return;
       }
-
-      final productData = doc.data() ?? <String, dynamic>{};
-      productData['id'] = doc.id;
-
-      if (!mounted) return;
 
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => ProductDetailsPage(data: productData),
+          builder: (_) => SearchPage(
+            initialQuery: result.searchQuery,
+            detectedLabel: result.description.isNotEmpty
+                ? result.description
+                : result.searchQuery,
+          ),
         ),
       );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Product open failed: $e")),
-        );
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ছবি সার্চ ব্যর্থ হয়েছে: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isUploading = false);
     }
+  }
+
+  Future<void> _openProductById(String productId) async {
+    final id = productId.trim();
+    if (id.isEmpty) return;
+
+    final path = '/product/$id';
+    WebUrlService.push(path);
+    Navigator.of(context, rootNavigator: true).pushNamed(path);
   }
 
   @override
@@ -934,12 +989,9 @@ class _ProductHomePageState extends State<ProductHomePage> {
 
   Widget _buildCategoryIconCard(CategoryModel category) {
     return GestureDetector(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => CategoryProductsPage(category: category.name),
-        ),
-      ),
+      onTap: () {
+        _openCategorySeo(category.name);
+      },
       child: Container(
         width: 160,
         margin: const EdgeInsets.only(right: 20),
@@ -1162,6 +1214,11 @@ class _ProductHomePageState extends State<ProductHomePage> {
                 ),
               ),
               IconButton(
+                tooltip: "ছবি দিয়ে খুঁজুন",
+                onPressed: _pickAndSearchByImage,
+                icon: const Icon(Icons.camera_alt_outlined, color: Color(0xFFFF9900), size: 21),
+              ),
+              IconButton(
                 tooltip: "Search",
                 onPressed: () => _openSearch(search),
                 icon: const Icon(Icons.arrow_forward_rounded, color: Colors.black87, size: 22),
@@ -1308,12 +1365,9 @@ class _ProductHomePageState extends State<ProductHomePage> {
               if (category.name.isEmpty) return const SizedBox.shrink();
 
               return InkWell(
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => CategoryProductsPage(category: category.name),
-                  ),
-                ),
+                onTap: () {
+                  _openCategorySeo(category.name);
+                },
                 child: SizedBox(
                   width: 76,
                   child: Column(
@@ -1764,13 +1818,8 @@ class _ProductHomePageState extends State<ProductHomePage> {
 
     if ((actionType == 'category' && actionValue.isNotEmpty) ||
         categoryName.isNotEmpty) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => CategoryProductsPage(
-            category: actionValue.isNotEmpty ? actionValue : categoryName,
-          ),
-        ),
+      _openCategorySeo(
+        actionValue.isNotEmpty ? actionValue : categoryName,
       );
       return;
     }
@@ -2410,12 +2459,9 @@ class _ProductHomePageState extends State<ProductHomePage> {
                         style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.black87),
                       ),
                       trailing: const Icon(Icons.chevron_right, size: 16, color: Colors.grey),
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => CategoryProductsPage(category: category.name),
-                        ),
-                      ),
+                      onTap: () {
+                        _openCategorySeo(category.name);
+                      },
                     );
                   },
                 );
@@ -2428,6 +2474,3 @@ class _ProductHomePageState extends State<ProductHomePage> {
     );
   }
 }
-
-
-

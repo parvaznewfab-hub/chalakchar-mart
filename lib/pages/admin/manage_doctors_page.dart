@@ -434,7 +434,7 @@ class _ManageDoctorsPageState extends State<ManageDoctorsPage> {
                         final deps = snap.data?.docs ?? [];
 
                         return DropdownButtonFormField<String>(
-                          value: deptId,
+                          initialValue: deptId,
                           decoration: const InputDecoration(labelText: 'Department', border: OutlineInputBorder()),
                           items: deps.map((doc) {
                             final d = doc.data() as Map<String, dynamic>;
@@ -736,7 +736,7 @@ class _ManageDoctorsPageState extends State<ManageDoctorsPage> {
                   final departments = snapshot.data?.docs ?? [];
 
                   return DropdownButtonFormField<String>(
-                    value: selectedDepartmentId,
+                    initialValue: selectedDepartmentId,
                     decoration: InputDecoration(
                       labelText: 'Select Department',
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
@@ -899,7 +899,7 @@ class _ManageDoctorsPageState extends State<ManageDoctorsPage> {
             );
 
             final dept = DropdownButtonFormField<String>(
-              value: filterDepartment,
+              initialValue: filterDepartment,
               decoration: const InputDecoration(
                 labelText: 'Department',
                 border: OutlineInputBorder(),
@@ -913,7 +913,7 @@ class _ManageDoctorsPageState extends State<ManageDoctorsPage> {
             );
 
             final status = DropdownButtonFormField<String>(
-              value: filterStatus,
+              initialValue: filterStatus,
               decoration: const InputDecoration(
                 labelText: 'Status',
                 border: OutlineInputBorder(),
@@ -1057,7 +1057,7 @@ class _ManageDoctorsPageState extends State<ManageDoctorsPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(30),
       ),
       child: Text(

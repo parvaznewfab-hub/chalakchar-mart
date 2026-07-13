@@ -320,6 +320,8 @@ class _ManageDoctorDepartmentsPageState extends State<ManageDoctorDepartmentsPag
   Future<void> _deleteDepartment(String id, Map<String, dynamic> data) async {
     final doctorCount = await _countDoctorsByDepartment(id, _text(data['name']));
 
+    if (!mounted) return;
+
     if (doctorCount > 0) {
       _snack('Cannot delete. $doctorCount doctors are using this department.');
       return;
@@ -579,7 +581,7 @@ class _ManageDoctorDepartmentsPageState extends State<ManageDoctorDepartmentsPag
             );
 
             final status = DropdownButtonFormField<String>(
-              value: statusFilter,
+              initialValue: statusFilter,
               decoration: const InputDecoration(
                 labelText: 'Filter',
                 border: OutlineInputBorder(),
@@ -646,7 +648,7 @@ class _ManageDoctorDepartmentsPageState extends State<ManageDoctorDepartmentsPag
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(30),
       ),
       child: Text(

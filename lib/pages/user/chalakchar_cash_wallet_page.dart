@@ -1,14 +1,33 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../services/referral_service.dart';
 
-class ChalakCharCashWalletPage extends StatelessWidget {
+class ChalakCharCashWalletPage extends StatefulWidget {
   const ChalakCharCashWalletPage({super.key});
 
   static const Color primary = Color(0xFF32A8C7);
+
+  @override
+  State<ChalakCharCashWalletPage> createState() =>
+      _ChalakCharCashWalletPageState();
+}
+
+class _ChalakCharCashWalletPageState extends State<ChalakCharCashWalletPage> {
+  final TextEditingController _referralController = TextEditingController();
+
+  bool _applyingReferral = false;
+
+  static const Color primary = ChalakCharCashWalletPage.primary;
+
+  @override
+  void dispose() {
+    _referralController.dispose();
+    super.dispose();
+  }
 
   String _text(dynamic v, [String fallback = '']) {
     final s = (v ?? '').toString().trim();
@@ -24,16 +43,112 @@ class ChalakCharCashWalletPage extends StatelessWidget {
   String _date(dynamic v) {
     if (v is Timestamp) {
       final d = v.toDate();
-      return '${d.day}/${d.month}/${d.year}';
+      final day = d.day.toString().padLeft(2, '0');
+      final month = d.month.toString().padLeft(2, '0');
+      return '$day/$month/${d.year}';
     }
     return '';
   }
 
-  Future<void> _shareReferral(BuildContext context, String uid) async {
-    final code = await ReferralService.getOrCreateReferralCode(uid);
-    await Share.share(
-      'Join ChalakChar Mart and use my referral code $code to get rewards!',
+  bool _isPositiveTransaction(Map<String, dynamic> data) {
+    final direction = _text(data['direction']).toLowerCase();
+    final type = _text(data['type']).toLowerCase();
+
+    if (direction == 'credit') return true;
+    if (direction == 'debit') return false;
+
+    return type == 'credit' ||
+        type.contains('reward') ||
+        type.contains('cashback') ||
+        type.contains('bonus');
+  }
+
+  String _transactionTitle(Map<String, dynamic> data) {
+    final title = _text(data['title']);
+    if (title.isNotEmpty) return title;
+
+    final note = _text(data['note']);
+    if (note.isNotEmpty) return note;
+
+    final type = _text(data['type']);
+    if (type.isNotEmpty) {
+      return type
+          .replaceAll('_', ' ')
+          .split(' ')
+          .where((w) => w.isNotEmpty)
+          .map((w) => '${w[0].toUpperCase()}${w.substring(1)}')
+          .join(' ');
+    }
+
+    return 'Cash Transaction';
+  }
+
+  Future<void> _shareReferral(String uid) async {
+    try {
+      final code = await ReferralService.getOrCreateReferralCode(uid);
+      await Share.share(
+        'Join ChalakChar Mart and use my referral code $code to get rewards!',
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not share referral code now.')),
+      );
+    }
+  }
+
+  Future<void> _copyCode(String code) async {
+    final cleanCode = ReferralService.normalizeCode(code);
+
+    if (cleanCode.isEmpty || cleanCode == 'TAPSHARETOCREATE') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Referral code is not ready yet.')),
+      );
+      return;
+    }
+
+    await Clipboard.setData(ClipboardData(text: cleanCode));
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Referral code copied.')),
     );
+  }
+
+  Future<void> _applyReferral() async {
+    if (_applyingReferral) return;
+
+    final code = ReferralService.normalizeCode(_referralController.text);
+
+    if (code.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a referral code.')),
+      );
+      return;
+    }
+
+    setState(() => _applyingReferral = true);
+
+    try {
+      final message = await ReferralService.applyReferral(code);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+
+      final lower = message.toLowerCase();
+      if (lower.contains('success') || lower.contains('already')) {
+        _referralController.clear();
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _applyingReferral = false);
+      }
+    }
   }
 
   @override
@@ -60,18 +175,30 @@ class ChalakCharCashWalletPage extends StatelessWidget {
             .doc(user.uid)
             .snapshots(),
         builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting &&
+              !snap.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
           final data = snap.data?.data() ?? {};
           final balance = _toDouble(data['points']);
           final totalEarnings = _toDouble(data['totalEarnings']);
           final referralCount = data['referralCount'] ?? 0;
           final refCode = _text(data['refCode'], 'Tap share to create');
+          final alreadyApplied = _text(data['referredByUid']).isNotEmpty ||
+              _text(data['referredByCode']).isNotEmpty ||
+              _text(data['referredBy']).isNotEmpty;
 
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
               _balanceCard(balance, totalEarnings, referralCount),
               const SizedBox(height: 14),
-              _referralCard(context, user.uid, refCode),
+              _referralCard(
+                uid: user.uid,
+                code: refCode,
+                alreadyApplied: alreadyApplied,
+              ),
               const SizedBox(height: 14),
               _howItWorks(),
               const SizedBox(height: 18),
@@ -88,7 +215,11 @@ class ChalakCharCashWalletPage extends StatelessWidget {
     );
   }
 
-  Widget _balanceCard(double balance, double totalEarnings, dynamic referralCount) {
+  Widget _balanceCard(
+      double balance,
+      double totalEarnings,
+      dynamic referralCount,
+      ) {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -151,7 +282,11 @@ class ChalakCharCashWalletPage extends StatelessWidget {
     );
   }
 
-  Widget _referralCard(BuildContext context, String uid, String code) {
+  Widget _referralCard({
+    required String uid,
+    required String code,
+    required bool alreadyApplied,
+  }) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: _box(),
@@ -163,16 +298,112 @@ class ChalakCharCashWalletPage extends StatelessWidget {
             style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
           ),
           const SizedBox(height: 8),
-          Text('Your Code: $code'),
-          const SizedBox(height: 12),
+          const Text(
+            'Share your code with friends, or apply a friend code once to get reward.',
+            style: TextStyle(color: Colors.black54, height: 1.35),
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF5F7FA),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.black12),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Your Code: $code',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Copy code',
+                  onPressed: () => _copyCode(code),
+                  icon: const Icon(Icons.copy_rounded),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          if (alreadyApplied)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.green.withValues(alpha: 0.25)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.verified_rounded, color: Colors.green),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Referral code already applied for this account.',
+                      style: TextStyle(
+                        color: Colors.green,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else ...[
+            TextField(
+              controller: _referralController,
+              enabled: !_applyingReferral,
+              textCapitalization: TextCapitalization.characters,
+              decoration: InputDecoration(
+                labelText: 'Enter friend referral code',
+                hintText: 'Example: ABC123',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                prefixIcon: const Icon(Icons.card_giftcard_rounded),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton.icon(
+                onPressed: _applyingReferral ? null : _applyReferral,
+                icon: _applyingReferral
+                    ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+                    : const Icon(Icons.redeem_rounded),
+                label: Text(
+                  _applyingReferral
+                      ? 'Applying...'
+                      : 'Apply Referral Code',
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primary,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
+            height: 48,
             child: ElevatedButton.icon(
-              onPressed: () => _shareReferral(context, uid),
+              onPressed: () => _shareReferral(uid),
               icon: const Icon(Icons.share),
               label: const Text('Share Referral Code'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: primary,
+                backgroundColor: Colors.black87,
                 foregroundColor: Colors.white,
               ),
             ),
@@ -202,13 +433,21 @@ class ChalakCharCashWalletPage extends StatelessWidget {
   Widget _history(String uid) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
-          .collection('cashTransactions')
+          .collection('wallet_logs')
           .where('userId', isEqualTo: uid)
           .orderBy('createdAt', descending: true)
           .limit(50)
           .snapshots(),
       builder: (context, snap) {
         final docs = snap.data?.docs ?? [];
+
+        if (snap.connectionState == ConnectionState.waiting && docs.isEmpty) {
+          return Container(
+            padding: const EdgeInsets.all(18),
+            decoration: _box(),
+            child: const Center(child: CircularProgressIndicator()),
+          );
+        }
 
         if (docs.isEmpty) {
           return Container(
@@ -222,9 +461,8 @@ class ChalakCharCashWalletPage extends StatelessWidget {
           children: docs.map((doc) {
             final d = doc.data();
             final amount = _toDouble(d['amount']);
-            final type = _text(d['type']);
-            final title = _text(d['title'], type);
-            final isCredit = type == 'credit';
+            final title = _transactionTitle(d);
+            final isCredit = _isPositiveTransaction(d);
 
             return Container(
               margin: const EdgeInsets.only(bottom: 10),

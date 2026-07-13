@@ -660,6 +660,3 @@ class _VendorApplyPageState extends State<VendorApplyPage> {
     );
   }
 }
-
-
-

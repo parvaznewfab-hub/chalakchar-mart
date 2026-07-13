@@ -15,17 +15,27 @@ import 'services/notification_service.dart';
 
 import 'pages/main_navigation_page.dart';
 import 'pages/user/settings_details_pages.dart';
+import 'pages/user/data_deletion_page.dart';
 import 'pages/user/delivery/delivery_partner_dashboard_page.dart';
-
+import 'package:flutter_web_plugins/url_strategy.dart';
 import 'pages/admin/admin_dashboard_page.dart';
 import 'pages/admin/admin_edit_order_page.dart';
 import 'pages/admin/admin_notifications_page.dart';
 import 'pages/admin/admin_lists_page.dart';
+import 'pages/user/product_seo_loader_page.dart';
+import 'pages/user/category_products_page.dart';
+import 'pages/auth/login_page.dart';
+import 'pages/user/cart_page.dart';
+import 'services/seo_route_observer.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  if (kIsWeb) {
+    usePathUrlStrategy();
+  }
 
   try {
     await Firebase.initializeApp(
@@ -173,7 +183,7 @@ class MyApp extends StatelessWidget {
               height: 78,
               width: 78,
               decoration: BoxDecoration(
-                color: const Color(0xFF32A8C7).withOpacity(0.10),
+                color: const Color(0xFF32A8C7).withValues(alpha: 0.10),
                 borderRadius: BorderRadius.circular(24),
               ),
               child: const Icon(
@@ -347,9 +357,9 @@ class MyApp extends StatelessWidget {
 
     return MaterialApp(
       navigatorKey: navigatorKey,
+      navigatorObservers: [SeoRouteObserver()],
       debugShowCheckedModeBanner: false,
       title: 'ChalakChar Mart',
-      initialRoute: '/',
       routes: {
         '/': (context) => _homePage(),
         '/about-us': (context) => const AboutUsPage(),
@@ -357,17 +367,46 @@ class MyApp extends StatelessWidget {
         '/privacy-policy': (context) => const PrivacyPolicyPage(),
         '/terms-conditions': (context) => const TermsConditionsPage(),
         '/return-policy': (context) => const ReturnPolicyPage(),
-        '/medical-disclaimer': (context) => const MedicalDisclaimerPage(),
+        '/data-deletion': (context) => const DataDeletionPage(),
         '/admin': (context) => const AdminDashboard(),
         '/admin/notifications': (context) => const AdminNotificationsPage(),
         '/admin/lists': (context) => const AdminListsPage(),
+        '/login': (context) => const Scaffold(body: LoginPage()),
+        '/cart': (context) => const CartPage(),
       },
+      onGenerateRoute: (settings) {
+        final uri = Uri.parse(settings.name ?? '');
+
+        if (uri.pathSegments.length == 2 &&
+            uri.pathSegments.first == 'product') {
+
+          final productId = uri.pathSegments[1];
+
+          return MaterialPageRoute(
+            builder: (_) => ProductSeoLoaderPage(
+              productId: productId,
+            ),
+          );
+        }
+
+        if (uri.pathSegments.length == 2 &&
+            uri.pathSegments.first == 'category') {
+          final categorySlug = Uri.decodeComponent(uri.pathSegments[1]);
+
+          return MaterialPageRoute(
+            builder: (_) => CategoryProductsPage(
+              category: categorySlug,
+            ),
+          );
+        }
+
+        return null;
+      },
+
+
       themeMode: settings.isDark ? ThemeMode.dark : ThemeMode.light,
       theme: _lightTheme(),
       darkTheme: _darkTheme(),
     );
   }
 }
-
-
-

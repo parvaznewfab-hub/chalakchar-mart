@@ -11,8 +11,29 @@
     ],
     "rewrites": [
       {
+        "source": "/sitemap.xml",
+        "function": {
+          "functionId": "sitemap",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/product/**",
+        "function": {
+          "functionId": "productSeo",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/",
+        "function": {
+          "functionId": "homeSeo",
+          "region": "asia-south1"
+        }
+      },
+      {
         "source": "**",
-        "destination": "/index.html"
+        "destination": "/app.html"
       }
     ]
   },

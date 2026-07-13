@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 
 import 'notification_service.dart';
 
@@ -19,6 +20,74 @@ class AuthService {
   static const String roleStaff = 'staff';
   static const String roleVendor = 'vendor';
   static const String roleUser = 'user';
+
+  Future<User?> signInWithFacebook() async {
+    try {
+      UserCredential credential;
+
+      if (kIsWeb) {
+        final provider = FacebookAuthProvider()
+          ..addScope('email')
+          ..addScope('public_profile');
+
+        credential = await _auth.signInWithPopup(provider);
+      } else {
+        await FacebookAuth.instance.logOut();
+
+        final result = await FacebookAuth.instance.login(
+          permissions: ['email', 'public_profile'],
+          // Force classic (non-limited) login so iOS always returns an
+          // OAuth access token usable by FacebookAuthProvider.credential.
+          // Limited login (the iOS ATT-driven default) returns a JWT
+          // identity token that Firebase cannot verify the same way.
+          loginTracking: LoginTracking.enabled,
+        );
+
+        if (result.status == LoginStatus.cancelled) {
+          debugPrint('Facebook login cancelled by user');
+          return null;
+        }
+
+        if (result.status != LoginStatus.success || result.accessToken == null) {
+          debugPrint('Facebook login failed: ${result.status} ${result.message}');
+          throw Exception(
+            result.message ??
+                'Facebook login failed. Please check your internet connection and try again.',
+          );
+        }
+
+        final facebookCredential = FacebookAuthProvider.credential(
+          result.accessToken!.tokenString,
+        );
+
+        credential = await _auth.signInWithCredential(facebookCredential);
+      }
+
+      await createOrGetUser();
+      await _afterLoginTasks();
+      return credential.user;
+    } on FirebaseAuthException catch (e) {
+      debugPrint('Facebook sign in Firebase error: ${e.code} ${e.message}');
+
+      if (e.code == 'account-exists-with-different-credential') {
+        throw Exception(
+          'An account already exists with this email using a different sign-in method '
+          '(Google, phone/OTP, or email/password). Please sign in with that method first.',
+        );
+      }
+
+      if (e.code == 'network-request-failed') {
+        throw Exception(
+          'Network error. Please check your internet connection and try again.',
+        );
+      }
+
+      rethrow;
+    } catch (e) {
+      debugPrint('Facebook sign in error: $e');
+      rethrow;
+    }
+  }
 
   Future<User?> signInWithGoogle() async {
     try {
@@ -56,7 +125,8 @@ class AuthService {
     }
   }
 
-  Future<User?> register(String email, String password, {String? name, String? phone}) async {
+  Future<User?> register(String email, String password,
+      {String? name, String? phone}) async {
     try {
       final credential = await _auth.createUserWithEmailAndPassword(
         email: email.trim(),
@@ -112,9 +182,14 @@ class AuthService {
         'uid': user.uid,
         'email': user.email,
         'phone': phone ?? user.phoneNumber ?? '',
+        'whatsappNumber': '',
+        'whatsappOptIn': false,
+        'whatsappConsentVersion': '2026-07',
         'name': name?.trim().isNotEmpty == true
             ? name!.trim()
-            : (user.displayName?.trim().isNotEmpty == true ? user.displayName!.trim() : ''),
+            : (user.displayName?.trim().isNotEmpty == true
+            ? user.displayName!.trim()
+            : ''),
         'photoUrl': user.photoURL ?? '',
         'role': roleUser,
         'roles': [roleUser],
@@ -142,8 +217,10 @@ class AuthService {
       'uid': user.uid,
       'email': user.email,
       'emailVerified': user.emailVerified,
-      if (user.displayName != null && _text(data['name']).isEmpty) 'name': user.displayName,
-      if (user.phoneNumber != null && _text(data['phone']).isEmpty) 'phone': user.phoneNumber,
+      if (user.displayName != null && _text(data['name']).isEmpty)
+        'name': user.displayName,
+      if (user.phoneNumber != null && _text(data['phone']).isEmpty)
+        'phone': user.phoneNumber,
       if (user.photoURL != null) 'photoUrl': user.photoURL,
       'providerIds': user.providerData.map((e) => e.providerId).toList(),
       'updatedAt': FieldValue.serverTimestamp(),
@@ -303,7 +380,8 @@ class AuthService {
   Future<bool> isAdmin() async {
     final data = await currentUserData();
     if (data == null) return false;
-    return _hasRoleInData(data, roleSuperAdmin) || _hasRoleInData(data, roleAdmin);
+    return _hasRoleInData(data, roleSuperAdmin) ||
+        _hasRoleInData(data, roleAdmin);
   }
 
   Future<bool> isStaff() async {
@@ -318,9 +396,12 @@ class AuthService {
     final data = await currentUserData();
     if (data == null) return false;
 
+    final allowed = data['isActive'] != false && data['isBanned'] != true;
+    if (!allowed) return false;
+
     return _hasRoleInData(data, roleVendor) ||
         data['sellerStatus'] == 'approved' ||
-        _text(data['vendorId']).isNotEmpty;
+        data['vendorStatus'] == 'approved';
   }
 
   Future<bool> canAccessAdminPanel() async {
@@ -434,19 +515,23 @@ class AuthService {
     final allowed = data['isActive'] != false && data['isBanned'] != true;
     if (!allowed) return false;
 
+    // ✅ SuperAdmin সবসময় সব permission পাবে
     if (_hasRoleInData(data, roleSuperAdmin)) return true;
 
-    final rawPermissions = data['permissions'];
-    final permissions = rawPermissions is List ? List<String>.from(rawPermissions) : <String>[];
-
-    // If permissions are assigned manually, follow them strictly.
-    if (permissions.isNotEmpty) {
-      return permissions.contains(permission);
+    // ✅ Admin default permission সবসময় পাবে
+    if (_hasRoleInData(data, roleAdmin) &&
+        defaultAdminPermissions.contains(permission)) {
+      return true;
     }
 
-    // Fallback defaults only when permissions field is empty/missing.
-    if (_hasRoleInData(data, roleAdmin)) {
-      return defaultAdminPermissions.contains(permission);
+    final rawPermissions = data['permissions'];
+
+    if (rawPermissions is List) {
+      return rawPermissions.map((e) => e.toString()).contains(permission);
+    }
+
+    if (rawPermissions is Map) {
+      return rawPermissions[permission] == true;
     }
 
     if (_hasRoleInData(data, roleStaff)) {
@@ -506,7 +591,40 @@ class AuthService {
     if (district != null) payload['district'] = district.trim();
     if (upazila != null) payload['upazila'] = upazila.trim();
 
-    await _db.collection('users').doc(user.uid).set(payload, SetOptions(merge: true));
+    await _db
+        .collection('users')
+        .doc(user.uid)
+        .set(payload, SetOptions(merge: true));
+  }
+
+  Future<void> updateWhatsAppPreference({
+    required bool optIn,
+    String? whatsappNumber,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) throw Exception('Login required');
+
+    final raw = (whatsappNumber ?? '').replaceAll(RegExp(r'[^0-9]'), '');
+    String normalized = '';
+    if (raw.startsWith('8801') && raw.length == 13) {
+      normalized = raw;
+    } else if (raw.startsWith('01') && raw.length == 11) {
+      normalized = '88$raw';
+    }
+
+    if (optIn && normalized.isEmpty) {
+      throw Exception('Enter a valid Bangladeshi WhatsApp number');
+    }
+
+    await _db.collection('users').doc(user.uid).set({
+      'whatsappOptIn': optIn,
+      'whatsappNumber': optIn ? normalized : FieldValue.delete(),
+      'whatsappConsentVersion': '2026-07',
+      'whatsappConsentSource': 'customer_profile',
+      if (optIn) 'whatsappOptInAt': FieldValue.serverTimestamp(),
+      if (!optIn) 'whatsappOptOutAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   Future<void> refreshFcmToken() => _safeSaveToken();
@@ -533,6 +651,12 @@ class AuthService {
     await _auth.signOut();
 
     if (!kIsWeb) {
+      try {
+        await FacebookAuth.instance.logOut();
+      } catch (e) {
+        debugPrint('Facebook sign out skipped: $e');
+      }
+
       try {
         await _googleSignIn.disconnect();
       } catch (e) {
@@ -590,7 +714,8 @@ class AuthService {
   bool _hasRoleInData(Map<String, dynamic> data, String role) {
     final normalized = _normalizeRole(role);
     final primaryRole = _normalizeRole(_text(data['role'], roleUser));
-    final roles = List<String>.from(data['roles'] ?? []).map(_normalizeRole).toList();
+    final roles =
+    List<String>.from(data['roles'] ?? []).map(_normalizeRole).toList();
 
     return primaryRole == normalized || roles.contains(normalized);
   }
@@ -598,7 +723,9 @@ class AuthService {
   String _normalizeRole(String role) {
     final value = role.trim();
 
-    if (value == 'super_admin' || value == 'superadmin' || value == 'SuperAdmin') {
+    if (value == 'super_admin' ||
+        value == 'superadmin' ||
+        value == 'SuperAdmin') {
       return roleSuperAdmin;
     }
 
@@ -614,6 +741,3 @@ class AuthService {
     return text.isEmpty ? fallback : text;
   }
 }
-
-
-

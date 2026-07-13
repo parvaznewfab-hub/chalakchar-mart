@@ -207,7 +207,7 @@ class _AdminVendorProductsPageState extends State<AdminVendorProductsPage> {
           );
 
           final filter = DropdownButtonFormField<String>(
-            value: statusFilter,
+            initialValue: statusFilter,
             decoration: const InputDecoration(
               labelText: 'Approval Status',
               border: OutlineInputBorder(),

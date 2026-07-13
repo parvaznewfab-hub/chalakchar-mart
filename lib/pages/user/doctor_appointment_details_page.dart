@@ -456,27 +456,27 @@ class _DoctorAppointmentDetailsPageState
         children: [
           const Text("Appointment For",
               style: TextStyle(fontWeight: FontWeight.bold)),
-          Row(
-            children: [
-              Expanded(
-                child: RadioListTile<bool>(
-                  value: true,
-                  groupValue: isForSelf,
-                  onChanged: (v) => setState(() => isForSelf = v!),
-                  title: const Text("Myself"),
-                  contentPadding: EdgeInsets.zero,
+          RadioGroup<bool>(
+            groupValue: isForSelf,
+            onChanged: (v) => setState(() => isForSelf = v!),
+            child: Row(
+              children: [
+                Expanded(
+                  child: RadioListTile<bool>(
+                    value: true,
+                    title: const Text("Myself"),
+                    contentPadding: EdgeInsets.zero,
+                  ),
                 ),
-              ),
-              Expanded(
-                child: RadioListTile<bool>(
-                  value: false,
-                  groupValue: isForSelf,
-                  onChanged: (v) => setState(() => isForSelf = v!),
-                  title: const Text("Family"),
-                  contentPadding: EdgeInsets.zero,
+                Expanded(
+                  child: RadioListTile<bool>(
+                    value: false,
+                    title: const Text("Family"),
+                    contentPadding: EdgeInsets.zero,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           if (!isForSelf) ...[
             const SizedBox(height: 10),
@@ -498,7 +498,7 @@ class _DoctorAppointmentDetailsPageState
                     labelText: "Age", border: OutlineInputBorder())),
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(
-              value: patientGender,
+              initialValue: patientGender,
               items: ["Male", "Female"]
                   .map((g) => DropdownMenuItem(value: g, child: Text(g)))
                   .toList(),
@@ -508,7 +508,7 @@ class _DoctorAppointmentDetailsPageState
             ),
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(
-              value: patientRelation,
+              initialValue: patientRelation,
               items: [
                 "Father",
                 "Mother",
@@ -811,6 +811,3 @@ class _DoctorAppointmentDetailsPageState
     );
   }
 }
-
-
-

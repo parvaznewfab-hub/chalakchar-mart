@@ -19,7 +19,7 @@ class CartBadge extends StatelessWidget {
     final user = FirebaseAuth.instance.currentUser;
     final userId = user?.uid ?? '';
 
-    Widget iconWithBadge(int count) {
+    Widget iconWithBadge(int cartItemCount) {
       return Stack(
         alignment: Alignment.center,
         children: [
@@ -35,7 +35,7 @@ class CartBadge extends StatelessWidget {
               await GuestCartService.refreshCount();
             },
           ),
-          if (count > 0)
+          if (cartItemCount > 0)
             Positioned(
               right: 8,
               top: 8,
@@ -50,7 +50,7 @@ class CartBadge extends StatelessWidget {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
-                  count > 99 ? '99+' : '$count',
+                  cartItemCount > 99 ? '99+' : '$cartItemCount',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 10,
@@ -69,7 +69,7 @@ class CartBadge extends StatelessWidget {
 
       return ValueListenableBuilder<int>(
         valueListenable: GuestCartService.cartCount,
-        builder: (_, count, __) => iconWithBadge(count),
+        builder: (_, cartItemCount, __) => iconWithBadge(cartItemCount),
       );
     }
 
@@ -80,16 +80,16 @@ class CartBadge extends StatelessWidget {
           .collection('items')
           .snapshots(),
       builder: (context, snapshot) {
-        int count = 0;
+        int cartItemCount = 0;
 
         if (snapshot.hasData) {
           for (final doc in snapshot.data!.docs) {
             final data = doc.data() as Map<String, dynamic>;
-            count += ProductService.toInt(data['qty'], 1);
+            cartItemCount += ProductService.toInt(data['qty'], 1);
           }
         }
 
-        return iconWithBadge(count);
+        return iconWithBadge(cartItemCount);
       },
     );
   }

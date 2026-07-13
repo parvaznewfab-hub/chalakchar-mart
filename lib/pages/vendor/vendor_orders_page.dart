@@ -64,7 +64,13 @@ class _VendorOrdersPageState extends State<VendorOrdersPage> {
       debugPrint('Vendor resolve failed: $e');
     }
 
+    debugPrint('==============================');
+    debugPrint('Firebase UID: ${user.uid}');
+    debugPrint('Resolved Vendor ID: $resolved');
+    debugPrint('==============================');
+
     if (!mounted) return;
+
     setState(() {
       _vendorId = resolved;
       _loadingVendor = false;
@@ -139,8 +145,12 @@ class _VendorOrdersPageState extends State<VendorOrdersPage> {
       final vendorIds = data['vendorIds'] is List
           ? List<String>.from((data['vendorIds'] as List).map((e) => e.toString()))
           : <String>[];
+      final vendorOwnerIds = data['vendorOwnerIds'] is List
+          ? List<String>.from((data['vendorOwnerIds'] as List).map((e) => e.toString()))
+          : <String>[];
+      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
 
-      if (!vendorIds.contains(vendorId)) {
+      if (!vendorIds.contains(vendorId) && !vendorOwnerIds.contains(uid)) {
         throw Exception('This order does not belong to your vendor account.');
       }
 
@@ -154,14 +164,12 @@ class _VendorOrdersPageState extends State<VendorOrdersPage> {
         throw Exception('Invalid status change: $currentStatus → $status');
       }
 
-      await ref.set({
-        'vendorStatusUpdates.$vendorId': {
-          'status': status,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
+      await ref.update({
+        'vendorStatusUpdates.$vendorId.status': status,
+        'vendorStatusUpdates.$vendorId.updatedAt': FieldValue.serverTimestamp(),
         'vendorStatus': status,
         'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      });
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -199,13 +207,19 @@ class _VendorOrdersPageState extends State<VendorOrdersPage> {
         stream: db
             .collection('orders')
             .where(
-          'vendorOwnerIds',
-          arrayContains: FirebaseAuth.instance.currentUser?.uid ?? '',
+          'vendorIds',
+          arrayContains: vendorId,
         )
             .snapshots(),
         builder: (context, snap) {
           if (snap.hasError) {
-            return Center(child: Text('Orders load failed: ${snap.error}'));
+            debugPrint('Vendor orders query failed: ${snap.error}');
+            return Column(
+              children: [
+                _filters(),
+                Expanded(child: _empty()),
+              ],
+            );
           }
 
           if (!snap.hasData) {

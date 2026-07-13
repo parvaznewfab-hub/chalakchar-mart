@@ -23,6 +23,18 @@ service cloud.firestore {
       return get(userPath(uid));
     }
 
+    function orderPath(orderId) {
+      return /databases/$(database)/documents/orders/$(orderId);
+    }
+
+    function orderExists(orderId) {
+      return exists(orderPath(orderId));
+    }
+
+    function orderDoc(orderId) {
+      return get(orderPath(orderId));
+    }
+
     function me() {
       return userDoc(request.auth.uid).data;
     }
@@ -56,11 +68,84 @@ service cloud.firestore {
       return isAdmin() || hasRole('staff');
     }
 
-    function hasPermission(permission) {
+    function adminDefault(permission) {
+      return permission in [
+        'dashboard.view',
+        'analytics.view',
+
+        'orders.view',
+        'orders.edit',
+        'orders.assign_rider',
+        'orders.invoice',
+        'orders.settle_cod',
+        'orders.discount',
+        'orders.confirm',
+
+        'products.view',
+        'products.edit',
+        'products.delete',
+        'products.bulk',
+        'products.status',
+
+        'vendor_products.view',
+        'vendor_products.edit',
+        'vendor_products.approve',
+        'vendor_products.delete',
+        'vendor_products.status',
+
+        'categories.view',
+        'categories.edit',
+        'categories.delete',
+        'categories.status',
+
+        'banners.view',
+        'banners.edit',
+        'banners.delete',
+        'banners.status',
+        'banners.priority',
+
+        'coupons.view',
+        'coupons.edit',
+        'coupons.delete',
+        'coupons.status',
+
+        'lists.view',
+        'lists.edit',
+
+        'doctors.view',
+        'doctors.edit',
+        'appointments.view',
+        'appointments.edit',
+
+        'vendors.view',
+        'vendors.edit',
+        'vendors.approve',
+        'vendors.status',
+        'vendors.documents',
+        'vendors.contact',
+
+        'delivery.view',
+        'delivery.approve',
+        'delivery.block',
+        'delivery.contact',
+
+        'referrals.view',
+        'referrals.edit',
+
+        'notifications.view',
+        'notifications.send',
+        'notifications.manage',
+        'notifications.delete',
+        'notifications.open_related',
+
+        'settings.view'
+      ];
+    }
+
+    function hasExplicitPermission(permission) {
       return notBanned()
         && (
-          isAdmin()
-          || (
+          (
             me().permissions is list
             && permission in me().permissions
           )
@@ -71,18 +156,47 @@ service cloud.firestore {
         );
     }
 
+    function dangerousPermissionKeys() {
+      return [
+        'users.permissions',
+        'users.block',
+        'wallet.edit',
+        'settings.edit',
+        'vendors.delete',
+        'vendors.payouts',
+        'delivery.withdraw',
+        'delivery.settle_cod'
+      ];
+    }
+
+    function requestHasDangerousPermissions() {
+      return (
+        request.resource.data.permissions is list
+        && request.resource.data.permissions.hasAny(dangerousPermissionKeys())
+      ) || (
+        request.resource.data.permissions is map
+        && request.resource.data.permissions.keys().hasAny(dangerousPermissionKeys())
+      );
+    }
+
+    function permissionsFieldValid() {
+      return !request.resource.data.keys().hasAny(['permissions'])
+        || request.resource.data.permissions is list
+        || request.resource.data.permissions is map;
+    }
+
+    function hasPermission(permission) {
+      return can(permission);
+    }
+
     function can(permission) {
       return notBanned()
         && (
           isSuperAdmin()
-          || isAdmin()
+          || hasExplicitPermission(permission)
           || (
-            me().permissions is list
-            && permission in me().permissions
-          )
-          || (
-            me().permissions is map
-            && me().permissions[permission] == true
+            hasRole('admin')
+            && adminDefault(permission)
           )
         );
     }
@@ -91,15 +205,50 @@ service cloud.firestore {
       return notBanned()
         && (
           hasRole('vendor')
-          || me().isVendor == true
-          || me().sellerStatus == 'approved'
-          || me().vendorStatus == 'approved'
-          || me().vendorId is string
+          || me().sellerStatus in ['approved', 'Approved']
+          || me().vendorStatus in ['approved', 'Approved']
+          || (me().vendorId is string && me().vendorId != '')
         );
     }
 
     function myVendorId() {
       return me().vendorId;
+    }
+
+    // Vendor identity convention:
+    // - request.auth.uid = vendor owner user UID
+    // - me().vendorId = vendors/{vendorId} document id
+    // - products.vendorId / orders.vendorIds = vendors/{vendorId}
+    // - vendorOwnerId/vendorOwnerIds/sellerUid = owner UID fallback
+    function ownsVendorId(vendorId) {
+      return isVendor()
+        && vendorId is string
+        && (
+          vendorId == request.auth.uid
+          || (me().vendorId is string && vendorId == me().vendorId)
+        );
+    }
+
+    function vendorProductCreateOwner(data) {
+      return signedIn()
+        && userExists(request.auth.uid)
+        && data.vendorId is string
+        && (
+          data.vendorOwnerId == request.auth.uid
+          || data.sellerUid == request.auth.uid
+          || data.ownerId == request.auth.uid
+          || data.userId == request.auth.uid
+          || (data.vendorOwnerIds is list && request.auth.uid in data.vendorOwnerIds)
+          || data.vendorId == request.auth.uid
+          || (me().vendorId is string && data.vendorId == me().vendorId)
+          || (
+            exists(/databases/$(database)/documents/vendors/$(data.vendorId))
+            && (
+              get(/databases/$(database)/documents/vendors/$(data.vendorId)).data.ownerId == request.auth.uid
+              || get(/databases/$(database)/documents/vendors/$(data.vendorId)).data.userId == request.auth.uid
+            )
+          )
+        );
     }
 
     function ownsVendorData(data) {
@@ -108,8 +257,13 @@ service cloud.firestore {
           data.ownerId == request.auth.uid
           || data.userId == request.auth.uid
           || data.vendorOwnerId == request.auth.uid
+          || data.sellerUid == request.auth.uid
           || data.vendorId == request.auth.uid
+          || (data.vendorOwnerIds is list && request.auth.uid in data.vendorOwnerIds)
           || (me().vendorId is string && data.vendorId == me().vendorId)
+          || (me().vendorId is string && data.sellerId == me().vendorId)
+          || (me().vendorId is string && data.vendorIds is list && me().vendorId in data.vendorIds)
+          || (me().vendorId is string && data.sellerIds is list && me().vendorId in data.sellerIds)
         );
     }
 
@@ -121,9 +275,9 @@ service cloud.firestore {
           || data.sellerId == request.auth.uid
           || data.sellerUid == request.auth.uid
           || data.vendorUid == request.auth.uid
-          || (data.vendorIds is list && request.auth.uid in data.vendorIds)
           || (data.vendorOwnerIds is list && request.auth.uid in data.vendorOwnerIds)
           || (data.sellerIds is list && request.auth.uid in data.sellerIds)
+          || (data.vendorIds is list && request.auth.uid in data.vendorIds)
           || (me().vendorId is string && data.vendorId == me().vendorId)
           || (me().vendorId is string && data.sellerId == me().vendorId)
           || (me().vendorId is string && data.vendorIds is list && me().vendorId in data.vendorIds)
@@ -131,14 +285,22 @@ service cloud.firestore {
         );
     }
 
+    function deliveryPartnerPath(uid) {
+      return /databases/$(database)/documents/deliveryPartners/$(uid);
+    }
+
+    function deliveryPartnerDoc(uid) {
+      return get(deliveryPartnerPath(uid));
+    }
+
     function isDeliveryPartner() {
       return signedIn()
-        && exists(/databases/$(database)/documents/deliveryPartners/$(request.auth.uid))
+        && exists(deliveryPartnerPath(request.auth.uid))
         && (
-          get(/databases/$(database)/documents/deliveryPartners/$(request.auth.uid)).data.status == 'approved'
-          || get(/databases/$(database)/documents/deliveryPartners/$(request.auth.uid)).data.status == 'Approved'
+          deliveryPartnerDoc(request.auth.uid).data.status == 'approved'
+          || deliveryPartnerDoc(request.auth.uid).data.status == 'Approved'
         )
-        && get(/databases/$(database)/documents/deliveryPartners/$(request.auth.uid)).data.isActive != false;
+        && deliveryPartnerDoc(request.auth.uid).data.isActive != false;
     }
 
     function assignedDeliveryPartner(data) {
@@ -158,15 +320,107 @@ service cloud.firestore {
       return value is number && value > 0 && value <= 1000000;
     }
 
+    function orderAmount(data) {
+      return data.grandTotal is number
+        ? data.grandTotal
+        : (data.finalTotal is number ? data.finalTotal : data.total);
+    }
+
+    function isCodOrder(data) {
+      return data.paymentMethod in ['COD', 'cod', 'cash_on_delivery', 'cash on delivery'];
+    }
+
+    function deliveryOrderReadyForEarning(orderId) {
+      return orderId is string
+        && orderExists(orderId)
+        && orderDoc(orderId).data.deliveryPartnerId == request.auth.uid
+        && (
+          orderDoc(orderId).data.deliveryStatus == 'delivered'
+          || orderDoc(orderId).data.status == 'delivered'
+        )
+        && orderDoc(orderId).data.deliveryCharge is number;
+    }
+
+    function validRiderEarningCreate() {
+      return isDeliveryPartner()
+        && request.resource.data.keys().hasOnly([
+          'deliveryPartnerId',
+          'orderId',
+          'amount',
+          'paymentMethod',
+          'status',
+          'grandTotal',
+          'deliveryCharge',
+          'partnerSynced',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.deliveryPartnerId == request.auth.uid
+        && deliveryOrderReadyForEarning(request.resource.data.orderId)
+        && request.resource.data.amount == orderDoc(request.resource.data.orderId).data.deliveryCharge
+        && request.resource.data.deliveryCharge == orderDoc(request.resource.data.orderId).data.deliveryCharge
+        && request.resource.data.grandTotal == orderAmount(orderDoc(request.resource.data.orderId).data)
+        && request.resource.data.status == 'pending'
+        && request.resource.data.partnerSynced == false;
+    }
+
+    function validRiderMoneySync(partnerId) {
+      return signedIn()
+        && request.auth.uid == partnerId
+        && isDeliveryPartner()
+        && changedOnly([
+          'totalDeliveries',
+          'totalEarning',
+          'codDue',
+          'lastEarningSyncedAt',
+          'lastSyncedOrderId',
+          'updatedAt'
+        ])
+        && deliveryOrderReadyForEarning(request.resource.data.lastSyncedOrderId)
+        && (
+          !resource.data.keys().hasAny(['lastSyncedOrderId'])
+          || resource.data.lastSyncedOrderId != request.resource.data.lastSyncedOrderId
+        )
+        && request.resource.data.totalDeliveries == resource.data.totalDeliveries + 1
+        && request.resource.data.totalEarning == resource.data.totalEarning + orderDoc(request.resource.data.lastSyncedOrderId).data.deliveryCharge
+        && (
+          (
+            isCodOrder(orderDoc(request.resource.data.lastSyncedOrderId).data)
+            && request.resource.data.codDue == resource.data.codDue + orderAmount(orderDoc(request.resource.data.lastSyncedOrderId).data)
+          )
+          || (
+            !isCodOrder(orderDoc(request.resource.data.lastSyncedOrderId).data)
+            && request.resource.data.codDue == resource.data.codDue
+          )
+        );
+    }
+
+    function validRiderWithdrawPending(partnerId) {
+      return signedIn()
+        && request.auth.uid == partnerId
+        && isDeliveryPartner()
+        && changedOnly([
+          'pendingAmount',
+          'lastWithdrawRequestId',
+          'updatedAt'
+        ])
+        && request.resource.data.lastWithdrawRequestId is string
+        && exists(/databases/$(database)/documents/deliveryWithdraws/$(request.resource.data.lastWithdrawRequestId))
+        && get(/databases/$(database)/documents/deliveryWithdraws/$(request.resource.data.lastWithdrawRequestId)).data.deliveryPartnerId == request.auth.uid
+        && get(/databases/$(database)/documents/deliveryWithdraws/$(request.resource.data.lastWithdrawRequestId)).data.status == 'pending'
+        && request.resource.data.pendingAmount == resource.data.pendingAmount + get(/databases/$(database)/documents/deliveryWithdraws/$(request.resource.data.lastWithdrawRequestId)).data.amount;
+    }
+
     /* =========================
        Users
     ========================= */
 
     match /users/{uid} {
-      // ✅ Login/snapshot fix:
-      // App login flow may query/snapshot users collection after OTP/Google login.
-      // This allows signed-in users to read user profiles so login will not fail with permission-denied.
-      allow read: if signedIn();
+      // Secure read:
+      // A user can read only own profile.
+      // Admin/staff users list/read all users only with users.view permission.
+      allow get: if signedIn() && (request.auth.uid == uid || can('users.view'));
+      allow list: if can('users.view');
 
       // ✅ Login/signup fix:
       // A signed-in user can create their own normal profile document.
@@ -174,10 +428,7 @@ service cloud.firestore {
       // User cannot create admin/staff/superAdmin roles or sensitive fields.
       allow create: if signedIn()
         && request.auth.uid == uid
-        && (
-          !request.resource.data.keys().hasAny(['uid'])
-          || request.resource.data.uid == uid
-        )
+        && request.resource.data.uid == uid
         && (
           !request.resource.data.keys().hasAny(['role'])
           || request.resource.data.role in ['user', 'customer']
@@ -207,7 +458,9 @@ service cloud.firestore {
         && (
           !request.resource.data.keys().hasAny(['totalEarnings'])
           || request.resource.data.totalEarnings == 0
-        );
+        )
+        && (!request.resource.data.keys().hasAny(['whatsappOptIn']) || request.resource.data.whatsappOptIn == false)
+        && (!request.resource.data.keys().hasAny(['whatsappNumber']) || request.resource.data.whatsappNumber == '');
 
       allow update: if signedIn()
         && request.auth.uid == uid
@@ -226,6 +479,9 @@ service cloud.firestore {
           'isDeleted',
           'deletedAt'
         ])
+
+        && (!changedAny(['whatsappOptIn']) || request.resource.data.whatsappOptIn is bool)
+        && (!changedAny(['whatsappNumber']) || !request.resource.data.keys().hasAny(['whatsappNumber']) || request.resource.data.whatsappNumber.matches('^8801[0-9]{9}$'))
         && (!request.resource.data.keys().hasAny(['uid']) || request.resource.data.uid == uid);
 
       // ✅ Login profile refresh fix: allow user to refresh safe login/profile fields.
@@ -247,12 +503,18 @@ service cloud.firestore {
         ])
         && (
           !changedAny(['sellerStatus'])
-          || request.resource.data.sellerStatus in ['none', 'new', 'pending', 'submitted']
+          || (
+            resource.data.sellerStatus != 'approved'
+            && request.resource.data.sellerStatus in ['none', 'new', 'pending', 'submitted']
+          )
         )
         && (
           !changedAny(['vendorId'])
           || request.resource.data.vendorId == uid
         )
+
+        && (!changedAny(['whatsappOptIn']) || request.resource.data.whatsappOptIn is bool)
+        && (!changedAny(['whatsappNumber']) || !request.resource.data.keys().hasAny(['whatsappNumber']) || request.resource.data.whatsappNumber.matches('^8801[0-9]{9}$'))
         && (!request.resource.data.keys().hasAny(['uid']) || request.resource.data.uid == uid);
 
 
@@ -266,6 +528,7 @@ service cloud.firestore {
           'vendorId',
           'updatedAt'
         ])
+        && resource.data.sellerStatus != 'approved'
         && request.resource.data.vendorId == uid
         && request.resource.data.sellerStatus in ['pending', 'submitted'];
 
@@ -286,6 +549,7 @@ service cloud.firestore {
 
       // Blocking / unblocking users.
       allow update: if can('users.block')
+        && request.auth.uid != uid
         && changedOnly([
           'isActive',
           'isBanned',
@@ -298,6 +562,7 @@ service cloud.firestore {
 
       // Wallet / ChalakChar Cash adjustments.
       allow update: if can('wallet.edit')
+        && request.auth.uid != uid
         && changedOnly([
           'points',
           'totalEarnings',
@@ -307,11 +572,14 @@ service cloud.firestore {
         && !(resource.data.roles is list && 'superAdmin' in resource.data.roles);
 
       // Permission changes for staff/admin users.
+      // Non-super-admin cannot grant critical permissions.
       allow update: if can('users.permissions')
+        && request.auth.uid != uid
         && changedOnly([
           'permissions',
           'updatedAt'
         ])
+        && permissionsFieldValid()
         && (
           request.resource.data.role in ['staff', 'admin']
           || (request.resource.data.roles is list && (
@@ -319,28 +587,126 @@ service cloud.firestore {
           ))
         )
         && resource.data.role != 'superAdmin'
-        && !(resource.data.roles is list && 'superAdmin' in resource.data.roles);
+        && !(resource.data.roles is list && 'superAdmin' in resource.data.roles)
+        && (
+          isSuperAdmin()
+          || !requestHasDangerousPermissions()
+        );
 
-      // Role changes are admin/superAdmin only. Only superAdmin may create/modify superAdmin.
-      allow update: if isAdmin()
-        && changedAny(['role', 'roles', 'sellerStatus', 'vendorId', 'updatedAt'])
+      // Role changes.
+      // SuperAdmin can change any non-self user role.
+      // Non-super-admin with users.edit can only manage safe non-admin roles.
+      allow update: if request.auth.uid != uid
+        && changedOnly([
+          'role',
+          'roles',
+          'sellerStatus',
+          'vendorId',
+          'isVendor',
+          'isActive',
+          'isBanned',
+          'updatedAt'
+        ])
         && (
           isSuperAdmin()
           || (
-            request.resource.data.role != 'superAdmin'
+            can('users.edit')
+            && request.resource.data.role in ['user', 'staff', 'vendor', 'deliveryPartner']
+            && !(request.resource.data.roles is list && 'admin' in request.resource.data.roles)
             && !(request.resource.data.roles is list && 'superAdmin' in request.resource.data.roles)
+            && resource.data.role != 'admin'
             && resource.data.role != 'superAdmin'
+            && !(resource.data.roles is list && 'admin' in resource.data.roles)
+            && !(resource.data.roles is list && 'superAdmin' in resource.data.roles)
+          )
+          || (
+            (can('vendors.approve') || can('vendors.edit'))
+            && request.resource.data.role in ['user', 'vendor']
+            && request.resource.data.sellerStatus in ['approved', 'pending', 'submitted', 'rejected', 'suspended']
+            && !(request.resource.data.roles is list && 'admin' in request.resource.data.roles)
+            && !(request.resource.data.roles is list && 'superAdmin' in request.resource.data.roles)
+            && resource.data.role != 'admin'
+            && resource.data.role != 'superAdmin'
+            && !(resource.data.roles is list && 'admin' in resource.data.roles)
             && !(resource.data.roles is list && 'superAdmin' in resource.data.roles)
           )
         );
 
       allow delete: if isSuperAdmin();
 
+      match /wishlist/{productId} {
+              allow read, create, update, delete:
+                if signedIn() && request.auth.uid == uid;
+            }
+
       match /addresses/{addressId} {
         allow read, create, update, delete:
           if signedIn() && request.auth.uid == uid;
       }
     }
+
+    // match /users/{uid} শেষ
+    match /whatsapp_deliveries/{docId} {
+      allow read: if can('analytics.view') || can('marketing.view') || isSuperAdmin();
+      allow create, update, delete: if false;
+    }
+
+    match /marketing_outbox/{docId} {
+      allow read: if can('analytics.view') || can('notifications.view') || can('marketing.view');
+      allow update: if can('marketing.manage') || can('marketing.retry') || isSuperAdmin();
+      allow create, delete: if can('marketing.manage') || isSuperAdmin();
+    }
+
+    match /marketing_logs/{docId} {
+      allow read: if can('analytics.view') || can('notifications.view') || can('marketing.view');
+      allow create, update, delete: if can('marketing.manage') || isSuperAdmin();
+    }
+
+    match /product_marketing_scores/{docId} {
+      allow read: if can('analytics.view') || can('notifications.view') || can('marketing.view');
+      allow create, update, delete: if can('marketing.manage') || isSuperAdmin();
+    }
+
+    match /campaign_analytics/{docId} {
+      allow read: if can('analytics.view') || can('notifications.view') || can('marketing.view');
+      allow create, update, delete: if can('marketing.manage') || isSuperAdmin();
+    }
+
+    // TikTok integration — server-only collections (Admin SDK bypasses rules;
+    // these deny every direct client read/write). Client-readable status
+    // fields live on settings/app instead (tiktokConnectionStatus etc.).
+    match /tiktok_connections/{connectionId} {
+      allow read, write: if false;
+    }
+
+    match /tiktok_oauth_states/{stateId} {
+      allow read, write: if false;
+    }
+
+    match /tiktok_publish_jobs/{jobId} {
+      allow read: if can('analytics.view') || can('marketing.view') || isSuperAdmin();
+      allow create, update, delete: if false;
+    }
+
+    // Sanitized, server-derived status projection (see
+    // functions/tiktok/connectionStatusProjection.js) — this is the ONLY
+    // TikTok collection Flutter reads directly. It never contains tokens.
+    match /tiktok_connection_status/{connectionId} {
+      allow read: if can('analytics.view') || can('marketing.view') || isSuperAdmin();
+      allow create, update, delete: if false;
+    }
+
+    // Webhook event dedup ledger (functions/tiktok/webhookDedup.js) —
+    // server-only, no admin UI needs to read this.
+    match /tiktok_webhook_events/{eventId} {
+      allow read, write: if false;
+    }
+
+    match /user_marketing_profiles/{uid} {
+      allow read: if can('analytics.view') || can('notifications.view') || can('marketing.view') || request.auth.uid == uid;
+      allow create, update, delete: if can('marketing.manage') || isSuperAdmin();
+    }
+
 
     /* =========================
        Vendors
@@ -401,28 +767,21 @@ service cloud.firestore {
     }
 
     match /vendorWithdrawRequests/{requestId} {
-      allow read: if can('vendors.view')
-        || can('analytics.view')
-        || (
-          isVendor()
-          && (
-            resource.data.vendorId == request.auth.uid
-            || resource.data.vendorOwnerId == request.auth.uid
-            || (me().vendorId is string && resource.data.vendorId == me().vendorId)
-          )
-        );
+      allow read: if signedIn();
 
-      allow create: if isVendor()
-        && (
-          request.resource.data.vendorId == request.auth.uid
-          || request.resource.data.vendorOwnerId == request.auth.uid
-          || (me().vendorId is string && request.resource.data.vendorId == me().vendorId)
-        )
+      allow create: if signedIn()
         && request.resource.data.status == 'pending'
-        && validPositiveAmount(request.resource.data.amount);
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0;
 
-      allow update, delete: if can('vendors.edit') || can('vendors.approve');
+      allow update, delete: if isSuperAdmin()
+        || hasRole('admin')
+        || can('vendors.edit')
+        || can('vendors.approve')
+        || can('vendors.payouts');
     }
+
+
 
     match /vendorPayouts/{payoutId} {
       allow read: if can('vendors.view') || can('analytics.view');
@@ -457,64 +816,92 @@ service cloud.firestore {
       allow update: if signedIn()
         && (
           request.auth.uid == partnerId
+          || isSuperAdmin()
+          || hasRole('admin')
           || can('delivery.approve')
           || can('delivery.block')
+          || can('delivery.withdraw')
           || can('delivery.settle_cod')
-          || can('orders.settle_cod')
-          || can('orders.edit')
-        )
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'name',
-          'phone',
-          'preferredArea',
-          'vehicleType',
-          'address',
-          'note',
-          'nidNumber',
-          'nidFrontUrl',
-          'nidBackUrl',
-          'totalDeliveries',
-          'totalEarning',
-          'codDue',
-          'pendingAmount',
-          'withdrawnAmount',
-          'lastEarningSyncedAt',
-          'lastCodSettlementAt',
-          'updatedAt',
-          'status',
-          'isActive',
-          'approvedAt',
-          'rejectedAt',
-          'blockedAt',
-          'documentStatus'
-        ]);
+        );
 
       allow delete: if isSuperAdmin();
     }
-
     match /deliveryEarnings/{docId} {
       allow read: if signedIn();
 
+      // Easy safe earning rule:
+      // rider can create/update only own earning document.
       allow create: if signedIn()
         && request.resource.data.deliveryPartnerId == request.auth.uid;
 
       allow update: if signedIn()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'partnerSynced',
-          'updatedAt'
-        ]);
+        && (
+          resource.data.deliveryPartnerId == request.auth.uid
+          || request.resource.data.deliveryPartnerId == request.auth.uid
+        );
 
-      allow delete: if can('delivery.approve') || can('delivery.settle_cod');
+      allow delete: if can('delivery.approve')
+        || can('delivery.settle_cod')
+        || isSuperAdmin();
+    }
+
+    match /deliveryWithdraws/{withdrawId} {
+      allow read: if signedIn()
+        && (
+          can('delivery.view')
+          || can('delivery.withdraw')
+          || can('delivery.settle_cod')
+          || resource.data.deliveryPartnerId == request.auth.uid
+        );
+
+      allow create: if isDeliveryPartner()
+        && request.resource.data.keys().hasOnly([
+          'deliveryPartnerId',
+          'amount',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.deliveryPartnerId == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && validPositiveAmount(request.resource.data.amount);
+
+      allow update, delete: if can('delivery.withdraw')
+        || can('delivery.settle_cod')
+        || isSuperAdmin();
     }
 
     /* =========================
+       Products    /* =========================
        Products / categories / banners / coupons
     ========================= */
 
-    match /products/{productId} {
-      allow read: if true;
-      allow create, update, delete: if signedIn();
-    }
+match /products/{productId} {
+  allow read: if true;
+
+  allow create: if can('products.edit')
+    || (
+      signedIn()
+      && userExists(request.auth.uid)
+      && vendorProductCreateOwner(request.resource.data)
+    );
+
+  allow update: if can('products.edit')
+    || can('products.status')
+    || (
+      signedIn()
+      && userExists(request.auth.uid)
+      && ownsVendorProduct(resource.data)
+    );
+
+  allow delete: if can('products.delete')
+    || isSuperAdmin()
+    || (
+      signedIn()
+      && userExists(request.auth.uid)
+      && ownsVendorProduct(resource.data)
+    );
+}
 
     match /categories/{categoryId} {
       allow read: if true;
@@ -557,8 +944,12 @@ service cloud.firestore {
 
     match /orders/{orderId} {
       allow create: if signedIn();
-      allow read: if signedIn();
+
+      allow get: if signedIn();
+      allow list: if signedIn();
+
       allow update: if signedIn();
+
       allow delete: if isSuperAdmin();
     }
 

@@ -7,7 +7,6 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../services/image_upload_service.dart';
 import '../../services/category_service.dart';
-import '../../services/product_service.dart';
 
 class VendorProductsPage extends StatefulWidget {
   const VendorProductsPage({super.key});
@@ -23,12 +22,82 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
   String stockFilter = 'all';
   String statusFilter = 'all';
 
-  String get vendorId => FirebaseAuthSafe.currentUid;
+  String _vendorId = '';
+  bool _loadingVendor = true;
 
-  double _toDouble(dynamic value) {
-    if (value == null) return 0;
+  String get vendorId => _vendorId;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveVendorId();
+  }
+
+  Future<void> _resolveVendorId() async {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      if (!mounted) return;
+      setState(() => _loadingVendor = false);
+      return;
+    }
+
+    String resolved = '';
+
+    try {
+      final userDoc = await db.collection('users').doc(user.uid).get();
+      final userData = userDoc.data() ?? <String, dynamic>{};
+      final userVendorId = _text(userData['vendorId']);
+      final sellerStatus = _text(userData['sellerStatus']).toLowerCase();
+
+      if (userVendorId.isNotEmpty) {
+        final vendorDoc = await db.collection('vendors').doc(userVendorId).get();
+        final vendor = vendorDoc.data() ?? <String, dynamic>{};
+        final ownerId = _text(vendor['ownerId'] ?? vendor['userId']);
+        final status = _text(vendor['status']).toLowerCase();
+
+        if (vendorDoc.exists && ownerId == user.uid && (status == 'approved' || sellerStatus == 'approved')) {
+          resolved = userVendorId;
+        }
+      }
+
+      // Legacy fallback for old data where vendor document id was the Firebase Auth UID.
+      if (resolved.isEmpty) {
+        final directDoc = await db.collection('vendors').doc(user.uid).get();
+        final vendor = directDoc.data() ?? <String, dynamic>{};
+        final ownerId = _text(vendor['ownerId'] ?? vendor['userId']);
+        final status = _text(vendor['status']).toLowerCase();
+
+        if (directDoc.exists && ownerId == user.uid && status == 'approved') {
+          resolved = directDoc.id;
+        }
+      }
+
+      if (resolved.isEmpty) {
+        final q = await db
+            .collection('vendors')
+            .where('ownerId', isEqualTo: user.uid)
+            .where('status', isEqualTo: 'approved')
+            .limit(1)
+            .get();
+
+        if (q.docs.isNotEmpty) resolved = q.docs.first.id;
+      }
+    } catch (e) {
+      debugPrint('Vendor product vendorId resolve failed: $e');
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _vendorId = resolved;
+      _loadingVendor = false;
+    });
+  }
+
+  double _toDouble(dynamic value, [double fallback = 0]) {
+    if (value == null) return fallback;
     if (value is num) return value.toDouble();
-    return double.tryParse(value.toString()) ?? 0;
+    return double.tryParse(value.toString()) ?? fallback;
   }
 
   int _toInt(dynamic value) {
@@ -88,13 +157,13 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
   }
 
   Future<void> _toggleProduct(String id, bool active) async {
-    await db.collection('products').doc(id).set({
+    // Vendor can show/hide only their own approved product.
+    // Do not update approvalStatus, isPublished or showOnHome from vendor side.
+    await db.collection('products').doc(id).update({
       'isActive': active,
       'isVisible': active,
-      'isPublished': active,
-      'showOnHome': active,
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
   }
 
   Future<void> _deleteProduct(String id) async {
@@ -120,8 +189,19 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
   }
 
   Future<Map<String, dynamic>> _vendorInfo() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || vendorId.isEmpty) return {};
+
     final doc = await db.collection('vendors').doc(vendorId).get();
-    return doc.data() ?? {};
+    final data = doc.data() ?? <String, dynamic>{};
+    final ownerId = _text(data['ownerId'] ?? data['userId']);
+    final status = _text(data['status']).toLowerCase();
+
+    if (!doc.exists || ownerId != user.uid || status != 'approved') {
+      throw Exception('Vendor account not approved or not linked with this login.');
+    }
+
+    return data;
   }
 
   Future<void> _showProductDialog({
@@ -129,6 +209,7 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
     Map<String, dynamic>? data,
   }) async {
     final vendor = await _vendorInfo();
+    if (!mounted) return;
 
     final name = TextEditingController(text: _text(data?['name']));
     final generic = TextEditingController(text: _text(data?['generic']));
@@ -185,7 +266,7 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
                 if (imageUrl.isEmpty) imageUrl = url;
               });
             } catch (e) {
-              if (mounted) {
+              if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Image upload failed: $e')));
               }
             } finally {
@@ -219,74 +300,112 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
 
             for (final v in variants) {
               final n = v['name']!.text.trim().toLowerCase();
-
               if (n.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Variant name required')),
-                );
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Variant name required')));
                 return;
               }
-
               if (variantNames.contains(n)) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Duplicate variant: $n')),
-                );
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Duplicate variant: $n')));
                 return;
               }
-
               variantNames.add(n);
             }
 
+            // ১. রুলস-ফ্রেন্ডলি ভ্যারিয়েন্ট লিস্ট তৈরি (কোনো এক্সট্রা ইন্টারনাল আইডি ছাড়া)
             final variantList = variants.map((v) {
-              final variantName = v['name']!.text.trim().isEmpty ? 'Default' : v['name']!.text.trim();
               return {
-                'name': variantName,
+                'name': v['name']!.text.trim().isEmpty ? 'Default' : v['name']!.text.trim(),
                 'price': _toDouble(v['price']!.text),
                 'mrp': _toDouble(v['mrp']!.text),
                 'stock': _toInt(v['stock']!.text),
               };
             }).toList();
 
+            final firstVariant = variantList.first;
+            final totalStock = variants.fold<int>(
+              0,
+                  (currentTotal, v) => currentTotal + _toInt(v['stock']),
+            );
+            final firstPrice = _toDouble(firstVariant['price']);
+            final firstMrp = _toDouble(firstVariant['mrp'], firstPrice);
+            final firstUnit = _text(firstVariant['name'], 'Default');
+
             setDialogState(() => saving = true);
 
             try {
-              final vendorName = _text(vendor['shopName'], 'Vendor');
+              final vendorShopName = _text(vendor['shopName'], 'Vendor');
+              final ownerUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+              if (ownerUid.isEmpty) {
+                throw Exception('Please login again before saving product.');
+              }
 
-              final payload = ProductService.buildProductPayload(
-                name: productName,
-                category: category!,
-                generic: generic.text.trim(),
-                manufacturer: manufacturer.text.trim(),
-                type: type.text.trim(),
-                strength: strength.text.trim(),
-                overview: overview.text.trim(),
-                image: imageUrl,
-                images: images,
-                isActive: id == null ? false : isActive,
-                isMarketplace: true,
-                vendorId: vendorId,
-                vendorName: vendorName,
-                approvalStatus: id == null ? 'pending' : _text(data?['approvalStatus'], 'pending'),
-                variants: variantList,
-                includeCreatedAt: id == null,
-              );
+              // ২. সরাসরি কাস্টম ক্লিন পেলোড তৈরি (যা সিকিউরিটি রুলস ১০০% পাস করবে)
+              final Map<String, dynamic> cleanPayload = {
+                'name': productName,
+                'category': category!,
+                'generic': generic.text.trim(),
+                'manufacturer': manufacturer.text.trim(),
+                'type': type.text.trim(),
+                'strength': strength.text.trim(),
+                'overview': overview.text.trim(),
+                'image': imageUrl,
+                'imageUrl': imageUrl,
+                'images': images,
+                'variants': variantList,
 
-              final approved = _text(payload['approvalStatus'], 'pending') == 'approved';
-              final active = approved && payload['isActive'] == true;
+                // Top-level product fields required by product cards, cart,
+                // admin approval page and Firestore rules/schema validators.
+                'price': firstPrice,
+                'piecePrice': firstPrice,
+                'oldPrice': firstMrp,
+                'mrp': firstMrp,
+                'unit': firstUnit,
+                'stock': totalStock,
+                'vendorName': vendorShopName,
+                'shopName': vendorShopName,
 
-              payload['isActive'] = active;
-              payload['showOnHome'] = active;
-              payload['isVisible'] = active;
-              payload['isPublished'] = active;
+                // ওনারশিপ এবং রুলস ভ্যালিডেশন ফিল্ডস
+                'vendorId': vendorId,
+                'sellerId': vendorId,
+                'vendorOwnerId': ownerUid,
+                'vendorOwnerIds': [ownerUid],
+                'sellerUid': ownerUid,
 
-              await ProductService.saveProduct(
-                productId: id,
-                payload: payload,
-              );
+                // New vendor products must wait for admin approval.
+                // Existing approved products keep vendor-selected active/visible status.
+                'isMarketplace': true,
+                'approvalStatus': id == null ? 'pending' : dialogApprovalStatus,
+                'isActive': id != null && dialogApprovalStatus == 'approved' ? isActive : false,
+                'showOnHome': id != null && dialogApprovalStatus == 'approved' ? isActive : false,
+                'isVisible': id != null && dialogApprovalStatus == 'approved' ? isActive : false,
+                'isPublished': id != null && dialogApprovalStatus == 'approved' ? isActive : false,
+
+                'updatedAt': FieldValue.serverTimestamp(),
+              };
+
+              if (id == null) {
+                // নতুন প্রোডাক্ট তৈরির সময় ক্রিয়েট টাইম যুক্ত করা
+                cleanPayload['createdAt'] = FieldValue.serverTimestamp();
+                await db.collection('products').add(cleanPayload);
+              } else {
+                // আপডেট করার সময় ওনারশিপ ফিল্ডগুলো রুলস অনুযায়ী পরিবর্তন করা সম্পূর্ণ নিষিদ্ধ (!changedAny)
+                cleanPayload.remove('vendorId');
+                cleanPayload.remove('sellerId');
+                cleanPayload.remove('vendorOwnerId');
+                cleanPayload.remove('vendorOwnerIds');
+                cleanPayload.remove('sellerUid');
+                cleanPayload.remove('isMarketplace');
+                cleanPayload.remove('approvalStatus');
+                cleanPayload.remove('isPublished');
+                cleanPayload.remove('showOnHome');
+
+                await db.collection('products').doc(id).update(cleanPayload);
+              }
 
               if (context.mounted) Navigator.pop(context);
             } catch (e) {
-              if (mounted) {
+              debugPrint('SAVE ERROR: $e');
+              if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $e')));
               }
             } finally {
@@ -301,9 +420,11 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
               child: SingleChildScrollView(
                 child: Column(
                   children: [
-                    Row(
-                      children: [
-                        GestureDetector(
+                    LayoutBuilder(
+                      builder: (context, c) {
+                        final isMobileDialog = c.maxWidth < 520;
+
+                        final imageBox = GestureDetector(
                           onTap: uploading ? null : () => pickImage(main: true),
                           child: Container(
                             height: 110,
@@ -321,43 +442,95 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
                               child: Image.network(
                                 imageUrl,
                                 fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => const Icon(Icons.broken_image),
+                                errorBuilder: (_, __, ___) =>
+                                const Icon(Icons.broken_image),
                               ),
                             )
                                 : const Icon(Icons.add_a_photo_rounded, size: 36),
                           ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              ElevatedButton.icon(
-                                onPressed: uploading ? null : () => pickImage(main: true),
-                                icon: const Icon(Icons.image_rounded),
-                                label: const Text('Main Image'),
-                              ),
-                              OutlinedButton.icon(
-                                onPressed: uploading ? null : () => pickImage(main: false),
-                                icon: const Icon(Icons.collections_rounded),
-                                label: const Text('Add Gallery'),
-                              ),
-                              SwitchListTile(
-                                contentPadding: EdgeInsets.zero,
-                                title: const Text('Active Product'),
-                                subtitle: dialogApprovalStatus == 'approved'
-                                    ? null
-                                    : const Text('Admin approval required before active'),
-                                value: isActive,
-                                onChanged: dialogApprovalStatus == 'approved'
-                                    ? (v) => setDialogState(() => isActive = v)
-                                    : null,
-                              ),
-                            ],
+                        );
+
+                        final imageButtons = Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ElevatedButton.icon(
+                              onPressed: uploading ? null : () => pickImage(main: true),
+                              icon: const Icon(Icons.image_rounded),
+                              label: const Text('Main Image'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: uploading ? null : () => pickImage(main: false),
+                              icon: const Icon(Icons.collections_rounded),
+                              label: const Text('Add Gallery'),
+                            ),
+                          ],
+                        );
+
+                        final activeBox = Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
                           ),
-                        ),
-                      ],
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: Colors.grey.shade300),
+                          ),
+                          child: SwitchListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text(
+                              'Active Product',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: dialogApprovalStatus == 'approved'
+                                ? null
+                                : const Text(
+                              'Waiting for admin approval',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            value: isActive,
+                            onChanged: dialogApprovalStatus == 'approved'
+                                ? (v) => setDialogState(() => isActive = v)
+                                : null,
+                          ),
+                        );
+
+                        if (isMobileDialog) {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              imageBox,
+                              const SizedBox(height: 12),
+                              imageButtons,
+                              const SizedBox(height: 12),
+                              activeBox,
+                            ],
+                          );
+                        }
+
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            imageBox,
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  imageButtons,
+                                  const SizedBox(height: 12),
+                                  activeBox,
+                                ],
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                     if (images.isNotEmpty) ...[
                       const SizedBox(height: 12),
@@ -475,7 +648,7 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
                         }
 
                         return DropdownButtonFormField<String>(
-                          value: category,
+                          initialValue: category,
                           decoration: const InputDecoration(
                             labelText: 'Category',
                             border: OutlineInputBorder(),
@@ -621,8 +794,16 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_loadingVendor) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     if (vendorId.isEmpty) {
-      return const Scaffold(body: Center(child: Text('Vendor login required')));
+      return const Scaffold(
+        body: Center(
+          child: Text('Vendor account not found or not approved. Please contact admin.'),
+        ),
+      );
     }
 
     return Scaffold(
@@ -877,5 +1058,3 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
 class FirebaseAuthSafe {
   static String get currentUid => FirebaseAuth.instance.currentUser?.uid ?? '';
 }
-
-

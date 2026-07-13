@@ -8,6 +8,7 @@ import 'auth/login_page.dart';
 import 'settings_page.dart';
 import 'user/delivery/delivery_partner_apply_page.dart';
 import 'user/help_center_page.dart';
+import 'user/chat_screen.dart' show ChatPanel;
 import 'user/home_page.dart';
 import 'user/my_lists_page.dart';
 import 'user/profile/my_address_page.dart';
@@ -36,6 +37,7 @@ class _MainNavigationState extends State<MainNavigation> {
 
   int _currentIndex = 0;
   bool _loginDialogOpen = false;
+  bool _chatOpen = false;
 
   @override
   void initState() {
@@ -549,6 +551,7 @@ class _MainNavigationState extends State<MainNavigation> {
   Widget _buildUserShell({required String role}) {
     final double width = MediaQuery.of(context).size.width;
     final bool showBottomNav = width < 1024;
+    final bool isMobileWidth = width < 600;
 
     final pages = [
       const ProductHomePage(),
@@ -557,8 +560,53 @@ class _MainNavigationState extends State<MainNavigation> {
     ];
 
     return Scaffold(
-      body: IndexedStack(index: _currentIndex, children: pages),
+      body: Stack(
+        children: [
+          IndexedStack(index: _currentIndex, children: pages),
+          if (_chatOpen) _chatOverlay(isMobileWidth: isMobileWidth),
+        ],
+      ),
       bottomNavigationBar: showBottomNav ? _bottomNavigationBar() : null,
+      floatingActionButton: FloatingActionButton(
+        heroTag: 'ai_chat_fab',
+        backgroundColor: const Color(0xFF32A8C7),
+        tooltip: _chatOpen ? 'বন্ধ করুন' : 'AI সহকারী',
+        onPressed: () => setState(() => _chatOpen = !_chatOpen),
+        child: Icon(
+          _chatOpen ? Icons.keyboard_arrow_down_rounded : Icons.chat_bubble_rounded,
+          color: Colors.white,
+        ),
+      ),
+    );
+  }
+
+  /// Floating chat overlay, anchored bottom-right like a Messenger-style
+  /// chat bubble panel. Never navigates to a new route — closing just
+  /// hides this overlay so the page behind it stays put.
+  Widget _chatOverlay({required bool isMobileWidth}) {
+    void close() => setState(() => _chatOpen = false);
+
+    final panel = Material(
+      elevation: 14,
+      borderRadius: BorderRadius.circular(16),
+      clipBehavior: Clip.antiAlias,
+      child: ChatPanel(onClose: close),
+    );
+
+    if (isMobileWidth) {
+      return Positioned(
+        left: 10,
+        right: 10,
+        top: 56,
+        bottom: 92,
+        child: panel,
+      );
+    }
+
+    return Positioned(
+      right: 20,
+      bottom: 92,
+      child: SizedBox(width: 380, height: 560, child: panel),
     );
   }
 

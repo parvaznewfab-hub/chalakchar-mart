@@ -7,6 +7,8 @@ import '../../services/notification_service.dart';
 import 'admin_analytics_page.dart';
 import 'admin_doctor_appointments_page.dart';
 import 'admin_notifications_page.dart';
+import 'admin_marketing_page.dart';
+import 'tiktok_publish_queue_page.dart';
 import 'admin_order_page.dart';
 import 'admin_lists_page.dart';
 import 'app_settings_page.dart';
@@ -16,7 +18,6 @@ import 'manage_coupons_page.dart';
 import 'manage_doctor_departments_page.dart';
 import 'manage_doctors_page.dart';
 import 'manage_products_page.dart';
-import 'manage_referrals_page.dart';
 import 'admin_users_page.dart';
 import 'admin_vendors_page.dart';
 import 'admin_vendor_payout_page.dart';
@@ -54,6 +55,18 @@ class _AdminDashboardState extends State<AdminDashboard> {
       title: 'Notifications',
       icon: Icons.notifications_active_rounded,
       permission: 'notifications.view',
+    ),
+    _AdminMenuItem(
+      key: 'marketing',
+      title: 'Marketing Center',
+      icon: Icons.campaign_rounded,
+      permission: 'marketing.view',
+    ),
+    _AdminMenuItem(
+      key: 'tiktokPublishQueue',
+      title: 'TikTok Publish Queue',
+      icon: Icons.music_note_rounded,
+      permission: 'marketing.manage',
     ),
     _AdminMenuItem(
       key: 'users',
@@ -114,12 +127,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
       title: 'Coupons',
       icon: Icons.confirmation_number_rounded,
       permission: 'coupons.view',
-    ),
-    _AdminMenuItem(
-      key: 'referrals',
-      title: 'Referrals',
-      icon: Icons.share_rounded,
-      permission: 'referrals.view',
     ),
     _AdminMenuItem(
       key: 'doctorDept',
@@ -308,6 +315,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
         return const AdminAnalyticsPage();
       case 'notifications':
         return const AdminNotificationsPage();
+      case 'marketing':
+        return const AdminMarketingPage();
+      case 'tiktokPublishQueue':
+        return const TikTokPublishQueuePage();
       case 'users':
         return const AdminUsersPage();
       case 'vendors':
@@ -328,8 +339,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
         return const AdminListsPage();
       case 'coupons':
         return const ManageCouponsPage();
-      case 'referrals':
-        return const ManageReferralsPage();
       case 'doctorDept':
         return const ManageDoctorDepartmentsPage();
       case 'doctors':
@@ -350,8 +359,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
           canLists: _can(userData, 'lists.view'),
           canCoupons: _can(userData, 'coupons.view'),
           canNotifications: _can(userData, 'notifications.view'),
+          canMarketing: _can(userData, 'marketing.view'),
           canAnalytics: _can(userData, 'analytics.view'),
           onNotifyTap: () => _selectMenu('notifications'),
+          onMarketingTap: () => _selectMenu('marketing'),
           onAnalyticsTap: () => _selectMenu('analytics'),
           onUsersTap: () => _selectMenu('users'),
           onOrdersTap: () => _selectMenu('orders'),
@@ -625,8 +636,10 @@ class _DashboardHome extends StatefulWidget {
   final bool canLists;
   final bool canCoupons;
   final bool canNotifications;
+  final bool canMarketing;
   final bool canAnalytics;
   final VoidCallback onNotifyTap;
+  final VoidCallback onMarketingTap;
   final VoidCallback onAnalyticsTap;
   final VoidCallback onUsersTap;
   final VoidCallback onOrdersTap;
@@ -642,8 +655,10 @@ class _DashboardHome extends StatefulWidget {
     required this.canLists,
     required this.canCoupons,
     required this.canNotifications,
+    required this.canMarketing,
     required this.canAnalytics,
     required this.onNotifyTap,
+    required this.onMarketingTap,
     required this.onAnalyticsTap,
     required this.onUsersTap,
     required this.onOrdersTap,
@@ -690,6 +705,11 @@ class _DashboardHomeState extends State<_DashboardHome> {
         db.collection('notifications').where('isRead', isEqualTo: false).limit(300),
       );
     }
+    if (widget.canMarketing) {
+      add('marketingOutbox', db.collection('marketing_outbox').limit(500));
+      add('marketingLogs', db.collection('marketing_logs').limit(500));
+      add('marketingScores', db.collection('product_marketing_scores').limit(500));
+    }
     if (widget.canUsers) add('referrals', db.collection('referrals').limit(500));
     if (widget.canUsers) {
       add('deliveryPartners', db.collection('deliveryPartners').limit(500));
@@ -708,6 +728,9 @@ class _DashboardHomeState extends State<_DashboardHome> {
     final coupons = map['coupons'] ?? [];
     final vendors = map['vendors'] ?? [];
     final unreadNotifications = map['notifications'] ?? [];
+    final marketingOutbox = map['marketingOutbox'] ?? [];
+    final marketingLogs = map['marketingLogs'] ?? [];
+    final marketingScores = map['marketingScores'] ?? [];
     final referrals = map['referrals'] ?? [];
     final deliveryPartners = map['deliveryPartners'] ?? [];
 
@@ -780,6 +803,9 @@ class _DashboardHomeState extends State<_DashboardHome> {
       'approvedVendors': approvedVendors,
       'pendingVendors': pendingVendors,
       'unreadNotifications': unreadNotifications.length,
+      'marketingOutbox': marketingOutbox.length,
+      'marketingLogs': marketingLogs.length,
+      'marketingScores': marketingScores.length,
       'pendingReferrals': pendingReferrals,
       'approvedDeliveryPartners': approvedDeliveryPartners,
       'pendingDeliveryPartners': pendingDeliveryPartners,
@@ -961,6 +987,32 @@ class _DashboardHomeState extends State<_DashboardHome> {
                         onTap: widget.onNotifyTap,
                       ),
                     );
+                  }
+
+                  if (widget.canMarketing) {
+                    cards.addAll([
+                      _StatCard(
+                        title: 'Marketing Queue',
+                        value: '${stats['marketingOutbox'] ?? 0}',
+                        icon: Icons.campaign_rounded,
+                        color: Colors.pink,
+                        onTap: widget.onMarketingTap,
+                      ),
+                      _StatCard(
+                        title: 'Marketing Logs',
+                        value: '${stats['marketingLogs'] ?? 0}',
+                        icon: Icons.history_rounded,
+                        color: Colors.indigo,
+                        onTap: widget.onMarketingTap,
+                      ),
+                      _StatCard(
+                        title: 'Product Scores',
+                        value: '${stats['marketingScores'] ?? 0}',
+                        icon: Icons.trending_up_rounded,
+                        color: Colors.green,
+                        onTap: widget.onMarketingTap,
+                      ),
+                    ]);
                   }
 
                   if (widget.canLists) {

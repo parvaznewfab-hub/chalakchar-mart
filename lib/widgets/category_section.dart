@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../widgets/product_card.dart';
 import '../services/firebase_service.dart';
-import '../pages/user/category_products_page.dart';
+
 
 class CategorySection extends StatelessWidget {
   final String title;
@@ -36,11 +36,9 @@ class CategorySection extends StatelessWidget {
               ),
               GestureDetector(
                 onTap: () {
-                  Navigator.push(
+                  Navigator.pushNamed(
                     context,
-                    MaterialPageRoute(
-                      builder: (_) => CategoryProductsPage(category: title),
-                    ),
+                    '/category/${title.toLowerCase().replaceAll(" ", "-")}',
                   );
                 },
                 child: const Text(
@@ -57,7 +55,7 @@ class CategorySection extends StatelessWidget {
         ),
 
         SizedBox(
-          height: 195,
+          height: 205,
           child: StreamBuilder(
             stream: FirebaseService.getProducts(title, limit: limit),
             builder: (context, snapshot) {

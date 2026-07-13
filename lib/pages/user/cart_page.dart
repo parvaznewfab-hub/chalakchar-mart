@@ -1220,7 +1220,7 @@ class _CartPageState extends State<CartPage> {
                         ),
                         Switch(
                           value: _useChalakCharCash,
-                          activeColor: Colors.teal,
+                          activeThumbColor: Colors.teal,
                           onChanged: (value) {
                             setState(() {
                               _useChalakCharCash = value;

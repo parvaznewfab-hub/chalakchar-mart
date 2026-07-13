@@ -14,6 +14,8 @@ import '../../services/image_upload_service.dart';
 import '../../services/product_service.dart';
 import '../../services/ai_product_optimizer_service.dart';
 import '../../widgets/ai_product_preview_dialog.dart';
+import '../../services/marketing_settings_service.dart';
+import '../../services/marketing_queue_service.dart';
 
 class ManageProductsPage extends StatefulWidget {
   const ManageProductsPage({super.key});
@@ -119,6 +121,40 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
       rethrow;
     }
   }
+
+  String? _youtubeVideoId(String value) {
+    final input = value.trim();
+    if (input.isEmpty) return null;
+
+    if (RegExp(r'^[a-zA-Z0-9_-]{11}$').hasMatch(input)) return input;
+
+    final uri = Uri.tryParse(input);
+    if (uri == null) return null;
+
+    final host = uri.host.toLowerCase();
+    final segments = uri.pathSegments.where((e) => e.trim().isNotEmpty).toList();
+
+    if (host.contains('youtu.be')) {
+      return segments.isNotEmpty ? segments.first : null;
+    }
+
+    if (host.contains('youtube.com') || host.contains('youtube-nocookie.com')) {
+      final watchId = uri.queryParameters['v'];
+      if (watchId != null && watchId.trim().isNotEmpty) return watchId.trim();
+
+      for (final marker in ['embed', 'shorts', 'live']) {
+        final index = segments.indexOf(marker);
+        if (index != -1 && segments.length > index + 1) return segments[index + 1];
+      }
+    }
+
+    return null;
+  }
+
+  String _youtubeThumbnail(String videoId) {
+    return 'https://img.youtube.com/vi/$videoId/hqdefault.jpg';
+  }
+
 
   Future<void> _pickCSVFile() async {
     if (_denyIf(!canBulkProducts, 'You do not have products.bulk permission.')) return;
@@ -287,6 +323,7 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
+              final dialogNavigator = Navigator.of(context);
               try {
                 final raw = jsonDecode(controller.text);
                 if (raw is! List) throw Exception('JSON must be a list');
@@ -335,7 +372,7 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                   count++;
                 }
 
-                if (context.mounted) Navigator.pop(context);
+                if (dialogNavigator.mounted) dialogNavigator.pop();
                 _snack('$count products uploaded from JSON');
               } catch (e) {
                 _snack('JSON error: $e', isError: true);
@@ -360,7 +397,17 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
     final type = TextEditingController(text: _text(data?['type']));
     final strength = TextEditingController(text: _text(data?['strength']));
     final overview = TextEditingController(text: _text(data?['overview']));
-    final videoUrl = TextEditingController(text: _text(data?['videoUrl']));
+    final videoUrl = TextEditingController(
+      text: _text(
+        data?['videoUrl'] ??
+            data?['youtubeUrl'] ??
+            data?['youtubeLink'] ??
+            data?['videoLink'],
+      ),
+    );
+    String youtubeVideoId = _text(data?['youtubeVideoId']);
+    String videoThumbnailUrl = _text(data?['videoThumbnailUrl']);
+    String videoDuration = _text(data?['videoDuration']);
 
     String? category = _text(data?['category']).isEmpty ? null : _text(data?['category']);
     String imageUrl = _text(data?['image']);
@@ -369,9 +416,53 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
     bool saving = false;
     bool uploading = false;
     bool aiLoading = false;
+    bool aiImageLoading = false;
+    bool aiStudioLoading = false;
 
     String banglaTitle = _text(data?['banglaTitle']);
+    String banglaDescription = _text(data?['banglaDescription']);
     List<String> seoTags = List<String>.from(data?['seoTags'] ?? []);
+
+    String facebookCaption = _text(data?['facebookCaption']);
+    String whatsappCaption = _text(data?['whatsappCaption']);
+    final marketingCaptionController = TextEditingController(
+      text: _text(
+        data?['marketingCaption'] ??
+            data?['facebookCaption'] ??
+            data?['whatsappCaption'],
+      ),
+    );
+
+    final existingMarketingChannels = data != null && data['marketingChannels'] is Map
+        ? Map<String, dynamic>.from(data['marketingChannels'] as Map)
+        : <String, dynamic>{};
+
+    bool marketingEnabled = data == null
+        ? true
+        : data['autoMarketingDisabled'] != true;
+    bool marketingQueue = true;
+    bool marketingPush = existingMarketingChannels.isEmpty
+        ? true
+        : (existingMarketingChannels['fcm'] == true ||
+        existingMarketingChannels['push'] == true);
+    bool marketingInApp = existingMarketingChannels.isEmpty
+        ? true
+        : existingMarketingChannels['inApp'] == true;
+    bool marketingFacebook = existingMarketingChannels['facebook'] == true;
+    bool marketingInstagram = existingMarketingChannels['instagram'] == true;
+    bool marketingWhatsapp = existingMarketingChannels['whatsapp'] == true;
+    bool marketingMessenger = existingMarketingChannels['messenger'] == true;
+    bool marketingTiktok = existingMarketingChannels['tiktok'] == true;
+    String marketingAudience = _text(data?['marketingAudience'], 'everyone');
+    String marketingPublishMode = _text(data?['marketingPublishMode'], 'now');
+    DateTime? marketingScheduledAt;
+
+    String metaTitle = _text(data?['metaTitle']);
+    String metaDescription = _text(data?['metaDescription']);
+    List<String> searchKeywords = List<String>.from(data?['searchKeywords'] ?? []);
+    String suggestedCategory = _text(data?['suggestedCategory']);
+    String suggestedSubCategory = _text(data?['suggestedSubCategory']);
+    String productType = _text(data?['productType']);
 
     List<Map<String, TextEditingController>> variantControllers = [];
 
@@ -395,6 +486,8 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
         'stock': TextEditingController(text: _toInt(data?['stock']).toString()),
       });
     }
+
+    final pageContext = context;
 
     await showDialog(
       context: context,
@@ -436,6 +529,311 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
               });
             });
           }
+          Future<void> applySuggestedCategory(String value) async {
+            final suggested = value.trim();
+            if (suggested.isEmpty) return;
+
+            final exists = await db
+                .collection('categories')
+                .where('name', isEqualTo: suggested)
+                .limit(1)
+                .get();
+
+            if (exists.docs.isNotEmpty) {
+              setDialogState(() => category = suggested);
+              return;
+            }
+
+            if (!pageContext.mounted) return;
+
+            final create = await showDialog<bool>(
+              context: pageContext,
+              builder: (_) => AlertDialog(
+                title: const Text('Create AI Suggested Category?'),
+                content: Text(
+                  'AI suggested "$suggested", but this category does not exist. Create it now?',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () => Navigator.pop(context, true),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Create'),
+                  ),
+                ],
+              ),
+            );
+
+            if (create == true) {
+              await FirebaseService.addCategory(suggested, 999, '');
+
+              if (!pageContext.mounted) return;
+
+              setDialogState(() => category = suggested);
+              _snack('Category "$suggested" created');
+            }
+          }
+
+          Future<void> createProductFromImage() async {
+            if (aiImageLoading || saving || uploading) return;
+
+            setDialogState(() => aiImageLoading = true);
+
+            try {
+              String targetImageUrl = imageUrl;
+
+              if (targetImageUrl.trim().isEmpty) {
+                final picked = await ImagePicker().pickImage(
+                  source: ImageSource.gallery,
+                  imageQuality: 85,
+                );
+
+                if (picked == null) return;
+
+                targetImageUrl = await _uploadPickedImage(picked);
+
+                setDialogState(() {
+                  imageUrl = targetImageUrl;
+                  if (!images.contains(targetImageUrl)) images.add(targetImageUrl);
+                });
+              }
+
+              final result = await AIProductOptimizerService.optimizeFromImage(
+                imageUrl: targetImageUrl,
+                hintTitle: name.text.trim(),
+                hintCategory: category ?? '',
+              );
+
+              if (!pageContext.mounted) return;
+
+              if (result == null) {
+                _snack('AI image analysis failed. Please try again.', isError: true);
+                return;
+              }
+
+              await showDialog(
+                context: pageContext,
+                builder: (_) => AIProductPreviewDialog(
+                  title: result.title,
+                  banglaTitle: result.banglaTitle,
+                  description: result.description,
+                  banglaDescription: result.banglaDescription,
+                  seoTags: result.seoTags,
+                  facebookCaption: result.facebookCaption,
+                  whatsappCaption: result.whatsappCaption,
+                  metaTitle: result.metaTitle,
+                  metaDescription: result.metaDescription,
+                  suggestedCategory: result.suggestedCategory,
+                  suggestedSubCategory: result.suggestedSubCategory,
+                  productType: result.productType,
+                  searchKeywords: result.searchKeywords,
+                  onApply: () {
+                    if (!mounted) return;
+
+                    if (result.title.trim().isNotEmpty) name.text = result.title.trim();
+                    overview.text = result.banglaDescription.isNotEmpty
+                        ? result.banglaDescription
+                        : result.description;
+
+                    setDialogState(() {
+                      banglaTitle = result.banglaTitle;
+                      banglaDescription = result.banglaDescription;
+                      seoTags = result.seoTags;
+                      facebookCaption = result.facebookCaption;
+                      whatsappCaption = result.whatsappCaption;
+                      metaTitle = result.metaTitle;
+                      metaDescription = result.metaDescription;
+                      searchKeywords = result.searchKeywords;
+                      suggestedCategory = result.suggestedCategory;
+                      suggestedSubCategory = result.suggestedSubCategory;
+                      productType = result.productType;
+
+                      if (type.text.trim().isEmpty &&
+                          result.productType.trim().isNotEmpty) {
+                        type.text = result.productType.trim();
+                      }
+                    });
+
+                    if ((category == null || category!.trim().isEmpty) &&
+                        result.suggestedCategory.trim().isNotEmpty) {
+                      applySuggestedCategory(result.suggestedCategory);
+                    }
+                  },
+                ),
+              );
+            } catch (e, s) {
+              debugPrint('AI image product error: $e');
+              debugPrintStack(stackTrace: s);
+              if (mounted) {
+                final message = e.toString().replaceFirst('Exception:', '').trim();
+                _snack(message.isEmpty ? 'AI image analysis failed' : message, isError: true);
+              }
+            } finally {
+              if (mounted) setDialogState(() => aiImageLoading = false);
+            }
+          }
+
+          Future<void> openAIImageStudio() async {
+            if (aiStudioLoading || saving || uploading) return;
+
+            if (imageUrl.trim().isEmpty) {
+              _snack('Please upload or select a main image first.', isError: true);
+              return;
+            }
+
+            final selectedStyle = await showDialog<String>(
+              context: pageContext,
+              builder: (_) => SimpleDialog(
+                title: const Text('AI Product Image Studio'),
+                children: [
+                  SimpleDialogOption(
+                    onPressed: () => Navigator.pop(context, 'white_background'),
+                    child: const ListTile(
+                      leading: Icon(Icons.photo_size_select_actual_rounded),
+                      title: Text('White Background'),
+                      subtitle: Text('Clean ecommerce product image'),
+                    ),
+                  ),
+                  SimpleDialogOption(
+                    onPressed: () => Navigator.pop(context, 'studio'),
+                    child: const ListTile(
+                      leading: Icon(Icons.light_mode_rounded),
+                      title: Text('Studio Product Photo'),
+                      subtitle: Text('Premium lighting and clean shadow'),
+                    ),
+                  ),
+                  SimpleDialogOption(
+                    onPressed: () => Navigator.pop(context, 'lifestyle'),
+                    child: const ListTile(
+                      leading: Icon(Icons.local_florist_rounded),
+                      title: Text('Lifestyle Image'),
+                      subtitle: Text('Natural product usage scene'),
+                    ),
+                  ),
+                  SimpleDialogOption(
+                    onPressed: () => Navigator.pop(context, 'human_model'),
+                    child: const ListTile(
+                      leading: Icon(Icons.accessibility_new_rounded),
+                      title: Text('Human Model Wearing / Using'),
+                      subtitle: Text('For shoes, clothes, accessories etc.'),
+                    ),
+                  ),
+                  SimpleDialogOption(
+                    onPressed: () => Navigator.pop(context, 'social_banner'),
+                    child: const ListTile(
+                      leading: Icon(Icons.campaign_rounded),
+                      title: Text('Social Media Banner'),
+                      subtitle: Text('Ad-ready image composition'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+
+            if (selectedStyle == null || selectedStyle.trim().isEmpty) return;
+
+            setDialogState(() => aiStudioLoading = true);
+
+            try {
+              final generatedUrl = await AIProductOptimizerService.generateProductImage(
+                imageUrl: imageUrl,
+                productName: name.text.trim(),
+                style: selectedStyle,
+              );
+
+              if (!pageContext.mounted) return;
+
+              if (generatedUrl == null || generatedUrl.trim().isEmpty) {
+                _snack('AI image generation failed. Please try again.', isError: true);
+                return;
+              }
+
+              final action = await showDialog<String>(
+                context: pageContext,
+                builder: (_) => AlertDialog(
+                  title: const Text('AI Generated Image'),
+                  content: SizedBox(
+                    width: 420,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: Image.network(
+                            generatedUrl,
+                            height: 320,
+                            width: 320,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) =>
+                            const Icon(Icons.broken_image, size: 64),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Use this image as main image or add to gallery?',
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, 'cancel'),
+                      child: const Text('Cancel'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () => Navigator.pop(context, 'gallery'),
+                      icon: const Icon(Icons.collections_rounded),
+                      label: const Text('Add Gallery'),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: () => Navigator.pop(context, 'main'),
+                      icon: const Icon(Icons.check),
+                      label: const Text('Use as Main'),
+                    ),
+                  ],
+                ),
+              );
+
+              if (action == 'main') {
+                setDialogState(() {
+                  imageUrl = generatedUrl;
+                  if (!images.contains(generatedUrl)) {
+                    images.insert(0, generatedUrl);
+                  }
+                });
+                _snack('AI image set as main image');
+              } else if (action == 'gallery') {
+                setDialogState(() {
+                  if (!images.contains(generatedUrl)) {
+                    images.add(generatedUrl);
+                  }
+                });
+                _snack('AI image added to gallery');
+              }
+            } catch (e, s) {
+              debugPrint('openAIImageStudio, error: $e');
+              debugPrintStack(stackTrace: s);
+
+              if (mounted) {
+                final message = e.toString()
+                    .replaceFirst('Exception:', '')
+                    .trim();
+
+                _snack(
+                  message.isEmpty ? 'AI image generation failed' : message,
+                  isError: true,
+                );
+              }
+            } finally {
+              if (mounted) {
+                setDialogState(() => aiStudioLoading = false);
+              }
+            }
+          }
 
           Future<void> optimizeWithAI() async {
             final productName = name.text.trim();
@@ -456,7 +854,7 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                 category: category ?? '',
               );
 
-              if (!mounted) return;
+              if (!pageContext.mounted) return;
 
               if (result == null) {
                 _snack('AI optimize failed. Please try again.', isError: true);
@@ -464,22 +862,53 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
               }
 
               await showDialog(
-                context: this.context,
+                context: pageContext,
                 builder: (_) => AIProductPreviewDialog(
                   title: result.title,
                   banglaTitle: result.banglaTitle,
                   description: result.description,
+                  banglaDescription: result.banglaDescription,
                   seoTags: result.seoTags,
+                  facebookCaption: result.facebookCaption,
+                  whatsappCaption: result.whatsappCaption,
+                  metaTitle: result.metaTitle,
+                  metaDescription: result.metaDescription,
+                  suggestedCategory: result.suggestedCategory,
+                  suggestedSubCategory: result.suggestedSubCategory,
+                  productType: result.productType,
+                  searchKeywords: result.searchKeywords,
                   onApply: () {
                     if (!mounted) return;
 
                     name.text = result.title;
-                    overview.text = result.description;
+                    overview.text = result.banglaDescription.isNotEmpty
+                        ? result.banglaDescription
+                        : result.description;
 
                     setDialogState(() {
                       banglaTitle = result.banglaTitle;
+                      banglaDescription = result.banglaDescription;
                       seoTags = result.seoTags;
+
+                      facebookCaption = result.facebookCaption;
+                      whatsappCaption = result.whatsappCaption;
+                      metaTitle = result.metaTitle;
+                      metaDescription = result.metaDescription;
+                      searchKeywords = result.searchKeywords;
+                      suggestedCategory = result.suggestedCategory;
+                      suggestedSubCategory = result.suggestedSubCategory;
+                      productType = result.productType;
+
+                      if (type.text.trim().isEmpty &&
+                          result.productType.trim().isNotEmpty) {
+                        type.text = result.productType.trim();
+                      }
                     });
+
+                    if ((category == null || category!.trim().isEmpty) &&
+                        result.suggestedCategory.trim().isNotEmpty) {
+                      applySuggestedCategory(result.suggestedCategory);
+                    }
                   },
                 ),
               );
@@ -488,22 +917,29 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
               debugPrintStack(stackTrace: s);
 
               if (mounted) {
-                // If it's a 401, give a clearer message
-                String message = e.toString().contains('401')
-                    ? 'AI Config Error: Invalid API Key. Please contact admin.'
-                    : 'AI error: $e';
-                _snack(message, isError: true);
+                final message = e.toString()
+                    .replaceFirst('Exception:', '')
+                    .trim();
+
+                _snack(
+                  message.isEmpty ? 'AI optimization failed' : message,
+                  isError: true,
+                );
               }
             } finally {
               if (mounted) {
                 setDialogState(() {
                   aiLoading = false;
                 });
+
               }
             }
           }
 
+
+
           Future<void> saveProduct() async {
+            final dialogNavigator = Navigator.of(context);
             final user = FirebaseAuth.instance.currentUser;
 
             debugPrint('========== PRODUCT SAVE DEBUG ==========');
@@ -541,6 +977,12 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
             setDialogState(() => saving = true);
 
             try {
+              final preparedYoutubeVideoId =
+                  _youtubeVideoId(videoUrl.text) ?? youtubeVideoId;
+              final preparedVideoThumbnailUrl = preparedYoutubeVideoId.isNotEmpty
+                  ? _youtubeThumbnail(preparedYoutubeVideoId)
+                  : videoThumbnailUrl;
+
               final payload = ProductService.buildProductPayload(
                 name: productName,
                 category: category!,
@@ -552,6 +994,9 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                 image: imageUrl,
                 images: images,
                 videoUrl: videoUrl.text.trim(),
+                youtubeVideoId: preparedYoutubeVideoId,
+                videoThumbnailUrl: preparedVideoThumbnailUrl,
+                videoDuration: videoDuration,
                 isActive: isActive,
                 isMarketplace: false,
                 vendorId: 'super_admin',
@@ -563,21 +1008,112 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
 
               payload.addAll({
                 'banglaTitle': banglaTitle,
+                'banglaDescription': banglaDescription,
                 'seoTags': seoTags,
-                'aiOptimized': banglaTitle.isNotEmpty || seoTags.isNotEmpty,
-                'aiOptimizedAt': banglaTitle.isNotEmpty || seoTags.isNotEmpty
+                'facebookCaption': facebookCaption,
+                'whatsappCaption': whatsappCaption,
+                'metaTitle': metaTitle,
+                'metaDescription': metaDescription,
+                'searchKeywords': searchKeywords,
+                'suggestedCategory': suggestedCategory,
+                'suggestedSubCategory': suggestedSubCategory,
+                'productType': productType,
+                'youtubeUrl': videoUrl.text.trim(),
+                'youtubeVideoId': preparedYoutubeVideoId,
+                'videoThumbnailUrl': preparedVideoThumbnailUrl,
+                'videoDuration': videoDuration,
+                'hasVideo': videoUrl.text.trim().isNotEmpty || preparedYoutubeVideoId.isNotEmpty,
+                'aiOptimized': banglaTitle.isNotEmpty ||
+                    banglaDescription.isNotEmpty ||
+                    seoTags.isNotEmpty ||
+                    facebookCaption.isNotEmpty ||
+                    whatsappCaption.isNotEmpty ||
+                    metaTitle.isNotEmpty ||
+                    metaDescription.isNotEmpty ||
+                    searchKeywords.isNotEmpty ||
+                    suggestedCategory.isNotEmpty ||
+                    suggestedSubCategory.isNotEmpty ||
+                    productType.isNotEmpty,
+                'aiOptimizedAt': banglaTitle.isNotEmpty ||
+                    banglaDescription.isNotEmpty ||
+                    seoTags.isNotEmpty ||
+                    facebookCaption.isNotEmpty ||
+                    whatsappCaption.isNotEmpty ||
+                    metaTitle.isNotEmpty ||
+                    metaDescription.isNotEmpty ||
+                    searchKeywords.isNotEmpty ||
+                    suggestedCategory.isNotEmpty ||
+                    suggestedSubCategory.isNotEmpty ||
+                    productType.isNotEmpty
                     ? FieldValue.serverTimestamp()
                     : null,
+                'autoMarketingDisabled': !marketingEnabled,
+                'marketingQueue': marketingQueue,
+                'marketingAudience': marketingAudience,
+                'marketingPublishMode': marketingPublishMode,
+                'marketingChannels': {
+                  'fcm': marketingPush,
+                  'push': marketingPush,
+                  'inApp': marketingInApp,
+                  'facebook': marketingFacebook,
+                  'instagram': marketingInstagram,
+                  'whatsapp': marketingWhatsapp,
+                  'messenger': marketingMessenger,
+                  'tiktok': marketingTiktok,
+                },
+                'marketingCaption': marketingCaptionController.text.trim(),
               });
 
-              await ProductService.saveProduct(
+              final savedProductId = await ProductService.saveProduct(
                 productId: id,
                 payload: payload,
               );
 
-              _snack(id == null ? 'Product added' : 'Product updated');
+              if (marketingEnabled && marketingQueue) {
+                try {
+                  final marketingSettings =
+                  await MarketingSettingsService.load(forceRefresh: true);
 
-              if (context.mounted) Navigator.pop(context);
+                  final caption = marketingCaptionController.text.trim().isNotEmpty
+                      ? marketingCaptionController.text.trim()
+                      : (facebookCaption.trim().isNotEmpty
+                      ? facebookCaption.trim()
+                      : whatsappCaption.trim());
+
+                  await MarketingQueueService.enqueueProduct(
+                    productId: savedProductId,
+                    productData: payload,
+                    settings: marketingSettings,
+                    channels: {
+                      'fcm': marketingPush,
+                      'push': marketingPush,
+                      'inApp': marketingInApp,
+                      'facebook': marketingFacebook,
+                      'instagram': marketingInstagram,
+                      'whatsapp': marketingWhatsapp,
+                      'messenger': marketingMessenger,
+                      'tiktok': marketingTiktok,
+                    },
+                    audience: marketingAudience,
+                    publishMode: marketingPublishMode,
+                    scheduledAt: marketingPublishMode == 'schedule'
+                        ? marketingScheduledAt
+                        : null,
+                    reason: id == null ? 'new_product' : 'product_update',
+                    source: 'admin_product_manager',
+                    caption: caption,
+                  );
+                } catch (e) {
+                  debugPrint('MARKETING QUEUE CREATE ERROR: $e');
+                  _snack('Product saved, but marketing queue failed: $e', isError: true);
+                }
+              }
+
+              _snack(marketingEnabled && marketingQueue
+                  ? (id == null ? 'Product added + marketing queued' : 'Product updated + marketing queued')
+                  : (id == null ? 'Product added' : 'Product updated'));
+
+              if (dialogNavigator.mounted) dialogNavigator.pop();
             } catch (e) {
               _snack('Save failed: $e', isError: true);
             } finally {
@@ -585,392 +1121,1035 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
             }
           }
 
-          return AlertDialog(
-            title: Text(id == null ? 'Add Product' : 'Edit Product'),
-            content: SizedBox(
-              width: 760,
-              child: SingleChildScrollView(
-                child: Column(
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final screen = MediaQuery.of(context).size;
+              final isMobile = screen.width < 700;
+              final dialogWidth = isMobile ? screen.width * 0.94 : 760.0;
+              final dialogMaxHeight = screen.height * 0.92;
+
+              InputDecoration deco(String label, {String? hint}) {
+                return InputDecoration(
+                  labelText: label,
+                  hintText: hint,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFF0E8094), width: 1.4),
+                  ),
+                  isDense: true,
+                  filled: true,
+                  fillColor: Colors.white,
+                );
+              }
+
+              Widget formField(
+                  TextEditingController controller,
+                  String label, {
+                    int maxLines = 1,
+                    TextInputType? keyboardType,
+                  }) {
+                return TextField(
+                  controller: controller,
+                  maxLines: maxLines,
+                  keyboardType: keyboardType,
+                  decoration: deco(label),
+                );
+              }
+
+              Widget fieldPair(Widget left, Widget right) {
+                if (isMobile) {
+                  return Column(
+                    children: [
+                      left,
+                      const SizedBox(height: 12),
+                      right,
+                    ],
+                  );
+                }
+
+                return Row(
                   children: [
-                    Row(
-                      children: [
-                        GestureDetector(
-                          onTap: uploading ? null : () => pickImage(main: true),
-                          child: Container(
-                            height: 110,
-                            width: 110,
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade100,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: Colors.grey.shade300),
+                    Expanded(child: left),
+                    const SizedBox(width: 10),
+                    Expanded(child: right),
+                  ],
+                );
+              }
+
+              Widget actionButton({
+                required VoidCallback? onPressed,
+                required IconData icon,
+                required String label,
+                bool primary = false,
+                bool loading = false,
+              }) {
+                final child = Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    loading
+                        ? const SizedBox(
+                      height: 16,
+                      width: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                        : Icon(icon, size: 18),
+                    const SizedBox(width: 7),
+                    Flexible(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                );
+
+                final style = primary
+                    ? ElevatedButton.styleFrom(
+                  minimumSize: const Size(0, 44),
+                  backgroundColor: const Color(0xFF2FB3CF),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                )
+                    : OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 44),
+                  foregroundColor: const Color(0xFF0E8094),
+                  side: const BorderSide(color: Color(0xFF0E8094)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                );
+
+                return primary
+                    ? ElevatedButton(onPressed: onPressed, style: style, child: child)
+                    : OutlinedButton(onPressed: onPressed, style: style, child: child);
+              }
+
+              Future<void> openProductVideoStudio() async {
+                final id = _youtubeVideoId(videoUrl.text);
+                if (id == null || id.isEmpty) {
+                  _snack(
+                    'Valid YouTube URL required. Supports watch, youtu.be, shorts, live and embed links.',
+                    isError: true,
+                  );
+                  return;
+                }
+
+                setDialogState(() {
+                  youtubeVideoId = id;
+                  videoThumbnailUrl = _youtubeThumbnail(id);
+                });
+
+                _snack('Product video ready');
+              }
+
+              Widget socialMarketingBox() {
+                Widget channelTile({
+                  required String title,
+                  required String subtitle,
+                  required IconData icon,
+                  required bool value,
+                  required ValueChanged<bool?> onChanged,
+                }) {
+                  return SizedBox(
+                    width: isMobile ? double.infinity : 330,
+                    child: CheckboxListTile(
+                      value: value,
+                      onChanged: marketingEnabled ? onChanged : null,
+                      dense: true,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      contentPadding: EdgeInsets.zero,
+                      secondary: Icon(icon, color: const Color(0xFF0E8094)),
+                      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+                      subtitle: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
+                    ),
+                  );
+                }
+
+                Future<void> pickSchedule() async {
+                  final pickedDate = await showDatePicker(
+                    context: pageContext,
+                    firstDate: DateTime.now(),
+                    lastDate: DateTime.now().add(const Duration(days: 90)),
+                    initialDate: marketingScheduledAt ?? DateTime.now().add(const Duration(hours: 1)),
+                  );
+                  if (pickedDate == null) return;
+
+                  if (!pageContext.mounted) return;
+                  final pickedTime = await showTimePicker(
+                    context: pageContext,
+                    initialTime: TimeOfDay.fromDateTime(
+                      marketingScheduledAt ?? DateTime.now().add(const Duration(hours: 1)),
+                    ),
+                  );
+                  if (pickedTime == null) return;
+
+                  setDialogState(() {
+                    marketingScheduledAt = DateTime(
+                      pickedDate.year,
+                      pickedDate.month,
+                      pickedDate.day,
+                      pickedTime.hour,
+                      pickedTime.minute,
+                    );
+                    marketingPublishMode = 'schedule';
+                  });
+                }
+
+                final hasSocial = marketingFacebook ||
+                    marketingInstagram ||
+                    marketingWhatsapp ||
+                    marketingMessenger ||
+                    marketingTiktok;
+
+                return Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: marketingEnabled
+                        ? const Color(0xFF0E8094).withValues(alpha: 0.055)
+                        : Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: marketingEnabled
+                          ? const Color(0xFF0E8094).withValues(alpha: 0.25)
+                          : const Color(0xFFE5E7EB),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const CircleAvatar(
+                            backgroundColor: Color(0xFFEAF8FB),
+                            child: Icon(Icons.campaign_rounded, color: Color(0xFF0E8094)),
+                          ),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Social Marketing', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+                                SizedBox(height: 2),
+                                Text('Queue push, in-app and social campaigns when product is saved.'),
+                              ],
                             ),
-                            child: uploading
-                                ? const Center(child: CircularProgressIndicator())
-                                : imageUrl.isNotEmpty
-                                ? ClipRRect(
-                              borderRadius: BorderRadius.circular(16),
-                              child: Image.network(
-                                imageUrl,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => const Icon(Icons.broken_image),
-                              ),
-                            )
-                                : const Icon(Icons.add_a_photo_rounded, size: 36),
+                          ),
+                          Switch(
+                            value: marketingEnabled,
+                            onChanged: (v) => setDialogState(() => marketingEnabled = v),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 2,
+                        children: [
+                          channelTile(
+                            title: 'Push Notification',
+                            subtitle: 'Send to app/web FCM users',
+                            icon: Icons.notifications_active_rounded,
+                            value: marketingPush,
+                            onChanged: (v) => setDialogState(() => marketingPush = v ?? false),
+                          ),
+                          channelTile(
+                            title: 'In-App Notification',
+                            subtitle: 'Create notification documents',
+                            icon: Icons.mark_unread_chat_alt_rounded,
+                            value: marketingInApp,
+                            onChanged: (v) => setDialogState(() => marketingInApp = v ?? false),
+                          ),
+                          channelTile(
+                            title: 'Facebook Queue',
+                            subtitle: 'Ready for Page API posting',
+                            icon: Icons.facebook_rounded,
+                            value: marketingFacebook,
+                            onChanged: (v) => setDialogState(() => marketingFacebook = v ?? false),
+                          ),
+                          channelTile(
+                            title: 'Instagram Queue',
+                            subtitle: 'Ready for Business API posting',
+                            icon: Icons.camera_alt_rounded,
+                            value: marketingInstagram,
+                            onChanged: (v) => setDialogState(() => marketingInstagram = v ?? false),
+                          ),
+                          channelTile(
+                            title: 'WhatsApp Broadcast',
+                            subtitle: 'Ready for WhatsApp Business API',
+                            icon: Icons.chat_rounded,
+                            value: marketingWhatsapp,
+                            onChanged: (v) => setDialogState(() => marketingWhatsapp = v ?? false),
+                          ),
+                          channelTile(
+                            title: 'Messenger Campaign',
+                            subtitle: 'Queue Messenger customer campaign',
+                            icon: Icons.messenger_outline_rounded,
+                            value: marketingMessenger,
+                            onChanged: (v) => setDialogState(() => marketingMessenger = v ?? false),
+                          ),
+                          channelTile(
+                            title: 'TikTok Queue',
+                            subtitle: 'Caption/video campaign queue',
+                            icon: Icons.music_note_rounded,
+                            value: marketingTiktok,
+                            onChanged: (v) => setDialogState(() => marketingTiktok = v ?? false),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      fieldPair(
+                        DropdownButtonFormField<String>(
+                          initialValue: marketingAudience,
+                          decoration: deco('Audience'),
+                          items: const [
+                            DropdownMenuItem(value: 'everyone', child: Text('Everyone')),
+                            DropdownMenuItem(value: 'wishlist_users', child: Text('Wishlist Users')),
+                            DropdownMenuItem(value: 'category_interested', child: Text('Category Interested')),
+                            DropdownMenuItem(value: 'previous_buyers', child: Text('Previous Buyers')),
+                            DropdownMenuItem(value: 'followers', child: Text('Followers')),
+                          ],
+                          onChanged: marketingEnabled
+                              ? (v) => setDialogState(() => marketingAudience = v ?? 'everyone')
+                              : null,
+                        ),
+                        DropdownButtonFormField<String>(
+                          initialValue: marketingPublishMode,
+                          decoration: deco('Publish Time'),
+                          items: const [
+                            DropdownMenuItem(value: 'now', child: Text('Immediately')),
+                            DropdownMenuItem(value: 'schedule', child: Text('Schedule')),
+                          ],
+                          onChanged: marketingEnabled
+                              ? (v) => setDialogState(() => marketingPublishMode = v ?? 'now')
+                              : null,
+                        ),
+                      ),
+                      if (marketingPublishMode == 'schedule') ...[
+                        const SizedBox(height: 10),
+                        OutlinedButton.icon(
+                          onPressed: marketingEnabled ? pickSchedule : null,
+                          icon: const Icon(Icons.schedule_rounded),
+                          label: Text(
+                            marketingScheduledAt == null
+                                ? 'Select schedule date & time'
+                                : 'Scheduled: ${marketingScheduledAt!.day.toString().padLeft(2, '0')}-${marketingScheduledAt!.month.toString().padLeft(2, '0')}-${marketingScheduledAt!.year} ${marketingScheduledAt!.hour.toString().padLeft(2, '0')}:${marketingScheduledAt!.minute.toString().padLeft(2, '0')}',
                           ),
                         ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Wrap(
+                      ],
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: marketingCaptionController,
+                        enabled: marketingEnabled,
+                        maxLines: 3,
+                        decoration: deco(
+                          'Marketing Caption',
+                          hint: 'Leave blank to use AI Facebook/WhatsApp caption',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          Chip(
+                            avatar: const Icon(Icons.queue_rounded, size: 16),
+                            label: Text(marketingEnabled ? 'Queue will be created' : 'Marketing disabled'),
+                          ),
+                          Chip(
+                            avatar: const Icon(Icons.public_rounded, size: 16),
+                            label: Text(hasSocial ? 'Social API pending' : 'Push/In-App only'),
+                          ),
+                          const Chip(
+                            avatar: Icon(Icons.analytics_rounded, size: 16),
+                            label: Text('Visible in Marketing Center'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              Widget productVideoStudioBox() {
+                final id = _youtubeVideoId(videoUrl.text) ?? youtubeVideoId;
+                final thumb = id.isNotEmpty ? _youtubeThumbnail(id) : videoThumbnailUrl;
+                final hasVideo = id.isNotEmpty;
+
+                return Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: hasVideo
+                        ? const Color(0xFF32A8C7).withValues(alpha: 0.07)
+                        : Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: hasVideo
+                          ? const Color(0xFF32A8C7).withValues(alpha: 0.25)
+                          : const Color(0xFFE5E7EB),
+                    ),
+                  ),
+                  child: LayoutBuilder(
+                    builder: (context, c) {
+                      final compact = c.maxWidth < 520;
+
+                      final preview = ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          width: compact ? double.infinity : 160,
+                          height: 92,
+                          color: Colors.black12,
+                          child: hasVideo
+                              ? Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              Image.network(
+                                thumb,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => const Icon(
+                                  Icons.video_library_rounded,
+                                ),
+                              ),
+                              Container(color: Colors.black.withValues(alpha: 0.25)),
+                              const Center(
+                                child: Icon(
+                                  Icons.play_circle_fill_rounded,
+                                  color: Colors.white,
+                                  size: 42,
+                                ),
+                              ),
+                            ],
+                          )
+                              : const Center(
+                            child: Icon(
+                              Icons.video_library_rounded,
+                              size: 42,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ),
+                      );
+
+                      final info = Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Product Video Studio',
+                            style: TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            hasVideo
+                                ? 'YouTube video ID: $id'
+                                : 'Paste a YouTube link, then prepare video preview.',
+                            style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+                          ),
+                          if (videoDuration.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Duration: $videoDuration',
+                              style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+                            ),
+                          ],
+                          const SizedBox(height: 10),
+                          Wrap(
                             spacing: 8,
                             runSpacing: 8,
                             children: [
-                              ElevatedButton.icon(
-                                onPressed: uploading ? null : () => pickImage(main: true),
-                                icon: const Icon(Icons.image_rounded),
-                                label: const Text('Main Image'),
-                              ),
                               OutlinedButton.icon(
-                                onPressed: uploading ? null : () => pickImage(main: false),
-                                icon: const Icon(Icons.collections_rounded),
-                                label: const Text('Add Gallery'),
+                                onPressed: openProductVideoStudio,
+                                icon: const Icon(Icons.smart_display_rounded, size: 18),
+                                label: const Text('Prepare Video'),
                               ),
-                              SwitchListTile(
-                                contentPadding: EdgeInsets.zero,
-                                title: const Text('Active Product'),
-                                subtitle: canChangeProductStatus
-                                    ? null
-                                    : const Text('products.status permission required'),
-                                value: isActive,
-                                onChanged: canChangeProductStatus
-                                    ? (v) => setDialogState(() => isActive = v)
-                                    : null,
-                              ),
+                              if (hasVideo)
+                                TextButton.icon(
+                                  onPressed: () {
+                                    setDialogState(() {
+                                      videoUrl.clear();
+                                      youtubeVideoId = '';
+                                      videoThumbnailUrl = '';
+                                      videoDuration = '';
+                                    });
+                                  },
+                                  icon: const Icon(Icons.close_rounded, size: 18),
+                                  label: const Text('Remove'),
+                                ),
                             ],
                           ),
+                        ],
+                      );
+
+                      if (compact) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            preview,
+                            const SizedBox(height: 10),
+                            info,
+                          ],
+                        );
+                      }
+
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          preview,
+                          const SizedBox(width: 12),
+                          Expanded(child: info),
+                        ],
+                      );
+                    },
+                  ),
+                );
+              }
+
+              Widget imageToolbar() {
+                final buttons = [
+                  actionButton(
+                    onPressed: uploading ? null : () => pickImage(main: true),
+                    icon: Icons.image_rounded,
+                    label: isMobile ? 'Main' : 'Main Image',
+                    primary: true,
+                  ),
+                  actionButton(
+                    onPressed: uploading ? null : () => pickImage(main: false),
+                    icon: Icons.collections_rounded,
+                    label: isMobile ? 'Gallery' : 'Add Gallery',
+                  ),
+                  actionButton(
+                    onPressed: aiImageLoading || saving || uploading ? null : createProductFromImage,
+                    icon: Icons.camera_alt_rounded,
+                    label: aiImageLoading ? 'Analyzing...' : (isMobile ? 'AI Image' : 'AI From Image'),
+                    loading: aiImageLoading,
+                  ),
+                  actionButton(
+                    onPressed: aiStudioLoading || saving || uploading ? null : openAIImageStudio,
+                    icon: Icons.auto_fix_high_rounded,
+                    label: aiStudioLoading ? 'Creating...' : (isMobile ? 'Studio' : 'AI Image Studio'),
+                    loading: aiStudioLoading,
+                  ),
+                ];
+
+                if (isMobile) {
+                  return GridView.count(
+                    crossAxisCount: 2,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                    childAspectRatio: 3.2,
+                    children: buttons,
+                  );
+                }
+
+                return Wrap(spacing: 8, runSpacing: 8, children: buttons);
+              }
+
+              Widget mainImageBox() {
+                final size = isMobile ? 96.0 : 110.0;
+                return GestureDetector(
+                  onTap: uploading ? null : () => pickImage(main: true),
+                  child: Container(
+                    height: size,
+                    width: size,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: const Color(0xFFE5E7EB)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.04),
+                          blurRadius: 14,
+                          offset: const Offset(0, 6),
                         ),
                       ],
                     ),
-
-                    if (images.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        height: 72,
-                        child: ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: images.length,
-                          separatorBuilder: (_, __) => const SizedBox(width: 8),
-                          itemBuilder: (_, i) {
-                            final url = images[i];
-                            return Stack(
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(10),
-                                  child: Image.network(
-                                    url,
-                                    width: 72,
-                                    height: 72,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => Container(
-                                      width: 72,
-                                      height: 72,
-                                      color: Colors.grey.shade200,
-                                      child: const Icon(Icons.broken_image),
-                                    ),
-                                  ),
-                                ),
-                                Positioned(
-                                  top: 2,
-                                  right: 2,
-                                  child: InkWell(
-                                    onTap: () => setDialogState(() => images.removeAt(i)),
-                                    child: Container(
-                                      decoration: const BoxDecoration(
-                                        color: Colors.black54,
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: const Icon(Icons.close, color: Colors.white, size: 18),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            );
-                          },
-                        ),
+                    child: uploading
+                        ? const Center(child: CircularProgressIndicator())
+                        : imageUrl.isNotEmpty
+                        ? ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: Image.network(
+                        imageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const Icon(Icons.broken_image),
                       ),
-                    ],
+                    )
+                        : const Icon(Icons.add_a_photo_rounded, size: 34),
+                  ),
+                );
+              }
 
-                    const SizedBox(height: 16),
-
-                    TextField(
-                      controller: name,
-                      decoration: const InputDecoration(
-                        labelText: 'Product Name',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: ElevatedButton.icon(
-                        onPressed: aiLoading || saving ? null : optimizeWithAI,
-                        icon: aiLoading
-                            ? const SizedBox(
-                          height: 16,
-                          width: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                            : const Icon(Icons.auto_awesome),
-                        label: Text(aiLoading ? 'Optimizing...' : 'AI Optimize'),
-                      ),
-                    ),
-
-                    if (banglaTitle.isNotEmpty || seoTags.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.deepPurple.withOpacity(0.06),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.deepPurple.withOpacity(0.18)),
-                        ),
+              Widget activeProductSwitch() {
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFE5E7EB)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (banglaTitle.isNotEmpty) ...[
+                            const Text(
+                              'Active Product',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                            if (!canChangeProductStatus)
                               const Text(
-                                'Bangla Title',
-                                style: TextStyle(fontWeight: FontWeight.w800),
+                                'products.status permission required',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: 11, color: Colors.red),
                               ),
-                              const SizedBox(height: 4),
-                              Text(banglaTitle),
-                            ],
-                            if (seoTags.isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                              const Text(
-                                'SEO Tags',
-                                style: TextStyle(fontWeight: FontWeight.w800),
-                              ),
-                              const SizedBox(height: 6),
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 6,
-                                children: seoTags
-                                    .map((tag) => Chip(
-                                  label: Text(tag),
-                                  visualDensity: VisualDensity.compact,
-                                ))
-                                    .toList(),
-                              ),
-                            ],
                           ],
                         ),
                       ),
+                      Switch(
+                        value: isActive,
+                        onChanged: canChangeProductStatus ? (v) => setDialogState(() => isActive = v) : null,
+                      ),
                     ],
+                  ),
+                );
+              }
 
+              Widget galleryStrip() {
+                if (images.isEmpty) return const SizedBox.shrink();
+                return Column(
+                  children: [
                     const SizedBox(height: 12),
-
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: generic,
-                            decoration: const InputDecoration(
-                              labelText: 'Generic',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: TextField(
-                            controller: manufacturer,
-                            decoration: const InputDecoration(
-                              labelText: 'Manufacturer',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: type,
-                            decoration: const InputDecoration(
-                              labelText: 'Type',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: TextField(
-                            controller: strength,
-                            decoration: const InputDecoration(
-                              labelText: 'Strength',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-
-                    StreamBuilder<QuerySnapshot>(
-                      stream: FirebaseService.getCategories(onlyActive: true),
-                      builder: (context, snap) {
-                        final cats = snap.data?.docs
-                            .map((e) => (e.data() as Map<String, dynamic>)['name']?.toString() ?? '')
-                            .where((e) => e.isNotEmpty)
-                            .toList() ??
-                            [];
-
-                        if (category != null && category!.isNotEmpty && !cats.contains(category)) {
-                          cats.insert(0, category!);
-                        }
-
-                        return DropdownButtonFormField<String>(
-                          value: category,
-                          decoration: const InputDecoration(
-                            labelText: 'Category',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: cats.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                          onChanged: (v) => setDialogState(() => category = v),
-                        );
-                      },
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    TextField(
-                      controller: overview,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                        labelText: 'Overview',
-                        border: OutlineInputBorder(),
+                    SizedBox(
+                      height: 72,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: images.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (_, i) {
+                          final url = images[i];
+                          return Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.network(
+                                  url,
+                                  width: 72,
+                                  height: 72,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    width: 72,
+                                    height: 72,
+                                    color: Colors.grey.shade200,
+                                    child: const Icon(Icons.broken_image),
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                top: 2,
+                                right: 2,
+                                child: InkWell(
+                                  onTap: () => setDialogState(() => images.removeAt(i)),
+                                  child: Container(
+                                    decoration: const BoxDecoration(
+                                      color: Colors.black54,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(Icons.close, color: Colors.white, size: 18),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
                       ),
                     ),
-                    const SizedBox(height: 12),
+                  ],
+                );
+              }
 
-                    TextField(
-                      controller: videoUrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Video URL',
-                        border: OutlineInputBorder(),
-                      ),
+              Widget variantCard(int index) {
+                final v = variantControllers[index];
+
+                if (isMobile) {
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFE5E7EB)),
                     ),
-
-                    const SizedBox(height: 18),
-
-                    Row(
+                    child: Column(
                       children: [
-                        const Expanded(
-                          child: Text(
-                            'Variants',
-                            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
-                          ),
+                        formField(v['name']!, 'Unit'),
+                        const SizedBox(height: 10),
+                        fieldPair(
+                          formField(v['price']!, 'Price', keyboardType: TextInputType.number),
+                          formField(v['mrp']!, 'MRP', keyboardType: TextInputType.number),
                         ),
-                        OutlinedButton.icon(
-                          onPressed: addVariant,
-                          icon: const Icon(Icons.add),
-                          label: const Text('Add Variant'),
+                        const SizedBox(height: 10),
+                        formField(v['stock']!, 'Stock', keyboardType: TextInputType.number),
+                        if (variantControllers.length > 1) ...[
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                              onPressed: () => setDialogState(() => variantControllers.removeAt(index)),
+                              icon: const Icon(Icons.delete_outline, color: Colors.red),
+                              label: const Text('Remove', style: TextStyle(color: Colors.red)),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                }
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(flex: 2, child: formField(v['name']!, 'Unit')),
+                      const SizedBox(width: 8),
+                      Expanded(child: formField(v['price']!, 'Price', keyboardType: TextInputType.number)),
+                      const SizedBox(width: 8),
+                      Expanded(child: formField(v['mrp']!, 'MRP', keyboardType: TextInputType.number)),
+                      const SizedBox(width: 8),
+                      Expanded(child: formField(v['stock']!, 'Stock', keyboardType: TextInputType.number)),
+                      IconButton(
+                        onPressed: variantControllers.length == 1
+                            ? null
+                            : () => setDialogState(() => variantControllers.removeAt(index)),
+                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              Widget categoryDropdown() {
+                return StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseService.getCategories(onlyActive: true),
+                  builder: (context, snap) {
+                    final cats = snap.data?.docs
+                        .map((e) => (e.data() as Map<String, dynamic>)['name']?.toString() ?? '')
+                        .where((e) => e.isNotEmpty)
+                        .toList() ??
+                        [];
+
+                    if (category != null && category!.isNotEmpty && !cats.contains(category)) {
+                      cats.insert(0, category!);
+                    }
+
+                    return DropdownButtonFormField<String>(
+                      initialValue: category,
+                      decoration: deco('Category'),
+                      items: cats.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                      onChanged: (v) => setDialogState(() => category = v),
+                    );
+                  },
+                );
+              }
+
+              Widget aiResultBox() {
+                if (!(banglaTitle.isNotEmpty ||
+                    banglaDescription.isNotEmpty ||
+                    seoTags.isNotEmpty ||
+                    facebookCaption.isNotEmpty ||
+                    whatsappCaption.isNotEmpty ||
+                    metaTitle.isNotEmpty ||
+                    metaDescription.isNotEmpty ||
+                    searchKeywords.isNotEmpty ||
+                    suggestedCategory.isNotEmpty ||
+                    suggestedSubCategory.isNotEmpty ||
+                    productType.isNotEmpty)) {
+                  return const SizedBox.shrink();
+                }
+
+                return Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.deepPurple.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.deepPurple.withValues(alpha: 0.18)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (banglaTitle.isNotEmpty) ...[
+                        const Text('Bangla Title', style: TextStyle(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 4),
+                        Text(banglaTitle),
+                      ],
+                      if (banglaDescription.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Text('Bangla Description', style: TextStyle(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 4),
+                        Text(banglaDescription),
+                      ],
+                      if (seoTags.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Text('SEO Tags', style: TextStyle(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: seoTags.map((tag) => Chip(label: Text(tag), visualDensity: VisualDensity.compact)).toList(),
+                        ),
+                      ],
+                      if (metaTitle.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Text('Meta Title', style: TextStyle(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 4),
+                        Text(metaTitle),
+                      ],
+                      if (metaDescription.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Text('Meta Description', style: TextStyle(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 4),
+                        Text(metaDescription),
+                      ],
+                      if (facebookCaption.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Text('Facebook Caption', style: TextStyle(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 4),
+                        Text(facebookCaption),
+                      ],
+                      if (whatsappCaption.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Text('WhatsApp Caption', style: TextStyle(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 4),
+                        Text(whatsappCaption),
+                      ],
+                      if (searchKeywords.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Text('Search Keywords', style: TextStyle(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: searchKeywords.map((tag) => Chip(label: Text(tag), visualDensity: VisualDensity.compact)).toList(),
+                        ),
+                      ],
+                      if (suggestedCategory.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Text('Suggested Category', style: TextStyle(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 4),
+                        Text(suggestedCategory),
+                      ],
+                      if (suggestedSubCategory.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Text('Suggested Sub Category', style: TextStyle(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 4),
+                        Text(suggestedSubCategory),
+                      ],
+                      if (productType.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Text('Product Type', style: TextStyle(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 4),
+                        Text(productType),
+                      ],
+                    ],
+                  ),
+                );
+              }
+
+              final formContent = Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (isMobile) ...[
+                    Center(child: mainImageBox()),
+                    const SizedBox(height: 12),
+                    imageToolbar(),
+                    const SizedBox(height: 12),
+                    activeProductSwitch(),
+                  ] else ...[
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        mainImageBox(),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              imageToolbar(),
+                              const SizedBox(height: 12),
+                              activeProductSwitch(),
+                            ],
+                          ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
-
-                    ...List.generate(variantControllers.length, (index) {
-                      final v = variantControllers[index];
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: Colors.grey.shade300),
+                  ],
+                  galleryStrip(),
+                  const SizedBox(height: 16),
+                  formField(name, 'Product Name'),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: isMobile ? Alignment.center : Alignment.centerRight,
+                    child: SizedBox(
+                      width: isMobile ? double.infinity : null,
+                      child: ElevatedButton.icon(
+                        onPressed: aiLoading || saving ? null : optimizeWithAI,
+                        icon: aiLoading
+                            ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.auto_awesome),
+                        label: Text(aiLoading ? 'Optimizing...' : 'AI Optimize'),
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(0, 44),
+                          backgroundColor: const Color(0xFF2FB3CF),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                         ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  aiResultBox(),
+                  if (banglaTitle.isNotEmpty || banglaDescription.isNotEmpty || seoTags.isNotEmpty) const SizedBox(height: 12),
+                  fieldPair(
+                    formField(generic, 'Generic'),
+                    formField(manufacturer, 'Manufacturer'),
+                  ),
+                  const SizedBox(height: 12),
+                  fieldPair(
+                    formField(type, 'Type'),
+                    formField(strength, 'Strength'),
+                  ),
+                  const SizedBox(height: 12),
+                  categoryDropdown(),
+                  const SizedBox(height: 12),
+                  formField(overview, 'Overview', maxLines: isMobile ? 4 : 3),
+                  const SizedBox(height: 12),
+                  formField(videoUrl, 'YouTube / Product Video URL'),
+                  const SizedBox(height: 8),
+                  productVideoStudioBox(),
+                  const SizedBox(height: 12),
+                  socialMarketingBox(),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Variants',
+                          style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: addVariant,
+                        icon: const Icon(Icons.add, size: 18),
+                        label: Text(isMobile ? 'Add' : 'Add Variant'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ...List.generate(variantControllers.length, variantCard),
+                ],
+              );
+
+              return Dialog(
+                insetPadding: EdgeInsets.symmetric(horizontal: isMobile ? 10 : 24, vertical: isMobile ? 10 : 24),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(isMobile ? 24 : 20)),
+                clipBehavior: Clip.antiAlias,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: dialogWidth,
+                    maxHeight: dialogMaxHeight,
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: EdgeInsets.fromLTRB(isMobile ? 18 : 24, 18, isMobile ? 10 : 20, 12),
+                        color: const Color(0xFFF8FAFC),
                         child: Row(
                           children: [
                             Expanded(
-                              flex: 2,
-                              child: TextField(
-                                controller: v['name'],
-                                decoration: const InputDecoration(
-                                  labelText: 'Unit',
-                                  border: OutlineInputBorder(),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: TextField(
-                                controller: v['price'],
-                                keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(
-                                  labelText: 'Price',
-                                  border: OutlineInputBorder(),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: TextField(
-                                controller: v['mrp'],
-                                keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(
-                                  labelText: 'MRP',
-                                  border: OutlineInputBorder(),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: TextField(
-                                controller: v['stock'],
-                                keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(
-                                  labelText: 'Stock',
-                                  border: OutlineInputBorder(),
-                                ),
+                              child: Text(
+                                id == null ? 'Add Product' : 'Edit Product',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: isMobile ? 20 : 22, fontWeight: FontWeight.w800),
                               ),
                             ),
                             IconButton(
-                              onPressed: variantControllers.length == 1
-                                  ? null
-                                  : () => setDialogState(() => variantControllers.removeAt(index)),
-                              icon: const Icon(Icons.delete_outline, color: Colors.red),
+                              onPressed: saving ? null : () => Navigator.pop(context),
+                              icon: const Icon(Icons.close_rounded),
                             ),
                           ],
                         ),
-                      );
-                    }),
-                  ],
+                      ),
+                      Expanded(
+                        child: Container(
+                          color: const Color(0xFFF8FAFC),
+                          child: SingleChildScrollView(
+                            padding: EdgeInsets.fromLTRB(isMobile ? 18 : 24, 4, isMobile ? 18 : 24, 18),
+                            child: formContent,
+                          ),
+                        ),
+                      ),
+                      SafeArea(
+                        top: false,
+                        child: Container(
+                          padding: EdgeInsets.fromLTRB(isMobile ? 14 : 24, 12, isMobile ? 14 : 24, 12),
+                          decoration: const BoxDecoration(
+                            color: Colors.white,
+                            border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: TextButton(
+                                  onPressed: saving ? null : () => Navigator.pop(context),
+                                  child: const Text('Cancel'),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                flex: isMobile ? 2 : 1,
+                                child: ElevatedButton.icon(
+                                  onPressed: saving ? null : saveProduct,
+                                  icon: saving
+                                      ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                      : const Icon(Icons.save_rounded, size: 18),
+                                  label: Text(id == null ? 'Add Product' : 'Update Product'),
+                                  style: ElevatedButton.styleFrom(
+                                    minimumSize: const Size(0, 46),
+                                    backgroundColor: const Color(0xFF2FB3CF),
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: saving ? null : () => Navigator.pop(context),
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton.icon(
-                onPressed: saving ? null : saveProduct,
-                icon: saving
-                    ? const SizedBox(
-                  height: 16,
-                  width: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-                    : const Icon(Icons.save_rounded),
-                label: Text(id == null ? 'Add Product' : 'Update Product'),
-              ),
-            ],
+              );
+            },
           );
         },
       ),
@@ -1099,7 +2278,7 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
   Widget _statusChip(bool active) {
     return Chip(
       label: Text(active ? 'Active' : 'Inactive'),
-      backgroundColor: active ? Colors.green.withOpacity(0.12) : Colors.red.withOpacity(0.12),
+      backgroundColor: active ? Colors.green.withValues(alpha: 0.12) : Colors.red.withValues(alpha: 0.12),
       labelStyle: TextStyle(
         color: active ? Colors.green.shade800 : Colors.red.shade800,
         fontWeight: FontWeight.bold,
@@ -1119,7 +2298,7 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
 
     return Chip(
       label: Text(clean.toUpperCase()),
-      backgroundColor: color.withOpacity(0.12),
+      backgroundColor: color.withValues(alpha: 0.12),
       labelStyle: TextStyle(
         color: color,
         fontWeight: FontWeight.bold,
@@ -1141,7 +2320,7 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
 
     return Chip(
       label: Text(label),
-      backgroundColor: color.withOpacity(0.12),
+      backgroundColor: color.withValues(alpha: 0.12),
       labelStyle: TextStyle(color: color, fontWeight: FontWeight.bold),
     );
   }
@@ -1197,41 +2376,81 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
             color: Colors.white,
             child: Column(
               children: [
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        'Product Manager Pro',
-                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
-                      ),
-                    ),
-                    if (canBulkProducts) ...[
-                      OutlinedButton.icon(
-                        onPressed: bulkWorking ? null : _pickCSVFile,
-                        icon: bulkWorking
-                            ? const SizedBox(
-                          height: 16,
-                          width: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                            : const Icon(Icons.table_chart_rounded),
-                        label: const Text('CSV Upload'),
-                      ),
-                      const SizedBox(width: 8),
-                      OutlinedButton.icon(
-                        onPressed: bulkWorking ? null : _showJsonBulkDialog,
-                        icon: const Icon(Icons.data_object_rounded),
-                        label: const Text('JSON'),
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-                    if (canEditProducts)
-                      ElevatedButton.icon(
-                        onPressed: () => _showProductDialog(),
-                        icon: const Icon(Icons.add_rounded),
-                        label: const Text('Add Product'),
-                      ),
-                  ],
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isMobile = constraints.maxWidth < 700;
+
+                    final csvButton = OutlinedButton.icon(
+                      onPressed: bulkWorking ? null : _pickCSVFile,
+                      icon: bulkWorking
+                          ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                          : const Icon(Icons.table_chart_rounded, size: 18),
+                      label: const Text('CSV Upload'),
+                    );
+
+                    final jsonButton = OutlinedButton.icon(
+                      onPressed: bulkWorking ? null : _showJsonBulkDialog,
+                      icon: const Icon(Icons.data_object_rounded, size: 18),
+                      label: const Text('JSON'),
+                    );
+
+                    final addButton = ElevatedButton.icon(
+                      onPressed: () => _showProductDialog(),
+                      icon: const Icon(Icons.add_rounded, size: 18),
+                      label: Text(isMobile ? 'Add' : 'Add Product'),
+                    );
+
+                    if (isMobile) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Product Manager Pro',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                          ),
+                          const SizedBox(height: 12),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                if (canBulkProducts) csvButton,
+                                if (canBulkProducts) const SizedBox(width: 8),
+                                if (canBulkProducts) jsonButton,
+                                if (canBulkProducts) const SizedBox(width: 8),
+                                if (canEditProducts) addButton,
+                              ],
+                            ),
+                          ),
+                        ],
+                      );
+                    }
+
+                    return Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Product Manager Pro',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                        if (canBulkProducts) ...[
+                          csvButton,
+                          const SizedBox(width: 8),
+                          jsonButton,
+                          const SizedBox(width: 8),
+                        ],
+                        if (canEditProducts) addButton,
+                      ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 14),
                 LayoutBuilder(
@@ -1254,7 +2473,7 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          value: statusFilter,
+                          initialValue: statusFilter,
                           decoration: const InputDecoration(
                             labelText: 'Status',
                             border: OutlineInputBorder(),
@@ -1271,7 +2490,7 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          value: stockFilter,
+                          initialValue: stockFilter,
                           decoration: const InputDecoration(
                             labelText: 'Stock',
                             border: OutlineInputBorder(),
@@ -1293,7 +2512,13 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                         children: [
                           filters[0],
                           const SizedBox(height: 8),
-                          Row(children: filters.sublist(2)),
+                          Row(
+                            children: [
+                              filters[2],
+                              const SizedBox(width: 8),
+                              filters[4],
+                            ],
+                          ),
                         ],
                       );
                     }
@@ -1350,62 +2575,93 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                       ),
                       child: Padding(
                         padding: const EdgeInsets.all(12),
-                        child: Row(
-                          children: [
-                            _productImage(_text(data['image'])),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final productInfo = Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _text(data['name']).isEmpty ? 'Unnamed Product' : _text(data['name']),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${_text(data['category'])} • ${_text(data['strength'])} • ${_text(data['manufacturer'])}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(color: Colors.grey.shade600),
+                                ),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 4,
+                                  children: [
+                                    _statusChip(displayActive),
+                                    if (isPendingVendorProduct) _approvalChip(approvalStatus),
+                                    _stockChip(stock),
+                                    Chip(label: Text('৳${_toDouble(data['price']).toStringAsFixed(0)}')),
+                                    Chip(label: Text('${variants.length} variants')),
+                                  ],
+                                ),
+                              ],
+                            );
+
+                            final actions = Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Switch(
+                                  value: displayActive,
+                                  onChanged: canChangeProductStatus && !isPendingVendorProduct
+                                      ? (v) => _toggleStatus(doc.id, v)
+                                      : null,
+                                ),
+                                if (canEditProducts)
+                                  IconButton(
+                                    tooltip: 'Edit',
+                                    onPressed: () => _showProductDialog(id: doc.id, data: data),
+                                    icon: const Icon(Icons.edit_rounded, color: Colors.orange),
+                                  ),
+                                if (canDeleteProducts)
+                                  IconButton(
+                                    tooltip: 'Delete',
+                                    onPressed: () => _deleteProduct(doc.id),
+                                    icon: const Icon(Icons.delete_outline_rounded, color: Colors.red),
+                                  ),
+                              ],
+                            );
+
+                            if (constraints.maxWidth < 620) {
+                              return Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    _text(data['name']).isEmpty ? 'Unnamed Product' : _text(data['name']),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '${_text(data['category'])} • ${_text(data['strength'])} • ${_text(data['manufacturer'])}',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(color: Colors.grey.shade600),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 4,
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      _statusChip(displayActive),
-                                      if (isPendingVendorProduct)
-                                        _approvalChip(approvalStatus),
-                                      _stockChip(stock),
-                                      Chip(label: Text('৳${_toDouble(data['price']).toStringAsFixed(0)}')),
-                                      Chip(label: Text('${variants.length} variants')),
+                                      _productImage(_text(data['image'])),
+                                      const SizedBox(width: 12),
+                                      Expanded(child: productInfo),
                                     ],
                                   ),
+                                  const SizedBox(height: 8),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: actions,
+                                  ),
                                 ],
-                              ),
-                            ),
-                            Switch(
-                              value: displayActive,
-                              onChanged: canChangeProductStatus && !isPendingVendorProduct
-                                  ? (v) => _toggleStatus(doc.id, v)
-                                  : null,
-                            ),
-                            if (canEditProducts)
-                              IconButton(
-                                tooltip: 'Edit',
-                                onPressed: () => _showProductDialog(id: doc.id, data: data),
-                                icon: const Icon(Icons.edit_rounded, color: Colors.orange),
-                              ),
-                            if (canDeleteProducts)
-                              IconButton(
-                                tooltip: 'Delete',
-                                onPressed: () => _deleteProduct(doc.id),
-                                icon: const Icon(Icons.delete_outline_rounded, color: Colors.red),
-                              ),
-                          ],
+                              );
+                            }
+
+                            return Row(
+                              children: [
+                                _productImage(_text(data['image'])),
+                                const SizedBox(width: 14),
+                                Expanded(child: productInfo),
+                                actions,
+                              ],
+                            );
+                          },
                         ),
                       ),
                     );

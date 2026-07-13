@@ -37,7 +37,7 @@ class GuestCartService {
     final items = await getItems();
     cartCount.value = items.fold<int>(
       0,
-          (sum, item) => sum + ProductService.toInt(item['qty'], 1),
+          (total, item) => total + ProductService.toInt(item['qty'], 1),
     );
   }
 

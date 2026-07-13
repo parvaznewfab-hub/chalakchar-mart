@@ -2,18 +2,25 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-import '../pages/user/product_details_page.dart';
 import '../services/guest_cart_service.dart';
 import '../services/product_service.dart';
+import '../services/web_url_service.dart';
 
 class ProductCard extends StatelessWidget {
   final dynamic data;
   final Function(GlobalKey)? onAddToCart;
+  /// Kept for backward compatibility with older pages.
+  /// ProductCard now uses one universal size everywhere.
+  final bool gridMode;
+
+  static const double cardWidth = 150;
+  static const double imageHeight = 112;
 
   const ProductCard({
     super.key,
     required this.data,
     this.onAddToCart,
+    this.gridMode = false,
   });
 
   String _text(dynamic value, [String fallback = '']) {
@@ -122,16 +129,21 @@ class ProductCard extends StatelessWidget {
 
     return GestureDetector(
       onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => ProductDetailsPage(data: product),
-          ),
-        );
+        final productId = ProductService.productIdFrom(product).trim();
+        if (productId.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Invalid product link')),
+          );
+          return;
+        }
+
+        final path = '/product/$productId';
+        WebUrlService.push(path);
+
+        Navigator.of(context, rootNavigator: true).pushNamed(path);
       },
       child: Container(
-        width: 150,
-        height: 175,
+        width: cardWidth,
         margin: const EdgeInsets.only(
           right: 12,
           bottom: 8,
@@ -150,6 +162,7 @@ class ProductCard extends StatelessWidget {
           ],
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
@@ -157,14 +170,14 @@ class ProductCard extends StatelessWidget {
                 top: Radius.circular(12),
               ),
               child: SizedBox(
-                height: 95,
+                height: imageHeight,
                 width: double.infinity,
                 child: Stack(
                   children: [
                     Positioned.fill(
                       child: Container(
                         color: Colors.white,
-                        padding: const EdgeInsets.fromLTRB(8, 10, 8, 6),
+                        padding: const EdgeInsets.fromLTRB(6, 6, 6, 2),
                         child: image.isNotEmpty
                             ? Image.network(
                           image,
@@ -218,7 +231,7 @@ class ProductCard extends StatelessWidget {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.fromLTRB(8, 5, 8, 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -245,17 +258,19 @@ class ProductCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    manufacturer,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: Colors.grey,
+                  if (manufacturer.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      manufacturer,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 6),
+                  ],
+                  const SizedBox(height: 2),
                   Row(
                     children: [
                       Text(

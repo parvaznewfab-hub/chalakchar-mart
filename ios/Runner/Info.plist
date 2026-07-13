@@ -45,5 +45,29 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+
+	<!-- Facebook Login configuration -->
+	<key>FacebookAppID</key>
+	<string>2182052695913841</string>
+	<key>FacebookClientToken</key>
+	<string>08b9bebb7bcf5e8963c0451290768a55</string>
+	<key>FacebookDisplayName</key>
+	<string>Chalakchar Mart</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>fb2182052695913841</string>
+			</array>
+		</dict>
+	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>fbapi</string>
+		<string>fb-messenger-share-api</string>
+		<string>fbauth2</string>
+		<string>fbshareextension</string>
+	</array>
 </dict>
 </plist>

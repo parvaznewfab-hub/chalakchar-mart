@@ -3,12 +3,13 @@ import '../pages/user/my_appointments_page.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import '../services/app_settings_service.dart';
+import '../services/image_search_service.dart';
 import '../pages/admin/admin_dashboard_page.dart';
-import '../pages/admin/admin_notifications_page.dart';
 import '../pages/auth/login_page.dart';
 import '../pages/settings_page.dart';
-import '../pages/user/category_products_page.dart';
 import '../pages/user/help_center_page.dart';
 import '../pages/user/my_lists_page.dart';
 import '../pages/user/profile/profile_page.dart';
@@ -18,9 +19,11 @@ import '../pages/user/user_order_page.dart';
 import '../pages/vendor/vendor_apply_page.dart';
 import '../pages/vendor/vendor_dashboard_page.dart';
 import '../services/auth_service.dart';
+import '../services/web_url_service.dart';
 import 'cart_badge.dart';
 import '../pages/user/delivery/delivery_partner_apply_page.dart';
 import '../pages/user/delivery/delivery_partner_dashboard_page.dart';
+import '../pages/user/notifications_page.dart';
 
 class GlobalWebHeader extends StatefulWidget implements PreferredSizeWidget {
   const GlobalWebHeader({super.key});
@@ -38,6 +41,12 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
   final AuthService _authService = AuthService();
 
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  final FocusNode _searchKeyboardFocusNode = FocusNode(skipTraversal: true);
+  final LayerLink _searchLayerLink = LayerLink();
+  final GlobalKey _searchBoxKey = GlobalKey();
+
+  OverlayEntry? _searchOverlayEntry;
   Timer? _debounce;
   String _searchText = '';
   bool _searchFocused = false;
@@ -50,8 +59,19 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
   @override
   void dispose() {
     _debounce?.cancel();
+    _removeSearchOverlay();
+    _searchFocusNode.dispose();
+    _searchKeyboardFocusNode.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _goHome() {
+    WebUrlService.push('/');
+    Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil(
+      '/',
+          (route) => false,
+    );
   }
 
   void _showLoginPopup() {
@@ -63,6 +83,9 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
   }
 
   void _openSearch([String query = '']) {
+    _removeSearchOverlay();
+    FocusScope.of(context).unfocus();
+
     final q = query.trim();
     if (q.isEmpty && _searchController.text.trim().isNotEmpty) {
       Navigator.push(
@@ -82,16 +105,91 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
     );
   }
 
+  Future<void> _pickAndSearchByImage() async {
+    _removeSearchOverlay();
+
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('ছবি তুলুন'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('গ্যালারি থেকে বাছুন'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (source == null || !mounted) return;
+
+    final picked = await ImagePicker().pickImage(source: source, imageQuality: 85);
+    if (picked == null || !mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final result = await ImageSearchService.searchByImage(picked);
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+
+      if (result == null || result.searchQuery.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ছবি থেকে প্রোডাক্ট শনাক্ত করা যায়নি।')),
+        );
+        return;
+      }
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SearchPage(
+            initialQuery: result.searchQuery,
+            detectedLabel: result.description.isNotEmpty
+                ? result.description
+                : result.searchQuery,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ছবি সার্চ ব্যর্থ হয়েছে: $e')),
+      );
+    }
+  }
+
+  String _categorySlug(String value) {
+    final slug = value
+        .trim()
+        .toLowerCase()
+        .replaceAll('&', 'and')
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'-+'), '-')
+        .replaceAll(RegExp(r'^-|-$'), '');
+
+    return Uri.encodeComponent(slug);
+  }
+
   void _openCategory(String category) {
     final name = category.trim();
     if (name.isEmpty) return;
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => CategoryProductsPage(category: name),
-      ),
-    );
+    final path = '/category/${_categorySlug(name)}';
+    WebUrlService.push(path);
+    Navigator.of(context, rootNavigator: true).pushNamed(path);
   }
 
   String _text(dynamic value, [String fallback = '']) {
@@ -117,6 +215,67 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
       list.sort((a, b) => _toInt(a['priority']).compareTo(_toInt(b['priority'])));
       return list;
     });
+  }
+
+
+  double _searchOverlayWidth() {
+    final context = _searchBoxKey.currentContext;
+    if (context == null) return 620;
+
+    final renderObject = context.findRenderObject();
+    if (renderObject is RenderBox) {
+      return renderObject.size.width;
+    }
+
+    return 620;
+  }
+
+  void _showSearchOverlay() {
+    if (!mounted) return;
+
+    if (_searchOverlayEntry != null) {
+      _searchOverlayEntry!.markNeedsBuild();
+      return;
+    }
+
+    _searchOverlayEntry = OverlayEntry(
+      builder: (overlayContext) {
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: _removeSearchOverlay,
+                child: const SizedBox.expand(),
+              ),
+            ),
+            CompositedTransformFollower(
+              link: _searchLayerLink,
+              showWhenUnlinked: false,
+              offset: const Offset(0, 54),
+              child: Material(
+                color: Colors.transparent,
+                child: SizedBox(
+                  width: _searchOverlayWidth(),
+                  child: _searchSuggestions(),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    Overlay.of(context, rootOverlay: true).insert(_searchOverlayEntry!);
+  }
+
+  void _removeSearchOverlay() {
+    _searchOverlayEntry?.remove();
+    _searchOverlayEntry = null;
+
+    if (mounted && _searchFocused) {
+      setState(() => _searchFocused = false);
+    }
   }
 
   Stream<List<Map<String, dynamic>>> _suggestionStream() {
@@ -176,109 +335,147 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
       return const SizedBox.shrink();
     }
 
-    return Material(
-      elevation: 4,
-      color: dark,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _promoStrip(),
-          SizedBox(
-            height: 86,
-            child: Row(
-              children: [
-                const SizedBox(width: 22),
-
-                _HoverBox(
-                  padding: const EdgeInsets.all(4),
-                  onTap: () => Navigator.maybePop(context),
-                  child: Image.asset(
-                    'assets/images/logo.png',
-                    height: 44,
-                    errorBuilder: (_, __, ___) => const Icon(
-                      Icons.storefront_rounded,
-                      color: Colors.white,
-                      size: 42,
-                    ),
-                  ),
-                ),
-
-                const SizedBox(width: 18),
-
-                _locationBox(),
-
-                const SizedBox(width: 18),
-
-                Expanded(child: _searchBox()),
-
-                const SizedBox(width: 18),
-
-                _accountArea(),
-
-                const SizedBox(width: 12),
-
-                _notificationBell(),
-
-                const SizedBox(width: 10),
-
-                const _HoverBox(
-                  padding: EdgeInsets.all(6),
-                  child: CartBadge(),
-                ),
-
-                const SizedBox(width: 22),
-              ],
-            ),
-          ),
-          _categoryNav(),
-        ],
-      ),
-    );
-  }
-
-  Widget _promoStrip() {
     return StreamBuilder<AppSettings>(
       stream: AppSettingsService.watch(),
       builder: (context, snapshot) {
         final settings = snapshot.data;
 
-        if (settings == null) {
-          return const SizedBox(
-            height: 24,
-            child: Center(
-              child: Text(
-                'ChalakChar Mart',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
+        return Material(
+          elevation: 4,
+          color: dark,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _promoStrip(settings),
+              SizedBox(
+                height: 86,
+                child: Row(
+                  children: [
+                    const SizedBox(width: 22),
+
+                    _HoverBox(
+                      padding: const EdgeInsets.all(4),
+                      onTap: _goHome,
+                      child: _headerLogo(settings),
+                    ),
+
+                    const SizedBox(width: 18),
+
+                    _locationBox(),
+
+                    const SizedBox(width: 18),
+
+                    Expanded(child: _searchBox(settings)),
+
+                    const SizedBox(width: 18),
+
+                    _accountArea(),
+
+                    const SizedBox(width: 12),
+
+                    _notificationBell(),
+
+                    const SizedBox(width: 10),
+
+                    const _HoverBox(
+                      padding: EdgeInsets.all(6),
+                      child: CartBadge(),
+                    ),
+
+                    const SizedBox(width: 22),
+                  ],
                 ),
               ),
-            ),
-          );
-        }
+              _categoryNav(),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
-        return Container(
-          height: 24,
-          width: double.infinity,
-          color: settings.maintenanceMode
-              ? Colors.red.shade700
-              : const Color(0xFF0E1726),
-          alignment: Alignment.center,
+
+  Widget _headerLogo(AppSettings? settings) {
+    final showLogo = settings == null || settings.showHeaderLogo;
+    final logoUrl = _text(settings?.logoUrl);
+    final siteName = _text(settings?.pharmacyName, 'ChalakChar Mart');
+
+    if (!showLogo) {
+      return Text(
+        siteName,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 20,
+          fontWeight: FontWeight.w900,
+        ),
+      );
+    }
+
+    if (logoUrl.isNotEmpty) {
+      return Image.network(
+        logoUrl,
+        height: 44,
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => _fallbackLogo(),
+      );
+    }
+
+    return Image.asset(
+      'assets/images/logo.png',
+      height: 44,
+      errorBuilder: (_, __, ___) => _fallbackLogo(),
+    );
+  }
+
+  Widget _fallbackLogo() {
+    return const Icon(
+      Icons.storefront_rounded,
+      color: Colors.white,
+      size: 42,
+    );
+  }
+
+  Widget _promoStrip(AppSettings? settings) {
+    if (settings == null) {
+      return const SizedBox(
+        height: 24,
+        child: Center(
           child: Text(
-            settings.maintenanceMode
-                ? 'Maintenance mode is active'
-                : '${settings.pharmacyName} • Support: ${settings.supportPhone} • Business Hours: ${settings.businessHours}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+            'ChalakChar Mart',
+            style: TextStyle(
               color: Colors.white,
               fontSize: 12,
               fontWeight: FontWeight.w700,
             ),
           ),
-        );
-      },
+        ),
+      );
+    }
+
+    return Container(
+      height: 24,
+      width: double.infinity,
+      color: settings.maintenanceMode
+          ? Colors.red.shade700
+          : const Color(0xFF0E1726),
+      alignment: Alignment.center,
+      child: Text(
+        settings.maintenanceMode
+            ? 'Maintenance mode is active'
+            : _text(
+                settings.headerNotice,
+                '${settings.pharmacyName} • Support: ${settings.supportPhone} • Business Hours: ${settings.businessHours}',
+              ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
     );
   }
 
@@ -313,11 +510,19 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
     );
   }
 
-  Widget _searchBox() {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Container(
+  Widget _searchBox(AppSettings? settings) {
+    return CompositedTransformTarget(
+      link: _searchLayerLink,
+      child: KeyboardListener(
+        focusNode: _searchKeyboardFocusNode,
+        onKeyEvent: (event) {
+          if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.escape) {
+            _removeSearchOverlay();
+            FocusScope.of(context).unfocus();
+          }
+        },
+        child: Container(
+          key: _searchBoxKey,
           height: 48,
           decoration: BoxDecoration(
             color: Colors.white,
@@ -377,25 +582,41 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
                 },
               ),
               Expanded(
-                child: Focus(
-                  onFocusChange: (v) => setState(() => _searchFocused = v),
-                  child: TextField(
-                    controller: _searchController,
-                    textInputAction: TextInputAction.search,
-                    onSubmitted: _openSearch,
-                    onChanged: (v) {
-                      _debounce?.cancel();
-                      _debounce = Timer(const Duration(milliseconds: 220), () {
-                        if (mounted) setState(() => _searchText = v);
-                      });
-                    },
-                    decoration: const InputDecoration(
-                      hintText: 'Search ChalakChar Mart',
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 14),
-                    ),
+                child: TextField(
+                  focusNode: _searchFocusNode,
+                  controller: _searchController,
+                  textInputAction: TextInputAction.search,
+                  onTap: () {
+                    if (!_searchFocused) {
+                      setState(() => _searchFocused = true);
+                    }
+                    _showSearchOverlay();
+                  },
+                  onSubmitted: _openSearch,
+                  onChanged: (v) {
+                    if (!_searchFocused) {
+                      setState(() => _searchFocused = true);
+                    }
+                    _showSearchOverlay();
+
+                    _debounce?.cancel();
+                    _debounce = Timer(const Duration(milliseconds: 220), () {
+                      if (!mounted) return;
+                      setState(() => _searchText = v);
+                      _searchOverlayEntry?.markNeedsBuild();
+                    });
+                  },
+                  decoration: InputDecoration(
+                    hintText: _text(settings?.searchPlaceholder, 'Search ChalakChar Mart'),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14),
                   ),
                 ),
+              ),
+              IconButton(
+                tooltip: 'ছবি দিয়ে খুঁজুন',
+                onPressed: _pickAndSearchByImage,
+                icon: const Icon(Icons.camera_alt_outlined, color: Colors.black54),
               ),
               InkWell(
                 onTap: () => _openSearch(),
@@ -414,14 +635,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
             ],
           ),
         ),
-        if (_searchFocused)
-          Positioned(
-            top: 54,
-            left: 0,
-            right: 0,
-            child: _searchSuggestions(),
-          ),
-      ],
+      ),
     );
   }
 
@@ -462,9 +676,10 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
                   onTap: () {
                     _searchController.text = title;
                     setState(() {
-                      _searchFocused = false;
                       _searchText = title;
                     });
+                    _removeSearchOverlay();
+                    FocusScope.of(context).unfocus();
                     _openSearch(title);
                   },
                 );
@@ -734,8 +949,8 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: db
               .collection('notifications')
+              .where('userId', isEqualTo: user.uid)
               .where('isRead', isEqualTo: false)
-              .limit(99)
               .snapshots(),
           builder: (context, snapshot) {
             final count = snapshot.data?.docs.length ?? 0;
@@ -747,7 +962,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
                 if (value == 'all') {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => const AdminNotificationsPage()),
+                    MaterialPageRoute(builder: (_) => const NotificationsPage()),
                   );
                 }
               },
@@ -767,11 +982,21 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
                         StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                           stream: db
                               .collection('notifications')
-                              .orderBy('createdAt', descending: true)
-                              .limit(5)
+                              .where('userId', isEqualTo: user.uid)
                               .snapshots(),
                           builder: (context, snap) {
-                            final docs = snap.data?.docs ?? [];
+                            final docs = [...(snap.data?.docs ?? [])];
+
+                            docs.sort((a, b) {
+                              final ta = a.data()['createdAt'];
+                              final tb = b.data()['createdAt'];
+
+                              if (ta is! Timestamp || tb is! Timestamp) return 0;
+
+                              return tb.compareTo(ta);
+                            });
+
+                            final latestDocs = docs.take(5).toList();
 
                             if (docs.isEmpty) {
                               return const Padding(
@@ -781,7 +1006,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
                             }
 
                             return Column(
-                              children: docs.map((doc) {
+                              children: latestDocs.map((doc) {
                                 final d = doc.data();
                                 return ListTile(
                                   dense: true,
@@ -986,6 +1211,8 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
       if (!mounted) return;
 
       final userDoc = await db.collection('users').doc(user.uid).get();
+      if (!mounted) return;
+
       final userData = userDoc.data() ?? {};
 
       final userRole = _text(userData['role']);

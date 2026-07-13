@@ -146,6 +146,7 @@ class _DeliveryPartnerDashboardPageState
     final partnerRef = db.collection('deliveryPartners').doc(riderId);
     final orderRef = db.collection('orders').doc(orderId);
 
+    debugPrint('SYNC STEP 1: read order $orderId');
     final orderSnap = await orderRef.get();
     if (!orderSnap.exists) throw Exception('Order not found');
 
@@ -165,6 +166,7 @@ class _DeliveryPartnerDashboardPageState
         paymentMethod == 'cash_on_delivery' ||
         paymentMethod == 'cash on delivery';
 
+    debugPrint('SYNC STEP 2: read earning $earningId');
     final old = await earningRef.get();
 
     if (old.exists && old.data()?['partnerSynced'] == true) {
@@ -172,39 +174,43 @@ class _DeliveryPartnerDashboardPageState
       return;
     }
 
-    if (!old.exists) {
-      await earningRef.set({
-        'deliveryPartnerId': riderId,
-        'orderId': orderId,
-        'amount': deliveryCharge,
-        'paymentMethod': paymentMethod,
-        'status': 'pending',
-        'grandTotal': grandTotal,
-        'deliveryCharge': deliveryCharge,
-        'partnerSynced': false,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    }
+    debugPrint('SYNC STEP 3: create/merge earning');
+    await earningRef.set({
+      'deliveryPartnerId': riderId,
+      'orderId': orderId,
+      'amount': deliveryCharge,
+      'paymentMethod': paymentMethod,
+      'status': 'pending',
+      'grandTotal': grandTotal,
+      'deliveryCharge': deliveryCharge,
+      'partnerSynced': false,
+      'createdAt': old.exists
+          ? (old.data()?['createdAt'] ?? FieldValue.serverTimestamp())
+          : FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
 
     final partnerUpdate = <String, dynamic>{
       'totalDeliveries': FieldValue.increment(1),
       'totalEarning': FieldValue.increment(deliveryCharge),
       'updatedAt': FieldValue.serverTimestamp(),
       'lastEarningSyncedAt': FieldValue.serverTimestamp(),
+      'lastSyncedOrderId': orderId,
     };
 
     if (isCod) {
       partnerUpdate['codDue'] = FieldValue.increment(grandTotal);
     }
 
-    // ✅ Important fix: set merge na, update use korbo
-    await partnerRef.update(partnerUpdate);
+    // set(merge:true) is safer than update() if an old partner document is missing fields.
+    debugPrint('SYNC STEP 4: update delivery partner balance');
+    await partnerRef.set(partnerUpdate, SetOptions(merge: true));
 
-    await earningRef.update({
+    debugPrint('SYNC STEP 5: mark earning synced');
+    await earningRef.set({
       'partnerSynced': true,
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+    }, SetOptions(merge: true));
   }
 
   Future<void> _syncEarning(String orderId) async {
@@ -254,15 +260,19 @@ class _DeliveryPartnerDashboardPageState
       }
 
       final batch = db.batch();
-      batch.set(db.collection('deliveryWithdraws').doc(), {
+      final withdrawRef = db.collection('deliveryWithdraws').doc();
+
+      batch.set(withdrawRef, {
         'deliveryPartnerId': riderId,
         'amount': available,
         'status': 'pending',
         'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
       });
 
       batch.set(partnerRef, {
         'pendingAmount': FieldValue.increment(available),
+        'lastWithdrawRequestId': withdrawRef.id,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
@@ -297,6 +307,7 @@ class _DeliveryPartnerDashboardPageState
           ElevatedButton.icon(
             onPressed: () async {
               final order = await db.collection('orders').doc(orderId).get();
+
               final data = order.data() ?? {};
               final otp = _text(data['deliveryOtp']);
 
@@ -305,7 +316,10 @@ class _DeliveryPartnerDashboardPageState
                 return;
               }
 
-              if (context.mounted) Navigator.pop(context);
+              if (!mounted) return;
+
+              Navigator.of(context).pop();
+
               await _updateDeliveryStatus(orderId, 'delivered');
             },
             icon: const Icon(Icons.verified_rounded),

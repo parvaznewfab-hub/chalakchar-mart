@@ -72,121 +72,121 @@ class _MyAddressPageState extends State<MyAddressPage> {
             ),
           ),
           Expanded(
-            child: ListView(
-              children: [
-                FutureBuilder<DocumentSnapshot>(
-                  future: FirebaseFirestore.instance.collection('users').doc(user?.uid).get(),
-                  builder: (context, snapshot) {
-                    if (snapshot.hasData && snapshot.data!.exists) {
-                      final data = snapshot.data!.data() as Map<String, dynamic>;
+            child: RadioGroup<String>(
+              groupValue: selectedAddressId,
+              onChanged: (String? v) {
+                setState(() {
+                  selectedAddressId = v;
+                });
+              },
+              child: ListView(
+                children: [
+                  FutureBuilder<DocumentSnapshot>(
+                    future: FirebaseFirestore.instance.collection('users').doc(user?.uid).get(),
+                    builder: (context, snapshot) {
+                      if (snapshot.hasData && snapshot.data!.exists) {
+                        final data = snapshot.data!.data() as Map<String, dynamic>;
 
-                      final profileAddress = (data['address'] ?? '').toString().trim();
-                      final profilePhone = (data['phone'] ?? '').toString().trim();
-                      final profileDivision = (data['division'] ?? '').toString().trim();
-                      final profileDistrict = (data['district'] ?? '').toString().trim();
-                      final profileUpazila = (data['upazila'] ?? '').toString().trim();
+                        final profileAddress = (data['address'] ?? '').toString().trim();
+                        final profilePhone = (data['phone'] ?? '').toString().trim();
+                        final profileDivision = (data['division'] ?? '').toString().trim();
+                        final profileDistrict = (data['district'] ?? '').toString().trim();
+                        final profileUpazila = (data['upazila'] ?? '').toString().trim();
 
-                      final isProfileAddressComplete = profileAddress.isNotEmpty &&
-                          profilePhone.isNotEmpty &&
-                          profileDivision.isNotEmpty &&
-                          profileDistrict.isNotEmpty &&
-                          profileUpazila.isNotEmpty;
+                        final isProfileAddressComplete = profileAddress.isNotEmpty &&
+                            profilePhone.isNotEmpty &&
+                            profileDivision.isNotEmpty &&
+                            profileDistrict.isNotEmpty &&
+                            profileUpazila.isNotEmpty;
 
-                      return InkWell(
-                        onTap: isProfileAddressComplete
-                            ? null
-                            : () async {
-                          final updated = await Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const EditProfilePage()),
-                          );
+                        return InkWell(
+                          onTap: isProfileAddressComplete
+                              ? null
+                              : () async {
+                            final updated = await Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const EditProfilePage()),
+                            );
 
-                          if (updated == true && mounted) {
-                            setState(() {});
-                          }
-                        },
-                        child: RadioListTile<String>(
-                          value: "profile_default",
-                          groupValue: selectedAddressId,
-                          activeColor: const Color(0xFF32A8C7),
-                          title: Text(
-                            "Default (from Profile)",
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: isProfileAddressComplete ? Colors.black : Colors.grey,
+                            if (updated == true && mounted) {
+                              setState(() {});
+                            }
+                          },
+                          child: RadioListTile<String>(
+                            value: "profile_default",
+                            activeColor: const Color(0xFF32A8C7),
+                            title: Text(
+                              "Default (from Profile)",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: isProfileAddressComplete ? Colors.black : Colors.grey,
+                              ),
+                            ),
+                            subtitle: Text(
+                              isProfileAddressComplete
+                                  ? "$profileAddress\n$profilePhone\n$profileDivision, $profileDistrict, $profileUpazila"
+                                  : "Profile address incomplete. Tap here to complete profile.",
                             ),
                           ),
-                          subtitle: Text(
-                            isProfileAddressComplete
-                                ? "$profileAddress\n$profilePhone\n$profileDivision, $profileDistrict, $profileUpazila"
-                                : "Profile address incomplete. Tap here to complete profile.",
-                          ),
-                          onChanged: isProfileAddressComplete
-                              ? (v) => setState(() => selectedAddressId = v)
-                              : null,
-                        ),
-                      );
-                    }
-                    return const SizedBox();
-                  },
-                ),
-                const Divider(),
-                StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance
-                      .collection('users')
-                      .doc(user?.uid)
-                      .collection('addresses')
-                      .snapshots(),
-                  builder: (context, snapshot) {
-                    if (!snapshot.hasData) return const SizedBox();
-
-                    final docs = snapshot.data!.docs;
-
-                    return Column(
-                      children: docs.map((doc) {
-                        final data = doc.data() as Map<String, dynamic>;
-
-                        final addressComplete = _hasValue(data['address']) &&
-                            _hasValue(data['phone']) &&
-                            _hasValue(data['division']) &&
-                            _hasValue(data['district']) &&
-                            _hasValue(data['upazila']);
-
-                        return RadioListTile<String>(
-                          value: doc.id,
-                          groupValue: selectedAddressId,
-                          activeColor: const Color(0xFF32A8C7),
-                          title: Row(
-                            children: [
-                              Text(
-                                data['label'] ?? 'Home',
-                                style: const TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                              const Spacer(),
-                              IconButton(
-                                icon: const Icon(Icons.edit_outlined, size: 20),
-                                onPressed: () => _showAddressDialog(id: doc.id, data: data),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-                                onPressed: () => _deleteAddress(doc.id),
-                              ),
-                            ],
-                          ),
-                          subtitle: Text(
-                            addressComplete
-                                ? "${data['address']}\n${data['phone']}\n${data['division']}, ${data['district']}, ${data['upazila']}"
-                                : "Address incomplete. Please edit and complete it.",
-                          ),
-                          onChanged: addressComplete
-                              ? (v) => setState(() => selectedAddressId = v)
-                              : null,
                         );
-                      }).toList(),
-                    );
-                  },
-                ),
-              ],
+                      }
+                      return const SizedBox();
+                    },
+                  ),
+                  const Divider(),
+                  StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(user?.uid)
+                        .collection('addresses')
+                        .snapshots(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) return const SizedBox();
+
+                      final docs = snapshot.data!.docs;
+
+                      return Column(
+                        children: docs.map((doc) {
+                          final data = doc.data() as Map<String, dynamic>;
+
+                          final addressComplete = _hasValue(data['address']) &&
+                              _hasValue(data['phone']) &&
+                              _hasValue(data['division']) &&
+                              _hasValue(data['district']) &&
+                              _hasValue(data['upazila']);
+
+                          return RadioListTile<String>(
+                            value: doc.id,
+                            activeColor: const Color(0xFF32A8C7),
+                            title: Row(
+                              children: [
+                                Text(
+                                  data['label'] ?? 'Home',
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                const Spacer(),
+                                IconButton(
+                                  icon: const Icon(Icons.edit_outlined, size: 20),
+                                  onPressed: () => _showAddressDialog(id: doc.id, data: data),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                  onPressed: () => _deleteAddress(doc.id),
+                                ),
+                              ],
+                            ),
+                            subtitle: Text(
+                              addressComplete
+                                  ? "${data['address']}\n${data['phone']}\n${data['division']}, ${data['district']}, ${data['upazila']}"
+                                  : "Address incomplete. Please edit and complete it.",
+                            ),
+                          );
+                        }).toList(),
+                      );
+                    },
+                  ),
+                ],
+              ),
             ),
           ),
         ],

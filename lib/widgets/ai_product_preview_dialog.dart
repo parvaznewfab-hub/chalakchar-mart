@@ -4,7 +4,22 @@ class AIProductPreviewDialog extends StatelessWidget {
   final String title;
   final String banglaTitle;
   final String description;
+  final String banglaDescription;
+
   final List<String> seoTags;
+
+  final String facebookCaption;
+  final String whatsappCaption;
+
+  final String metaTitle;
+  final String metaDescription;
+
+  final List<String> searchKeywords;
+
+  final String suggestedCategory;
+  final String suggestedSubCategory;
+  final String productType;
+
   final VoidCallback onApply;
 
   const AIProductPreviewDialog({
@@ -12,7 +27,16 @@ class AIProductPreviewDialog extends StatelessWidget {
     required this.title,
     required this.banglaTitle,
     required this.description,
+    required this.banglaDescription,
     required this.seoTags,
+    required this.facebookCaption,
+    required this.whatsappCaption,
+    required this.metaTitle,
+    required this.metaDescription,
+    required this.searchKeywords,
+    required this.suggestedCategory,
+    required this.suggestedSubCategory,
+    required this.productType,
     required this.onApply,
   });
 
@@ -27,7 +51,7 @@ class AIProductPreviewDialog extends StatelessWidget {
         ],
       ),
       content: SizedBox(
-        width: 520,
+        width: 700,
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -40,21 +64,51 @@ class AIProductPreviewDialog extends StatelessWidget {
               _box(banglaTitle),
               const SizedBox(height: 12),
 
-              _sectionTitle('Description'),
+              _sectionTitle('English Description'),
               _box(description),
               const SizedBox(height: 12),
 
+              _sectionTitle('Bangla Description'),
+              _box(banglaDescription),
+              const SizedBox(height: 12),
+
+              _sectionTitle('Meta Title'),
+              _box(metaTitle),
+              const SizedBox(height: 12),
+
+              _sectionTitle('Meta Description'),
+              _box(metaDescription),
+              const SizedBox(height: 12),
+
+              _sectionTitle('Facebook Caption'),
+              _box(facebookCaption),
+              const SizedBox(height: 12),
+
+              _sectionTitle('WhatsApp Caption'),
+              _box(whatsappCaption),
+              const SizedBox(height: 12),
+
               _sectionTitle('SEO Tags'),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: seoTags.map((tag) {
-                  return Chip(
-                    label: Text(tag),
-                    backgroundColor: Colors.deepPurple.withOpacity(0.08),
-                  );
-                }).toList(),
-              ),
+              _chips(seoTags),
+
+              const SizedBox(height: 16),
+
+              _sectionTitle('Search Keywords'),
+              _chips(searchKeywords),
+
+              const SizedBox(height: 16),
+
+              _sectionTitle('Suggested Category'),
+              _box(suggestedCategory),
+              const SizedBox(height: 12),
+
+              _sectionTitle('Suggested Sub Category'),
+              _box(suggestedSubCategory),
+              const SizedBox(height: 12),
+
+              _sectionTitle('Product Type'),
+              _box(productType),
+              const SizedBox(height: 12),
             ],
           ),
         ),
@@ -104,6 +158,24 @@ class AIProductPreviewDialog extends StatelessWidget {
       child: Text(
         text.isEmpty ? 'No data' : text,
         style: const TextStyle(fontSize: 14),
+      ),
+    );
+  }
+
+  static Widget _chips(List<String> items) {
+    if (items.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 6),
+        child: Text('No data'),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: items.map((tag) => Chip(label: Text(tag))).toList(),
       ),
     );
   }

@@ -1,4 +1,10 @@
 User-agent: *
+Disallow: /login
+Disallow: /cart
+Disallow: /checkout
+Disallow: /account
+Disallow: /api/
+
 Allow: /
 
 Sitemap: https://chalakcharmart.com/sitemap.xml

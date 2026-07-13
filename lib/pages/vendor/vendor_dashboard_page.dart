@@ -20,6 +20,7 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
   String _vendorId = '';
   bool _loadingVendorId = true;
 
+
   @override
   void initState() {
     super.initState();
@@ -93,7 +94,7 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) return false;
     final ownerId = _text(vendor['ownerId'] ?? vendor['userId']);
-    return ownerId == uid || _vendorId == uid;
+    return ownerId == uid;
   }
 
   double _toDouble(dynamic value) {
@@ -220,7 +221,7 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
           final withdrawableBalance =
           _toDouble(vendor['withdrawableBalance']);
           final pendingWithdraw =
-          _toDouble(vendor['withdrawPendingBalance']);
+          _toDouble(vendor['withdrawPendingBalance']).abs();
           final totalCommission =
           _toDouble(vendor['totalCommission']);
 
@@ -280,14 +281,10 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
                 if (stock <= 5) lowStock++;
               }
 
-              return StreamBuilder<
-                  QuerySnapshot<Map<String, dynamic>>>(
+              return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: db
                     .collection('orders')
-                    .where(
-                  'vendorOwnerIds',
-                  arrayContains: FirebaseAuth.instance.currentUser?.uid ?? '',
-                )
+                    .where('vendorIds', arrayContains: _vendorId)
                     .snapshots(),
                 builder: (context, orderSnap) {
                   if (orderSnap.hasError) {
@@ -301,58 +298,62 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
                     return const Center(child: CircularProgressIndicator());
                   }
 
-                  if (!orderSnap.hasData) {
-                    return _errorView(
-                      title: 'Orders not available',
-                      message: 'No order data returned for this vendor.',
-                    );
-                  }
+                  final orders = orderSnap.data?.docs.toList() ??
+                      <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
-                  final orders = orderSnap.data!.docs;
+                  orders.sort((a, b) {
+                    final ad = a.data()['createdAt'];
+                    final bd = b.data()['createdAt'];
+                    final at = ad is Timestamp ? ad.toDate() : DateTime(2000);
+                    final bt = bd is Timestamp ? bd.toDate() : DateTime(2000);
+                    return bt.compareTo(at);
+                  });
+
                   int pendingOrders = 0;
                   int processingOrders = 0;
                   int completedOrders = 0;
                   double revenue = 0;
 
-                  for (final doc in orders) {
-                    final data = doc.data();
-                    final orderStatus =
-                    _text(data['status']).toLowerCase();
+                  for (final orderDoc in orders) {
+                    final order = orderDoc.data();
+                    final vendorStatus = _text(order['vendorStatus']).toLowerCase();
+                    final statusText = _text(order['status'], 'pending').toLowerCase();
 
-                    if (orderStatus == 'pending') pendingOrders++;
-
-                    if (orderStatus == 'processing' ||
-                        orderStatus == 'confirmed') {
-                      processingOrders++;
-                    }
-
-                    if (orderStatus == 'delivered' ||
-                        orderStatus == 'completed') {
-                      completedOrders++;
-                    }
-
-                    final items = data['items'];
+                    final items = order['items'];
+                    double vendorOrderTotal = 0;
                     if (items is List) {
                       for (final item in items) {
-                        if (item is Map &&
-                            _text(item['vendorId']) == _vendorId) {
-                          final price = _toDouble(item['price']);
-                          final qty = _toInt(item['qty']);
-                          revenue += price * qty;
+                        if (item is Map && _text(item['vendorId']) == _vendorId) {
+                          vendorOrderTotal += _toDouble(item['price']) * _toInt(item['qty']);
                         }
                       }
                     }
+
+                    if (statusText == 'delivered' || vendorStatus == 'delivered') {
+                      completedOrders++;
+                      revenue += vendorOrderTotal;
+                    } else if (
+                    statusText == 'pending' ||
+                        vendorStatus == 'pending' ||
+                        vendorStatus.isEmpty
+                    ) {
+                      pendingOrders++;
+                    } else {
+                      processingOrders++;
+                    }
                   }
+
+                  final calculatedWithdrawable =
+                  (revenue - pendingWithdraw - totalCommission)
+                      .clamp(0.0, double.infinity);
 
                   return SingleChildScrollView(
                     padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
                     child: Center(
                       child: ConstrainedBox(
-                        constraints:
-                        const BoxConstraints(maxWidth: 1180),
+                        constraints: const BoxConstraints(maxWidth: 1180),
                         child: Column(
-                          crossAxisAlignment:
-                          CrossAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             _topBanner(
                               shopName: shopName,
@@ -383,82 +384,58 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
                                     _statCard(
                                       title: 'Products',
                                       value: '$totalProducts',
-                                      subtitle:
-                                      '$activeProducts active',
-                                      icon:
-                                      Icons.inventory_2_outlined,
-                                      color:
-                                      const Color(0xFF2563EB),
+                                      subtitle: '$activeProducts active',
+                                      icon: Icons.inventory_2_outlined,
+                                      color: const Color(0xFF2563EB),
                                     ),
                                     _statCard(
                                       title: 'Pending Orders',
                                       value: '$pendingOrders',
-                                      subtitle:
-                                      '$processingOrders processing',
-                                      icon:
-                                      Icons.shopping_bag_outlined,
-                                      color:
-                                      const Color(0xFFF59E0B),
+                                      subtitle: '$processingOrders processing',
+                                      icon: Icons.shopping_bag_outlined,
+                                      color: const Color(0xFFF59E0B),
                                     ),
                                     _statCard(
                                       title: 'Revenue',
-                                      value:
-                                      '৳${revenue.toStringAsFixed(0)}',
-                                      subtitle:
-                                      '${orders.length} total orders',
+                                      value: '৳${revenue.toStringAsFixed(0)}',
+                                      subtitle: '${orders.length} total orders',
                                       icon: Icons.payments_outlined,
-                                      color:
-                                      const Color(0xFF16A34A),
+                                      color: const Color(0xFF16A34A),
                                     ),
                                     _statCard(
                                       title: 'Withdrawable',
-                                      value:
-                                      '৳${withdrawableBalance.toStringAsFixed(0)}',
-                                      subtitle:
-                                      'Available balance',
-                                      icon: Icons
-                                          .account_balance_wallet_outlined,
-                                      color:
-                                      const Color(0xFF0D9488),
+                                      value: '৳${calculatedWithdrawable.toStringAsFixed(0)}',
+                                      subtitle: 'Available balance',
+                                      icon: Icons.account_balance_wallet_outlined,
+                                      color: const Color(0xFF0D9488),
                                     ),
                                     _statCard(
                                       title: 'Pending Withdraw',
-                                      value:
-                                      '৳${pendingWithdraw.toStringAsFixed(0)}',
+                                      value: '৳${pendingWithdraw.toStringAsFixed(0)}',
                                       subtitle: 'Waiting admin',
-                                      icon: Icons
-                                          .hourglass_top_rounded,
-                                      color:
-                                      const Color(0xFF7C3AED),
+                                      icon: Icons.hourglass_top_rounded,
+                                      color: const Color(0xFF7C3AED),
                                     ),
                                     _statCard(
                                       title: 'Commission',
-                                      value:
-                                      '৳${totalCommission.toStringAsFixed(0)}',
-                                      subtitle:
-                                      'Admin commission',
+                                      value: '৳${totalCommission.toStringAsFixed(0)}',
+                                      subtitle: 'Admin commission',
                                       icon: Icons.percent_rounded,
-                                      color:
-                                      const Color(0xFF4F46E5),
+                                      color: const Color(0xFF4F46E5),
                                     ),
                                     _statCard(
                                       title: 'Low Stock',
                                       value: '$lowStock',
                                       subtitle: 'Stock <= 5',
-                                      icon: Icons
-                                          .warning_amber_rounded,
-                                      color:
-                                      const Color(0xFFDC2626),
+                                      icon: Icons.warning_amber_rounded,
+                                      color: const Color(0xFFDC2626),
                                     ),
                                     _statCard(
                                       title: 'Completed',
                                       value: '$completedOrders',
-                                      subtitle:
-                                      'Delivered orders',
-                                      icon:
-                                      Icons.task_alt_rounded,
-                                      color:
-                                      const Color(0xFF92400E),
+                                      subtitle: 'Delivered orders',
+                                      icon: Icons.task_alt_rounded,
+                                      color: const Color(0xFF92400E),
                                     ),
                                   ],
                                 );
@@ -467,8 +444,7 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
                             const SizedBox(height: 24),
                             _sectionHeader(
                               title: 'Quick Actions',
-                              subtitle:
-                              'Manage your shop faster from here',
+                              subtitle: 'Manage your shop faster from here',
                             ),
                             const SizedBox(height: 12),
                             LayoutBuilder(
@@ -496,8 +472,7 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
                                           Navigator.push(
                                             context,
                                             MaterialPageRoute(
-                                              builder: (_) =>
-                                              const VendorProductsPage(),
+                                              builder: (_) => const VendorProductsPage(),
                                             ),
                                           );
                                         },
@@ -512,8 +487,7 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
                                           Navigator.push(
                                             context,
                                             MaterialPageRoute(
-                                              builder: (_) =>
-                                              const VendorOrdersPage(),
+                                              builder: (_) => const VendorOrdersPage(),
                                             ),
                                           );
                                         },
@@ -528,8 +502,7 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
                                           Navigator.push(
                                             context,
                                             MaterialPageRoute(
-                                              builder: (_) =>
-                                              const VendorWithdrawPage(),
+                                              builder: (_) => const VendorWithdrawPage(),
                                             ),
                                           );
                                         },
@@ -559,8 +532,7 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
                             const SizedBox(height: 26),
                             _sectionHeader(
                               title: 'Recent Vendor Orders',
-                              subtitle:
-                              'Latest orders from your shop',
+                              subtitle: 'Latest orders from your shop',
                             ),
                             const SizedBox(height: 12),
                             if (orders.isEmpty)
@@ -580,6 +552,7 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
       ),
     );
   }
+
 
 
 

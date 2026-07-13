@@ -22,6 +22,7 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
   bool canEditPermissions = false;
   bool canBlockUsers = false;
   bool canEditWallet = false;
+  String? currentViewerUid;
 
   String searchText = '';
   String roleFilter = 'all';
@@ -39,7 +40,6 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
   static const List<String> permissionOptions = [
     'dashboard.view',
     'analytics.view',
-
     'orders.view',
     'orders.edit',
     'orders.assign_rider',
@@ -47,49 +47,40 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     'orders.settle_cod',
     'orders.discount',
     'orders.confirm',
-
     'products.view',
     'products.edit',
     'products.delete',
     'products.bulk',
     'products.status',
-
     'vendor_products.view',
     'vendor_products.edit',
     'vendor_products.approve',
     'vendor_products.delete',
     'vendor_products.status',
-
     'categories.view',
     'categories.edit',
     'categories.delete',
     'categories.status',
-
     'banners.view',
     'banners.edit',
     'banners.delete',
     'banners.status',
     'banners.priority',
-
     'coupons.view',
     'coupons.edit',
     'coupons.delete',
     'coupons.status',
-
     'lists.view',
     'lists.edit',
-
     'doctors.view',
     'doctors.edit',
     'appointments.view',
     'appointments.edit',
-
     'users.view',
     'users.edit',
     'users.permissions',
     'users.block',
     'wallet.edit',
-
     'vendors.view',
     'vendors.edit',
     'vendors.approve',
@@ -98,7 +89,6 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     'vendors.documents',
     'vendors.contact',
     'vendors.payouts',
-
     'delivery.view',
     'delivery.approve',
     'delivery.block',
@@ -106,13 +96,10 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     'delivery.settle_cod',
     'delivery.documents',
     'delivery.contact',
-
     'referrals.view',
     'referrals.edit',
-
     'settings.view',
     'settings.edit',
-
     'notifications.view',
     'notifications.send',
     'notifications.manage',
@@ -134,7 +121,9 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
 
       final superAccess = role == 'superAdmin' || roles.contains('superAdmin');
       final rawPermissions = data?['permissions'];
-      final permissions = rawPermissions is List ? List<String>.from(rawPermissions) : <String>[];
+      final permissions = rawPermissions is List
+          ? List<String>.from(rawPermissions)
+          : <String>[];
 
       bool has(String permission) {
         if (superAccess) return true;
@@ -144,6 +133,7 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
       if (!mounted) return;
       setState(() {
         isSuperAdminViewer = superAccess;
+        currentViewerUid = authService.currentUid;
         canViewUsers = has('users.view');
         // User role/permission/wallet/block are critical actions.
         // Only Super Admin should get these automatically.
@@ -166,7 +156,29 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     return _text(data['role']) == 'superAdmin' || roles.contains('superAdmin');
   }
 
-  bool _canModifyTarget(Map<String, dynamic> data, {bool permissionAction = false}) {
+  bool _isSelf(String uid) => currentViewerUid == uid;
+
+  bool _isDangerousPermission(String permission) {
+    return {
+      'users.permissions',
+      'users.block',
+      'wallet.edit',
+      'settings.edit',
+      'vendors.delete',
+      'vendors.payouts',
+      'delivery.withdraw',
+      'delivery.settle_cod',
+    }.contains(permission);
+  }
+
+  bool _canModifyTarget(String uid, Map<String, dynamic> data,
+      {bool permissionAction = false}) {
+    if (_isSelf(uid)) {
+      _snack(
+          'For safety, you cannot modify your own role, permissions, block status, or wallet.');
+      return false;
+    }
+
     if (_targetIsSuperAdmin(data) && !isSuperAdminViewer) {
       _snack('Only Super Admin can modify a Super Admin account.');
       return false;
@@ -236,8 +248,9 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     return data['isActive'] != false && data['isBanned'] != true;
   }
 
-  Future<void> _setPrimaryRole(String uid, String role, Map<String, dynamic> data) async {
-    if (!_canModifyTarget(data)) return;
+  Future<void> _setPrimaryRole(
+      String uid, String role, Map<String, dynamic> data) async {
+    if (!_canModifyTarget(uid, data)) return;
     if (role == 'superAdmin' && !isSuperAdminViewer) {
       _snack('Only Super Admin can assign Super Admin role.');
       return;
@@ -268,8 +281,9 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     _snack('Primary role updated to $role');
   }
 
-  Future<void> _toggleRole(String uid, String role, bool add, Map<String, dynamic> data) async {
-    if (!_canModifyTarget(data)) return;
+  Future<void> _toggleRole(
+      String uid, String role, bool add, Map<String, dynamic> data) async {
+    if (!_canModifyTarget(uid, data)) return;
     if (role == 'superAdmin' && !isSuperAdminViewer) {
       _snack('Only Super Admin can change Super Admin role.');
       return;
@@ -283,7 +297,8 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     }
 
     await db.collection('users').doc(uid).set({
-      'roles': add ? FieldValue.arrayUnion([role]) : FieldValue.arrayRemove([role]),
+      'roles':
+          add ? FieldValue.arrayUnion([role]) : FieldValue.arrayRemove([role]),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
@@ -291,6 +306,11 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
   }
 
   Future<void> _toggleBlock(String uid, Map<String, dynamic> data) async {
+    if (_isSelf(uid)) {
+      _snack('For safety, you cannot block your own account.');
+      return;
+    }
+
     if (!canBlockUsers) {
       _snack('You do not have users.block access.');
       return;
@@ -329,9 +349,12 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red, foregroundColor: Colors.white),
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Block'),
           ),
@@ -353,6 +376,11 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
   }
 
   Future<void> _adjustPoints(String uid, Map<String, dynamic> data) async {
+    if (_isSelf(uid)) {
+      _snack('For safety, you cannot adjust your own wallet.');
+      return;
+    }
+
     if (!canEditWallet) {
       _snack('You do not have wallet.edit access.');
       return;
@@ -368,7 +396,8 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text('Adjust ChalakChar Mart Cash / Points for ${_text(data['name'], 'User')}'),
+        title: Text(
+            'Adjust ChalakChar Mart Cash / Points for ${_text(data['name'], 'User')}'),
         content: SizedBox(
           width: 430,
           child: Column(
@@ -376,7 +405,8 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
             children: [
               TextField(
                 controller: pointsController,
-                keyboardType: const TextInputType.numberWithOptions(signed: true),
+                keyboardType:
+                    const TextInputType.numberWithOptions(signed: true),
                 decoration: const InputDecoration(
                   labelText: 'Amount (+ add / - remove)',
                   hintText: 'Example: 50 or -20',
@@ -396,8 +426,12 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Save')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Save')),
         ],
       ),
     );
@@ -413,11 +447,14 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     final batch = db.batch();
     final userRef = db.collection('users').doc(uid);
 
-    batch.set(userRef, {
-      'points': FieldValue.increment(amount),
-      if (amount > 0) 'totalEarnings': FieldValue.increment(amount),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    batch.set(
+        userRef,
+        {
+          'points': FieldValue.increment(amount),
+          if (amount > 0) 'totalEarnings': FieldValue.increment(amount),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true));
 
     batch.set(db.collection('wallet_logs').doc(), {
       'userId': uid,
@@ -431,12 +468,15 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     _snack('Points updated');
   }
 
-  Future<void> _showPermissionsDialog(String uid, Map<String, dynamic> data) async {
-    if (!_canModifyTarget(data, permissionAction: true)) return;
+  Future<void> _showPermissionsDialog(
+      String uid, Map<String, dynamic> data) async {
+    if (!_canModifyTarget(uid, data, permissionAction: true)) return;
 
     final roles = _roles(data);
 
-    if (!roles.contains('staff') && !roles.contains('admin') && !roles.contains('superAdmin')) {
+    if (!roles.contains('staff') &&
+        !roles.contains('admin') &&
+        !roles.contains('superAdmin')) {
       _snack('Permission can be edited only for staff/admin users.');
       return;
     }
@@ -473,9 +513,15 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
               ),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+              TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel')),
               ElevatedButton(
                 onPressed: () async {
+                  if (!isSuperAdminViewer) {
+                    selected.removeWhere(_isDangerousPermission);
+                  }
+
                   await db.collection('users').doc(uid).set({
                     'permissions': selected,
                     'updatedAt': FieldValue.serverTimestamp(),
@@ -494,7 +540,6 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
   }
 
   Future<void> _showUserDetails(String uid, Map<String, dynamic> data) async {
-
     final roles = _roles(data);
 
     await showDialog(
@@ -514,10 +559,14 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
                 _detailRow('Primary Role', _text(data['role'], 'user')),
                 _detailRow('All Roles', _roles(data).join(', ')),
                 _detailRow('Points', _toInt(data['points']).toString()),
-                _detailRow('Total Earnings', _toInt(data['totalEarnings']).toString()),
-                _detailRow('Referral Count', _toInt(data['referralCount']).toString()),
-                _detailRow('Seller Status', _text(data['sellerStatus'], 'none')),
-                _detailRow('Delivery Partner', roles.contains('deliveryPartner') ? 'Yes' : 'No'),
+                _detailRow(
+                    'Total Earnings', _toInt(data['totalEarnings']).toString()),
+                _detailRow(
+                    'Referral Count', _toInt(data['referralCount']).toString()),
+                _detailRow(
+                    'Seller Status', _text(data['sellerStatus'], 'none')),
+                _detailRow('Delivery Partner',
+                    roles.contains('deliveryPartner') ? 'Yes' : 'No'),
                 _detailRow('Vendor ID', _text(data['vendorId'], 'N/A')),
                 _detailRow('Active', _isActive(data) ? 'Yes' : 'No'),
                 _detailRow('Banned', data['isBanned'] == true ? 'Yes' : 'No'),
@@ -533,7 +582,9 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close')),
         ],
       ),
     );
@@ -545,7 +596,10 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 125, child: Text(title, style: const TextStyle(fontWeight: FontWeight.w900))),
+          SizedBox(
+              width: 125,
+              child: Text(title,
+                  style: const TextStyle(fontWeight: FontWeight.w900))),
           Expanded(child: SelectableText(value)),
         ],
       ),
@@ -563,7 +617,9 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
       if (roleFilter != 'all' && !roles.contains(roleFilter)) return false;
       if (statusFilter == 'active' && !active) return false;
       if (statusFilter == 'blocked' && active) return false;
-      if (statusFilter == 'vendorPending' && data['sellerStatus'] != 'pending') return false;
+      if (statusFilter == 'vendorPending' && data['sellerStatus'] != 'pending') {
+        return false;
+      }
 
       if (s.isEmpty) return true;
 
@@ -572,7 +628,10 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
       final phone = _text(data['phone']).toLowerCase();
       final uid = doc.id.toLowerCase();
 
-      return name.contains(s) || email.contains(s) || phone.contains(s) || uid.contains(s);
+      return name.contains(s) ||
+          email.contains(s) ||
+          phone.contains(s) ||
+          uid.contains(s);
     }).toList();
   }
 
@@ -590,13 +649,19 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
       if (roles.contains('user')) users++;
       if (roles.contains('admin') || roles.contains('superAdmin')) admins++;
       if (roles.contains('staff')) staff++;
-      if (roles.contains('vendor') || data['sellerStatus'] == 'approved') vendors++;
+      if (roles.contains('vendor') || data['sellerStatus'] == 'approved') {
+        vendors++;
+      }
       if (!_isActive(data)) blocked++;
     }
 
     return LayoutBuilder(
       builder: (context, c) {
-        final count = c.maxWidth >= 1000 ? 5 : c.maxWidth >= 650 ? 3 : 2;
+        final count = c.maxWidth >= 1000
+            ? 5
+            : c.maxWidth >= 650
+                ? 3
+                : 2;
 
         return GridView.count(
           shrinkWrap: true,
@@ -606,11 +671,15 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
           mainAxisSpacing: 12,
           childAspectRatio: count == 2 ? 1.7 : 2.05,
           children: [
-            _summaryCard('Users', '$users', Icons.people_alt_rounded, Colors.blue),
-            _summaryCard('Admins', '$admins', Icons.admin_panel_settings_rounded, Colors.deepPurple),
+            _summaryCard(
+                'Users', '$users', Icons.people_alt_rounded, Colors.blue),
+            _summaryCard('Admins', '$admins',
+                Icons.admin_panel_settings_rounded, Colors.deepPurple),
             _summaryCard('Staff', '$staff', Icons.badge_rounded, Colors.teal),
-            _summaryCard('Vendors', '$vendors', Icons.storefront_rounded, Colors.orange),
-            _summaryCard('Blocked', '$blocked', Icons.block_rounded, Colors.red),
+            _summaryCard(
+                'Vendors', '$vendors', Icons.storefront_rounded, Colors.orange),
+            _summaryCard(
+                'Blocked', '$blocked', Icons.block_rounded, Colors.red),
           ],
         );
       },
@@ -644,7 +713,9 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+                Text(value,
+                    style: const TextStyle(
+                        fontSize: 22, fontWeight: FontWeight.w900)),
                 const SizedBox(height: 2),
                 Text(title, style: TextStyle(color: Colors.grey.shade600)),
               ],
@@ -682,27 +753,36 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
 
             final role = DropdownButtonFormField<String>(
               initialValue: roleFilter,
-              decoration: const InputDecoration(labelText: 'Role', border: OutlineInputBorder(), isDense: true),
+              decoration: const InputDecoration(
+                  labelText: 'Role',
+                  border: OutlineInputBorder(),
+                  isDense: true),
               items: const [
                 DropdownMenuItem(value: 'all', child: Text('All Roles')),
                 DropdownMenuItem(value: 'user', child: Text('User')),
                 DropdownMenuItem(value: 'staff', child: Text('Staff')),
                 DropdownMenuItem(value: 'admin', child: Text('Admin')),
-                DropdownMenuItem(value: 'superAdmin', child: Text('Super Admin')),
+                DropdownMenuItem(
+                    value: 'superAdmin', child: Text('Super Admin')),
                 DropdownMenuItem(value: 'vendor', child: Text('Vendor')),
-                DropdownMenuItem(value: 'deliveryPartner', child: Text('Delivery Partner')),
+                DropdownMenuItem(
+                    value: 'deliveryPartner', child: Text('Delivery Partner')),
               ],
               onChanged: (v) => setState(() => roleFilter = v ?? 'all'),
             );
 
             final status = DropdownButtonFormField<String>(
               initialValue: statusFilter,
-              decoration: const InputDecoration(labelText: 'Status', border: OutlineInputBorder(), isDense: true),
+              decoration: const InputDecoration(
+                  labelText: 'Status',
+                  border: OutlineInputBorder(),
+                  isDense: true),
               items: const [
                 DropdownMenuItem(value: 'all', child: Text('All')),
                 DropdownMenuItem(value: 'active', child: Text('Active')),
                 DropdownMenuItem(value: 'blocked', child: Text('Blocked')),
-                DropdownMenuItem(value: 'vendorPending', child: Text('Vendor Pending')),
+                DropdownMenuItem(
+                    value: 'vendorPending', child: Text('Vendor Pending')),
               ],
               onChanged: (v) => setState(() => statusFilter = v ?? 'all'),
             );
@@ -756,7 +836,9 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(30),
       ),
-      child: Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+      child: Text(label,
+          style: TextStyle(
+              color: color, fontSize: 11, fontWeight: FontWeight.bold)),
     );
   }
 
@@ -784,17 +866,21 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
 
             final avatar = CircleAvatar(
               radius: 28,
-              backgroundColor: active ? const Color(0xFFEAF6FA) : Colors.red.withValues(alpha: 0.12),
-              backgroundImage: _text(data['photoUrl']).isNotEmpty ? NetworkImage(_text(data['photoUrl'])) : null,
+              backgroundColor: active
+                  ? const Color(0xFFEAF6FA)
+                  : Colors.red.withValues(alpha: 0.12),
+              backgroundImage: _text(data['photoUrl']).isNotEmpty
+                  ? NetworkImage(_text(data['photoUrl']))
+                  : null,
               child: _text(data['photoUrl']).isEmpty
                   ? Text(
-                name.isNotEmpty ? name[0].toUpperCase() : '?',
-                style: TextStyle(
-                  color: active ? const Color(0xFF1592B3) : Colors.red,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 20,
-                ),
-              )
+                      name.isNotEmpty ? name[0].toUpperCase() : '?',
+                      style: TextStyle(
+                        color: active ? const Color(0xFF1592B3) : Colors.red,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 20,
+                      ),
+                    )
                   : null,
             );
 
@@ -802,18 +888,24 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+                  Text(name,
+                      style: const TextStyle(
+                          fontSize: 17, fontWeight: FontWeight.w900)),
                   const SizedBox(height: 3),
-                  if (email.isNotEmpty) Text(email, style: TextStyle(color: Colors.grey.shade700)),
-                  if (phone.isNotEmpty) Text(phone, style: TextStyle(color: Colors.grey.shade700)),
+                  if (email.isNotEmpty)
+                    Text(email, style: TextStyle(color: Colors.grey.shade700)),
+                  if (phone.isNotEmpty)
+                    Text(phone, style: TextStyle(color: Colors.grey.shade700)),
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 6,
                     runSpacing: 6,
                     children: [
                       ...roles.map(_roleChip),
-                      _chip(active ? 'Active' : 'Blocked', active ? Colors.green : Colors.red),
-                      _chip('Seller: ${_text(data['sellerStatus'], 'none')}', Colors.orange),
+                      _chip(active ? 'Active' : 'Blocked',
+                          active ? Colors.green : Colors.red),
+                      _chip('Seller: ${_text(data['sellerStatus'], 'none')}',
+                          Colors.orange),
                       _chip('Points ${_toInt(data['points'])}', Colors.blue),
                     ],
                   ),
@@ -824,17 +916,20 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
             final roleSelector = SizedBox(
               width: compact ? double.infinity : 180,
               child: DropdownButtonFormField<String>(
-                initialValue: roleOptions.contains(primaryRole) ? primaryRole : 'user',
+                initialValue:
+                    roleOptions.contains(primaryRole) ? primaryRole : 'user',
                 decoration: const InputDecoration(
                   labelText: 'Primary Role',
                   border: OutlineInputBorder(),
                   isDense: true,
                 ),
-                items: roleOptions.map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
-                onChanged: canEditUsers
+                items: roleOptions
+                    .map((r) => DropdownMenuItem(value: r, child: Text(r)))
+                    .toList(),
+                onChanged: canEditUsers && !_isSelf(uid)
                     ? (v) {
-                  if (v != null) _setPrimaryRole(uid, v, data);
-                }
+                        if (v != null) _setPrimaryRole(uid, v, data);
+                      }
                     : null,
               ),
             );
@@ -848,26 +943,30 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
                   icon: const Icon(Icons.visibility_rounded, size: 18),
                   label: const Text('View'),
                 ),
-                if (canEditWallet)
+                if (canEditWallet && !_isSelf(uid))
                   OutlinedButton.icon(
                     onPressed: () => _adjustPoints(uid, data),
-                    icon: const Icon(Icons.account_balance_wallet_rounded, size: 18),
+                    icon: const Icon(Icons.account_balance_wallet_rounded,
+                        size: 18),
                     label: const Text('Points'),
                   ),
-                if (canEditPermissions)
+                if (canEditPermissions && !_isSelf(uid))
                   OutlinedButton.icon(
                     onPressed: () => _showPermissionsDialog(uid, data),
                     icon: const Icon(Icons.security_rounded, size: 18),
                     label: const Text('Permissions'),
                   ),
-                if (canBlockUsers)
+                if (canBlockUsers && !_isSelf(uid))
                   OutlinedButton.icon(
                     onPressed: () => _toggleBlock(uid, data),
-                    icon: Icon(active ? Icons.block_rounded : Icons.lock_open_rounded, size: 18),
+                    icon: Icon(
+                        active ? Icons.block_rounded : Icons.lock_open_rounded,
+                        size: 18),
                     label: Text(active ? 'Block' : 'Unblock'),
-                    style: OutlinedButton.styleFrom(foregroundColor: active ? Colors.red : Colors.green),
+                    style: OutlinedButton.styleFrom(
+                        foregroundColor: active ? Colors.red : Colors.green),
                   ),
-                if (canEditUsers)
+                if (canEditUsers && !_isSelf(uid))
                   PopupMenuButton<String>(
                     tooltip: 'More roles',
                     onSelected: (value) {
@@ -886,7 +985,8 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
                       }).toList();
                     },
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 9),
                       decoration: BoxDecoration(
                         border: Border.all(color: const Color(0xFFE5E7EB)),
                         borderRadius: BorderRadius.circular(8),
@@ -942,7 +1042,11 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     }
 
     return StreamBuilder<QuerySnapshot>(
-      stream: db.collection('users').orderBy('createdAt', descending: true).limit(500).snapshots(),
+      stream: db
+          .collection('users')
+          .orderBy('createdAt', descending: true)
+          .limit(500)
+          .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Center(child: Text('Error: ${snapshot.error}'));
@@ -1002,7 +1106,8 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
         padding: const EdgeInsets.all(28),
         child: Column(
           children: [
-            Icon(Icons.lock_outline_rounded, size: 42, color: Colors.red.shade400),
+            Icon(Icons.lock_outline_rounded,
+                size: 42, color: Colors.red.shade400),
             const SizedBox(height: 12),
             const Text(
               'Access Denied',

@@ -81,7 +81,7 @@ class _AdminDoctorAppointmentsPageState extends State<AdminDoctorAppointmentsPag
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(30),
       ),
       child: Text(
@@ -365,7 +365,7 @@ class _AdminDoctorAppointmentsPageState extends State<AdminDoctorAppointmentsPag
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.035),
+            color: Colors.black.withValues(alpha: 0.035),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
@@ -374,7 +374,7 @@ class _AdminDoctorAppointmentsPageState extends State<AdminDoctorAppointmentsPag
       child: Row(
         children: [
           CircleAvatar(
-            backgroundColor: color.withOpacity(0.12),
+            backgroundColor: color.withValues(alpha: 0.12),
             child: Icon(icon, color: color),
           ),
           const SizedBox(width: 12),
@@ -712,7 +712,7 @@ class _AdminDoctorAppointmentsPageState extends State<AdminDoctorAppointmentsPag
       icon: Icon(icon, size: 18, color: onTap == null ? Colors.grey : color),
       label: Text(label, style: TextStyle(color: onTap == null ? Colors.grey : color)),
       style: OutlinedButton.styleFrom(
-        side: BorderSide(color: (onTap == null ? Colors.grey : color).withOpacity(0.35)),
+        side: BorderSide(color: (onTap == null ? Colors.grey : color).withValues(alpha: 0.35)),
       ),
     );
   }
@@ -724,9 +724,9 @@ class _AdminDoctorAppointmentsPageState extends State<AdminDoctorAppointmentsPag
       return _text(ad['appointmentTime']).compareTo(_text(bd['appointmentTime']));
     });
 
-    final revenue = docs.fold<double>(0, (sum, doc) {
+    final revenue = docs.fold<double>(0, (total, doc) {
       final data = doc.data() as Map<String, dynamic>;
-      return sum + _toDouble(data['fee']);
+      return total + _toDouble(data['fee']);
     });
 
     return Card(
@@ -825,6 +825,3 @@ class _AdminDoctorAppointmentsPageState extends State<AdminDoctorAppointmentsPag
     );
   }
 }
-
-
-

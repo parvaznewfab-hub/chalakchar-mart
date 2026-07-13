@@ -293,7 +293,7 @@ class _AdminVendorPayoutPageState extends State<AdminVendorPayoutPage> {
           );
 
           final filter = DropdownButtonFormField<String>(
-            value: statusFilter,
+            initialValue: statusFilter,
             decoration: const InputDecoration(
               labelText: 'Status',
               border: OutlineInputBorder(),
@@ -354,7 +354,8 @@ class _AdminVendorPayoutPageState extends State<AdminVendorPayoutPage> {
             Row(
               children: [
                 CircleAvatar(
-                  backgroundColor: _statusColor(status).withOpacity(0.12),
+                  backgroundColor:
+                      _statusColor(status).withValues(alpha: 0.12),
                   child: Icon(
                     Icons.account_balance_wallet,
                     color: _statusColor(status),
@@ -461,7 +462,7 @@ class _AdminVendorPayoutPageState extends State<AdminVendorPayoutPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.10),
+        color: color.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(99),
       ),
       child: Text(

@@ -8,8 +8,9 @@ import '../../widgets/global_web_footer.dart';
 
 class SearchPage extends StatefulWidget {
   final String initialQuery;
+  final String detectedLabel;
 
-  const SearchPage({super.key, this.initialQuery = ''});
+  const SearchPage({super.key, this.initialQuery = '', this.detectedLabel = ''});
 
   @override
   State<SearchPage> createState() => _SearchPageState();
@@ -50,12 +51,16 @@ class _SearchPageState extends State<SearchPage> {
     final query = q.trim();
     if (query.isEmpty) return;
 
-    await db.collection('search_logs').add({
-      'query': query.toLowerCase(),
-      'displayQuery': query,
-      'source': 'user_search_page',
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+    try {
+      await db.collection('search_logs').add({
+        'query': query.toLowerCase(),
+        'displayQuery': query,
+        'source': 'user_search_page',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {
+      // Search should never fail just because recent-search logging failed.
+    }
   }
 
   double _priceOf(Map<String, dynamic> data) {
@@ -219,122 +224,192 @@ class _SearchPageState extends State<SearchPage> {
   Widget build(BuildContext context) {
     final isDesktop = kIsWeb && MediaQuery.of(context).size.width >= 1024;
 
+    final PreferredSizeWidget pageAppBar = isDesktop
+        ? const PreferredSize(
+      preferredSize: Size.fromHeight(136),
+      child: GlobalWebHeader(),
+    )
+        : AppBar(
+      title: const Text('Search'),
+      backgroundColor: Colors.white,
+      foregroundColor: Colors.black,
+      elevation: 0,
+    );
+
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
-      appBar: (isDesktop
-          ? const GlobalWebHeader()
-          : AppBar(
-        title: const Text('Search'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
-      )) as PreferredSizeWidget?,
-      body: Column(
-        children: [
-          _searchHeader(isDesktop),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: db
-                  .collection('products')
-                  .where('isActive', isEqualTo: true)
-                  .where('approvalStatus', isEqualTo: 'approved')
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(child: Text('Search failed: ${snapshot.error}'));
-                }
+      appBar: pageAppBar,
+      body: StreamBuilder<QuerySnapshot>(
+        stream: db
+            .collection('products')
+            .where('isActive', isEqualTo: true)
+            .where('approvalStatus', isEqualTo: 'approved')
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(child: Text('Search failed: ${snapshot.error}'));
+          }
 
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
-                final products = _filterSort(snapshot.data!.docs);
+          final products = _filterSort(snapshot.data!.docs);
 
-                if (products.isEmpty) return _emptyState();
-
-                return SingleChildScrollView(
-                  padding: const EdgeInsets.all(14),
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 1350),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _resultSummary(products.length),
-                          const SizedBox(height: 12),
-                          LayoutBuilder(
-                            builder: (context, constraints) {
-                              int crossAxisCount = (constraints.maxWidth / 185).floor();
-                              if (crossAxisCount < 2) crossAxisCount = 2;
-                              if (crossAxisCount > 7) crossAxisCount = 7;
-
-                              return GridView.builder(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: products.length,
-                                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: crossAxisCount,
-                                  childAspectRatio: constraints.maxWidth < 600 ? 0.60 : 0.68,
-                                  crossAxisSpacing: 12,
-                                  mainAxisSpacing: 12,
-                                ),
-                                itemBuilder: (_, i) {
-                                  final doc = products[i];
-                                  final data = doc.data() as Map<String, dynamic>;
-                                  data['id'] = doc.id;
-
-                                  return ProductCard(data: data);
-                                },
-                              );
-                            },
-                          ),
-                        ],
+          return LayoutBuilder(
+            builder: (context, viewport) {
+              final horizontalPadding = isDesktop ? 18.0 : 12.0;
+              return CustomScrollView(
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                slivers: [
+                  SliverToBoxAdapter(child: _searchHeader(isDesktop)),
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(
+                      horizontalPadding,
+                      isDesktop ? 18 : 12,
+                      horizontalPadding,
+                      0,
+                    ),
+                    sliver: SliverToBoxAdapter(
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 1350),
+                          child: products.isEmpty ? _emptyState() : _resultSummary(products.length),
+                        ),
                       ),
                     ),
                   ),
-                );
-              },
-            ),
-          ),
-          if (isDesktop) const GlobalWebFooter(),
-        ],
+                  if (products.isNotEmpty)
+                    SliverPadding(
+                      padding: EdgeInsets.fromLTRB(
+                        horizontalPadding,
+                        14,
+                        horizontalPadding,
+                        0,
+                      ),
+                      sliver: SliverToBoxAdapter(
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 1350),
+                            child: Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              alignment: WrapAlignment.start,
+                              children: products.map((doc) {
+                                final data = Map<String, dynamic>.from(
+                                  doc.data() as Map<String, dynamic>,
+                                );
+                                data['id'] = doc.id;
+
+                                // Same card size as Home page and Product Details
+                                // alternative product list: ProductCard default width = 150.
+                                return ProductCard(data: data);
+                              }).toList(),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Column(
+                      children: [
+                        SizedBox(height: products.isEmpty ? 28 : (isDesktop ? 70 : 28)),
+                        const Spacer(),
+                        if (isDesktop) const GlobalWebFooter(),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
       ),
     );
   }
 
   Widget _searchHeader(bool isDesktop) {
-    return Container(
+    return Material(
       color: Colors.white,
-      padding: const EdgeInsets.all(14),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1350),
-          child: Column(
-            children: [
-              TextField(
-                controller: _searchController,
-                autofocus: !isDesktop,
-                textInputAction: TextInputAction.search,
-                decoration: InputDecoration(
-                  hintText: 'Search products, vendors, brand, generic...',
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: _query.isEmpty
-                      ? null
-                      : IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: _clearFilters,
+      elevation: isDesktop ? 0 : 1,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(isDesktop ? 14 : 12, 14, isDesktop ? 14 : 12, 14),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1350),
+            child: Column(
+              children: [
+                TextField(
+                  controller: _searchController,
+                  autofocus: !isDesktop,
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    hintText: 'Search products, vendors, brand, generic...',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _query.isEmpty
+                        ? null
+                        : IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: _clearFilters,
+                    ),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(28)),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(28),
+                      borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(28),
+                      borderSide: const BorderSide(color: Color(0xFFFF9900), width: 1.5),
+                    ),
+                    isDense: true,
+                    filled: true,
+                    fillColor: Colors.white,
                   ),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(28)),
-                  isDense: true,
+                  onSubmitted: (v) {
+                    final next = v.trim();
+                    setState(() => _query = next);
+                    _saveRecentSearch(next);
+                  },
+                  onChanged: (v) => setState(() => _query = v.trim()),
                 ),
-                onSubmitted: (v) => _saveRecentSearch(v),
-                onChanged: (v) => setState(() => _query = v.trim()),
-              ),
-              const SizedBox(height: 10),
-              _filterBar(),
-            ],
+                if (widget.detectedLabel.trim().isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  _detectedBanner(),
+                ],
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _filterBar(),
+                ),
+              ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _detectedBanner() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF4E5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFF9900).withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.image_search_rounded, color: Color(0xFFFF9900), size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'ছবি থেকে সনাক্ত হয়েছে: ${widget.detectedLabel}',
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -349,8 +424,7 @@ class _SearchPageState extends State<SearchPage> {
           for (final c in snap.data!) {
             final name = c.name.trim();
 
-            if (name.isNotEmpty &&
-                !categories.contains(name)) {
+            if (name.isNotEmpty && !categories.contains(name)) {
               categories.add(name);
             }
           }
@@ -360,98 +434,72 @@ class _SearchPageState extends State<SearchPage> {
           _selectedCategory = 'All';
         }
 
-        return Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          crossAxisAlignment:
-          WrapCrossAlignment.center,
-          children: [
-            _dropdownBox(
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  value: _selectedCategory,
-                  items: categories
-                      .map(
-                        (e) => DropdownMenuItem(
-                      value: e,
-                      child: Text(e),
-                    ),
-                  )
-                      .toList(),
-                  onChanged: (v) => setState(
-                        () => _selectedCategory =
-                        v ?? 'All',
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _dropdownBox(
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _selectedCategory,
+                    items: categories
+                        .map(
+                          (e) => DropdownMenuItem(
+                        value: e,
+                        child: Text(e),
+                      ),
+                    )
+                        .toList(),
+                    onChanged: (v) => setState(() => _selectedCategory = v ?? 'All'),
                   ),
                 ),
               ),
-            ),
-            _dropdownBox(
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  value: _sort,
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'relevance',
-                      child: Text('Best match'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'newest',
-                      child: Text('Newest'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'price_low',
-                      child: Text('Price low'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'price_high',
-                      child: Text('Price high'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'stock',
-                      child: Text('Stock'),
-                    ),
-                  ],
-                  onChanged: (v) => setState(
-                        () => _sort =
-                        v ?? 'relevance',
+              const SizedBox(width: 8),
+              _dropdownBox(
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _sort,
+                    items: const [
+                      DropdownMenuItem(value: 'relevance', child: Text('Best match')),
+                      DropdownMenuItem(value: 'newest', child: Text('Newest')),
+                      DropdownMenuItem(value: 'price_low', child: Text('Price low')),
+                      DropdownMenuItem(value: 'price_high', child: Text('Price high')),
+                      DropdownMenuItem(value: 'stock', child: Text('Stock')),
+                    ],
+                    onChanged: (v) => setState(() => _sort = v ?? 'relevance'),
                   ),
                 ),
               ),
-            ),
-            FilterChip(
-              label: const Text('In stock'),
-              selected: _onlyInStock,
-              onSelected: (v) => setState(
-                    () => _onlyInStock = v,
+              const SizedBox(width: 8),
+              FilterChip(
+                label: const Text('In stock'),
+                selected: _onlyInStock,
+                onSelected: (v) => setState(() => _onlyInStock = v),
               ),
-            ),
-            FilterChip(
-              label: const Text('Marketplace'),
-              selected: _onlyMarketplace,
-              onSelected: (v) {
-                setState(() {
-                  _onlyMarketplace = v;
-
-                  if (v) {
-                    _onlyPharmacy = false;
-                  }
-                });
-              },
-            ),
-            FilterChip(
-              label: const Text('Official Store'),
-              selected: _onlyPharmacy,
-              onSelected: (v) {
-                setState(() {
-                  _onlyPharmacy = v;
-
-                  if (v) {
-                    _onlyMarketplace = false;
-                  }
-                });
-              },
-            ),
-          ],
+              const SizedBox(width: 8),
+              FilterChip(
+                label: const Text('Marketplace'),
+                selected: _onlyMarketplace,
+                onSelected: (v) {
+                  setState(() {
+                    _onlyMarketplace = v;
+                    if (v) _onlyPharmacy = false;
+                  });
+                },
+              ),
+              const SizedBox(width: 8),
+              FilterChip(
+                label: const Text('Official Store'),
+                selected: _onlyPharmacy,
+                onSelected: (v) {
+                  setState(() {
+                    _onlyPharmacy = v;
+                    if (v) _onlyMarketplace = false;
+                  });
+                },
+              ),
+            ],
+          ),
         );
       },
     );
@@ -494,36 +542,38 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Widget _emptyState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.search_off, size: 80, color: Colors.grey.shade300),
-            const SizedBox(height: 12),
-            Text(
-              _query.isEmpty ? 'No products found' : 'No result found for "$_query"',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Try another keyword or clear filters.',
-              style: TextStyle(color: Colors.grey.shade600),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 14),
-            OutlinedButton.icon(
-              onPressed: _clearFilters,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Clear filters'),
-            ),
-          ],
-        ),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.search_off, size: 80, color: Colors.grey.shade300),
+          const SizedBox(height: 12),
+          Text(
+            _query.isEmpty ? 'No products found' : 'No result found for "$_query"',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Try another keyword or clear filters.',
+            style: TextStyle(color: Colors.grey.shade600),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            onPressed: _clearFilters,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Clear filters'),
+          ),
+        ],
       ),
     );
   }
 }
-
-

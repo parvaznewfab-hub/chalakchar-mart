@@ -223,5 +223,19 @@ service firebase.storage {
     match /{allPaths=**} {
       allow read, write: if false;
     }
+    // =========================
+    // BRANDING IMAGES
+    // Header logo / favicon from Admin Settings
+    // =========================
+    match /branding/{type}/{fileName} {
+      allow read: if true;
+
+      allow create, update: if isStaff()
+        && type in ['logos', 'favicons']
+        && isImageUnder5MB();
+
+      allow delete: if isStaff()
+        && type in ['logos', 'favicons'];
+    }
   }
 }
