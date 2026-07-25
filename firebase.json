@@ -11,6 +11,27 @@
     ],
     "rewrites": [
       {
+        "source": "/api/aliexpress/start",
+        "function": {
+          "functionId": "aliexpressOAuthStart",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/api/aliexpress/callback",
+        "function": {
+          "functionId": "aliexpressOAuthCallback",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/api/aliexpress/status",
+        "function": {
+          "functionId": "aliexpressConnectionStatus",
+          "region": "asia-south1"
+        }
+      },
+      {
         "source": "/sitemap.xml",
         "function": {
           "functionId": "sitemap",
@@ -33,7 +54,7 @@
       },
       {
         "source": "**",
-        "destination": "/app.html"
+        "destination": "/index.html"
       }
     ]
   },
