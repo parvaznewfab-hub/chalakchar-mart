@@ -717,9 +717,9 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
             textStyleBuilder: (index, data, rowNum) =>
                 index == 3 || index == 4 ? const pw.TextStyle(fontSize: 9) : null,
             columnWidths: {
-              0: const pw.FixedColumnWidth(25),   // SL
+              0: const pw.FixedColumnWidth(30),   // SL
               1: const pw.FlexColumnWidth(4),     // Product name
-              2: const pw.FixedColumnWidth(30),   // Qty
+              2: const pw.FixedColumnWidth(36),   // Qty
               3: const pw.FixedColumnWidth(75),   // Price
               4: const pw.FixedColumnWidth(75),   // Total
             },
