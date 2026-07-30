@@ -699,7 +699,7 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
               final qty = _toInt(item['qty']);
               return [
                 '${index + 1}',
-                _text(item['name']),
+                '${_text(item['name'])} ${_text(item['unit']).isEmpty ? '' : '(${_text(item['unit'])})'}',
                 '$qty',
                 price.toStringAsFixed(2),
                 (price * qty).toStringAsFixed(2),
@@ -1144,6 +1144,7 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                                 : _text(item['vendorName']);
 
                             final isMarketplace = vendorId != 'super_admin';
+                            final aliExpressLink = _text(item['aliExpressLink']);
 
                             return Container(
                               margin: const EdgeInsets.only(bottom: 8),
@@ -1192,6 +1193,34 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                                       ),
                                     ],
                                   ),
+                                  if (aliExpressLink.isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    InkWell(
+                                      onTap: () => launchUrl(
+                                        Uri.parse(aliExpressLink),
+                                        mode: LaunchMode.externalApplication,
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.shopping_bag_outlined, size: 15, color: Colors.deepOrange),
+                                          const SizedBox(width: 4),
+                                          Flexible(
+                                            child: Text(
+                                              'Buy on AliExpress',
+                                              style: const TextStyle(
+                                                color: Colors.deepOrange,
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 12,
+                                                decoration: TextDecoration.underline,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             );
