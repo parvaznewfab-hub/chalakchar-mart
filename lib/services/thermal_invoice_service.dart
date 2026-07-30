@@ -62,12 +62,13 @@ class ThermalInvoiceService {
 
     for (final item in items) {
       final name = item['name'] ?? '';
+      final unit = (item['unit'] ?? '').toString();
       final qty = int.tryParse((item['qty'] ?? 1).toString()) ?? 1;
       final price = double.tryParse((item['price'] ?? 0).toString()) ?? 0;
       final total = qty * price;
 
       printer.text(
-        name.toString(),
+        unit.isEmpty ? name.toString() : '${name.toString()} ($unit)',
         styles: const PosStyles(bold: true),
       );
 
