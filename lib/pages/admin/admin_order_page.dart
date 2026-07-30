@@ -692,7 +692,13 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
           pw.SizedBox(height: 18),
 
           pw.TableHelper.fromTextArray(
-            headers: ['SL', 'Product', 'Qty', 'Price', 'Total'],
+            headers: [
+              'SL',
+              'Product',
+              'Qty',
+              pw.Text('Price', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+              pw.Text('Total', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+            ],
             data: List.generate(items.length, (index) {
               final item = items[index] as Map;
               final price = _toDouble(item['price']);
@@ -708,6 +714,15 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
             headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
             cellAlignment: pw.Alignment.centerLeft,
             headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+            textStyleBuilder: (index, data, rowNum) =>
+                index == 3 || index == 4 ? const pw.TextStyle(fontSize: 9) : null,
+            columnWidths: {
+              0: const pw.FixedColumnWidth(25),   // SL
+              1: const pw.FlexColumnWidth(4),     // Product name
+              2: const pw.FixedColumnWidth(30),   // Qty
+              3: const pw.FixedColumnWidth(75),   // Price
+              4: const pw.FixedColumnWidth(75),   // Total
+            },
           ),
 
           pw.SizedBox(height: 18),
