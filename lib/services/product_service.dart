@@ -47,6 +47,27 @@ class ProductService {
     return fallback;
   }
 
+  // ---------------------------------------------------------------------------
+  // AliExpress sourcing (dropshipping fulfillment)
+  // ---------------------------------------------------------------------------
+
+  static const String aliExpressSource = 'aliexpress';
+
+  static bool isAliExpressSourced(Map<String, dynamic> product) {
+    return text(product['source']).toLowerCase() == aliExpressSource;
+  }
+
+  static String buildAliExpressLink(String sourceProductId) {
+    return 'https://www.aliexpress.com/item/$sourceProductId.html';
+  }
+
+  /// Empty string when the product isn't AliExpress-sourced or has no id.
+  static String aliExpressLinkFor(Map<String, dynamic> product) {
+    final sourceProductId = text(product['sourceProductId']);
+    if (!isAliExpressSourced(product) || sourceProductId.isEmpty) return '';
+    return buildAliExpressLink(sourceProductId);
+  }
+
   static String safeId(String value) {
     return value
         .toLowerCase()
@@ -204,6 +225,11 @@ class ProductService {
         final price = toDouble(item['price'] ?? item['piecePrice'] ?? fallbackPrice);
         final mrp = toDouble(item['mrp'] ?? item['oldPrice'] ?? fallbackMrp ?? price);
 
+        final skuId = text(item['skuId']);
+        final sourceSkuId = text(item['sourceSkuId']);
+        final image = text(item['image']);
+        final imageUrl = text(item['imageUrl']);
+
         result.add({
           'id': id,
           'variantId': id,
@@ -215,6 +241,10 @@ class ProductService {
           'mrp': mrp,
           'oldPrice': mrp,
           'stock': toInt(item['stock'] ?? fallbackStock),
+          if (skuId.isNotEmpty) 'skuId': skuId,
+          if (sourceSkuId.isNotEmpty) 'sourceSkuId': sourceSkuId,
+          if (image.isNotEmpty) 'image': image,
+          if (imageUrl.isNotEmpty) 'imageUrl': imageUrl,
         });
       }
     }
@@ -581,6 +611,8 @@ class ProductService {
     final price = toDouble(variant['price'] ?? normalized['price']);
     final oldPrice = toDouble(variant['mrp'] ?? variant['oldPrice'] ?? normalized['oldPrice'] ?? price);
     final stock = toInt(variant['stock'] ?? normalized['stock']);
+    final source = text(normalized['source']);
+    final sourceProductId = text(normalized['sourceProductId']);
 
     return {
       'productId': productId,
@@ -603,6 +635,9 @@ class ProductService {
       'stockAtAddTime': stock,
       'stock': stock,
       'piecesPerStrip': toInt(normalized['piecesPerStrip'], 10),
+      if (source.isNotEmpty) 'source': source,
+      if (sourceProductId.isNotEmpty) 'sourceProductId': sourceProductId,
+      if (aliExpressLinkFor(normalized).isNotEmpty) 'aliExpressLink': aliExpressLinkFor(normalized),
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     };
