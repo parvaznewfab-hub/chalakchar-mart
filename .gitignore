@@ -47,3 +47,9 @@ app.*.map.json
 node_modules/
 functions/.env
 .env
+
+# Firebase CLI hosting/build cache - machine-local, not source
+.firebase/
+
+# Claude Code local-only overrides (settings.json itself is shared/tracked)
+.claude/settings.local.json
