@@ -7,6 +7,8 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../services/image_upload_service.dart';
 import '../../services/category_service.dart';
+import '../../services/category_resolver_service.dart';
+import '../../utils/variant_merge.dart';
 
 class VendorProductsPage extends StatefulWidget {
   const VendorProductsPage({super.key});
@@ -227,6 +229,10 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
     bool uploading = false;
 
     final List<Map<String, TextEditingController>> variants = [];
+    // Parallel to `variants` (same length/index): the exact original
+    // variant map each row was seeded from, or null for a row added fresh
+    // during this edit session. Kept in sync on add/delete.
+    final List<Map<String, dynamic>?> variantOriginals = [];
 
     final oldVariants = data?['variants'];
     if (oldVariants is List && oldVariants.isNotEmpty) {
@@ -238,6 +244,7 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
           'mrp': TextEditingController(text: _toDouble(v['mrp'] ?? v['oldPrice']).toStringAsFixed(0)),
           'stock': TextEditingController(text: _toInt(v['stock']).toString()),
         });
+        variantOriginals.add(Map<String, dynamic>.from(v));
       }
     } else {
       variants.add({
@@ -246,6 +253,7 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
         'mrp': TextEditingController(text: _toDouble(data?['oldPrice']).toStringAsFixed(0)),
         'stock': TextEditingController(text: _toInt(data?['stock']).toString()),
       });
+      variantOriginals.add(null);
     }
 
     await showDialog(
@@ -282,6 +290,7 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
                 'mrp': TextEditingController(text: '0'),
                 'stock': TextEditingController(text: '0'),
               });
+              variantOriginals.add(null);
             });
           }
 
@@ -312,14 +321,20 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
             }
 
             // ১. রুলস-ফ্রেন্ডলি ভ্যারিয়েন্ট লিস্ট তৈরি (কোনো এক্সট্রা ইন্টারনাল আইডি ছাড়া)
-            final variantList = variants.map((v) {
-              return {
-                'name': v['name']!.text.trim().isEmpty ? 'Default' : v['name']!.text.trim(),
-                'price': _toDouble(v['price']!.text),
-                'mrp': _toDouble(v['mrp']!.text),
-                'stock': _toInt(v['stock']!.text),
-              };
-            }).toList();
+            final variantList = <Map<String, dynamic>>[
+              for (var i = 0; i < variants.length; i++)
+                mergeVariantEdit(
+                  variantOriginals[i],
+                  {
+                    'name': variants[i]['name']!.text.trim().isEmpty
+                        ? 'Default'
+                        : variants[i]['name']!.text.trim(),
+                    'price': _toDouble(variants[i]['price']!.text),
+                    'mrp': _toDouble(variants[i]['mrp']!.text),
+                    'stock': _toInt(variants[i]['stock']!.text),
+                  },
+                ),
+            ];
 
             final firstVariant = variantList.first;
             final totalStock = variants.fold<int>(
@@ -339,10 +354,30 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
                 throw Exception('Please login again before saving product.');
               }
 
+              // Category Manager is the single source of truth: resolve
+              // (or auto-create, pending admin approval — vendors never get
+              // an immediately-visible category) through the shared backend
+              // resolver. The backend derives vendor-tier defaults from this
+              // caller's own authenticated role, never from anything sent
+              // here. Falls back to the raw typed name on any resolver
+              // error so a transient failure never blocks a product save.
+              String resolvedCategoryName = category!;
+              String? resolvedCategoryId;
+              try {
+                final resolution = await CategoryResolverService.resolve(category!);
+                if (resolution != null) {
+                  resolvedCategoryName = resolution.categoryName;
+                  resolvedCategoryId = resolution.categoryId;
+                }
+              } catch (_) {
+                // ignore — fall back to the raw typed category name
+              }
+
               // ২. সরাসরি কাস্টম ক্লিন পেলোড তৈরি (যা সিকিউরিটি রুলস ১০০% পাস করবে)
               final Map<String, dynamic> cleanPayload = {
                 'name': productName,
-                'category': category!,
+                'category': resolvedCategoryName,
+                if (resolvedCategoryId != null) 'categoryId': resolvedCategoryId,
                 'generic': generic.text.trim(),
                 'manufacturer': manufacturer.text.trim(),
                 'type': type.text.trim(),
@@ -712,7 +747,10 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
                                 IconButton(
                                   onPressed: variants.length <= 1
                                       ? null
-                                      : () => setDialogState(() => variants.removeAt(i)),
+                                      : () => setDialogState(() {
+                                          variants.removeAt(i);
+                                          variantOriginals.removeAt(i);
+                                        }),
                                   icon: const Icon(Icons.delete_outline, color: Colors.red),
                                 ),
                               ],

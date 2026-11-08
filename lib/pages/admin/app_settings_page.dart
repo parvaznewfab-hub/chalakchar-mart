@@ -91,6 +91,11 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   // world-readable settings/app document or a Flutter text field.
   final defaultMarketingCaptionController = TextEditingController();
 
+  final aliExpressMarkupController = TextEditingController();
+  final importExchangeRateController = TextEditingController();
+  final importMinimumProfitController = TextEditingController();
+  final importCurrencyController = TextEditingController();
+
   bool loading = true;
   bool saving = false;
   bool uploadingLogo = false;
@@ -123,6 +128,12 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   bool defaultMessengerQueue = false;
   bool defaultTiktokQueue = false;
   bool hideSocialTokens = true;
+
+  bool importAutoPublish = false;
+  bool importEnableAi = true;
+  bool importEnableSeo = true;
+  bool importEnableMarketing = true;
+  String importRoundingMode = 'none';
 
   String defaultMarketingAudience = 'everyone';
   String defaultMarketingPublishTime = 'immediately';
@@ -226,6 +237,10 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     whatsappTemplateController.dispose();
     tiktokClientKeyController.dispose();
     defaultMarketingCaptionController.dispose();
+    aliExpressMarkupController.dispose();
+    importExchangeRateController.dispose();
+    importMinimumProfitController.dispose();
+    importCurrencyController.dispose();
 
     super.dispose();
   }
@@ -329,6 +344,10 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
           ? Map<String, dynamic>.from(data['marketingDefaults'] as Map)
           : <String, dynamic>{};
 
+      final importSettings = data['importSettings'] is Map
+          ? Map<String, dynamic>.from(data['importSettings'] as Map)
+          : <String, dynamic>{};
+
       facebookPageIdController.text = _text(socialApi['facebookPageId'] ?? data['facebookPageId']);
       facebookPageTokenController.text = _text(socialApi['facebookPageAccessToken'] ?? data['facebookPageAccessToken']);
       instagramBusinessIdController.text = _text(socialApi['instagramBusinessId'] ?? data['instagramBusinessId']);
@@ -352,6 +371,16 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       defaultTiktokQueue = _bool(marketingDefaults['tiktok'] ?? data['defaultTiktokQueue'], false);
       defaultMarketingAudience = _text(marketingDefaults['audience'] ?? data['defaultMarketingAudience'], 'everyone');
       defaultMarketingPublishTime = _text(marketingDefaults['publishTime'] ?? data['defaultMarketingPublishTime'], 'immediately');
+
+      aliExpressMarkupController.text = _double(importSettings['aliExpressMarkupPercent'], 10).toStringAsFixed(2);
+      importExchangeRateController.text = _double(importSettings['exchangeRate'], 1).toStringAsFixed(4);
+      importMinimumProfitController.text = _double(importSettings['minimumProfit'], 0).toStringAsFixed(2);
+      importCurrencyController.text = _text(importSettings['currency'], 'BDT').toUpperCase();
+      importAutoPublish = _bool(importSettings['autoPublish'], false);
+      importEnableAi = _bool(importSettings['enableAi'], true);
+      importEnableSeo = _bool(importSettings['enableSeo'], true);
+      importEnableMarketing = _bool(importSettings['enableMarketing'], true);
+      importRoundingMode = _text(importSettings['roundingMode'], 'none');
 
       maintenanceMode = _bool(data['maintenanceMode'], false);
       forceUpdate = _bool(data['forceUpdate'], false);
@@ -467,6 +496,20 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
           'tiktokClientKey': tiktokClientKeyController.text.trim(),
           // tiktokClientSecret intentionally not written here — see removal
           // note on the controller declaration above.
+        },
+
+        'importSettings': {
+          'aliExpressMarkupPercent': double.tryParse(aliExpressMarkupController.text.trim()) ?? 10,
+          'exchangeRate': double.tryParse(importExchangeRateController.text.trim()) ?? 1,
+          'minimumProfit': double.tryParse(importMinimumProfitController.text.trim()) ?? 0,
+          'currency': importCurrencyController.text.trim().toUpperCase().isEmpty
+              ? 'BDT'
+              : importCurrencyController.text.trim().toUpperCase(),
+          'roundingMode': importRoundingMode,
+          'autoPublish': importAutoPublish,
+          'enableAi': importEnableAi,
+          'enableSeo': importEnableSeo,
+          'enableMarketing': importEnableMarketing,
         },
 
         'marketingDefaults': {
@@ -1926,6 +1969,68 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                   value: enableRiderNotifications,
                   icon: Icons.two_wheeler_rounded,
                   onChanged: (v) => setState(() => enableRiderNotifications = v),
+                ),
+              ],
+            ),
+
+            _section(
+              title: 'Marketplace Import Settings',
+              icon: Icons.public_rounded,
+              children: [
+                Text(
+                  'These rules are applied by Firebase Functions to every imported AliExpress product. Products remain drafts until reviewed unless Auto Publish is enabled.',
+                  style: TextStyle(color: Colors.grey.shade700, height: 1.45),
+                ),
+                const SizedBox(height: 12),
+                _responsiveGrid([
+                  _field(label: 'AliExpress Markup (%)', controller: aliExpressMarkupController, icon: Icons.percent_rounded, number: true, validator: _number),
+                  _field(label: 'Exchange Rate to BDT', controller: importExchangeRateController, icon: Icons.currency_exchange_rounded, number: true, validator: _number),
+                  _field(label: 'Minimum Profit (BDT)', controller: importMinimumProfitController, icon: Icons.savings_rounded, number: true, validator: _number),
+                  _field(label: 'Target Currency', controller: importCurrencyController, icon: Icons.payments_rounded),
+                ]),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: importRoundingMode,
+                  decoration: const InputDecoration(
+                    labelText: 'Price Rounding',
+                    prefixIcon: Icon(Icons.calculate_rounded),
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'none', child: Text('Exact (2 decimals)')),
+                    DropdownMenuItem(value: '00', child: Text('Round up to whole amount')),
+                    DropdownMenuItem(value: '99', child: Text('End price with .99')),
+                  ],
+                  onChanged: canEditSettings ? (v) => setState(() => importRoundingMode = v ?? 'none') : null,
+                ),
+                const SizedBox(height: 12),
+                _switchTile(
+                  title: 'Auto Publish Imported Products',
+                  subtitle: 'Keep OFF for Admin review before product and social publishing.',
+                  value: importAutoPublish,
+                  icon: Icons.publish_rounded,
+                  onChanged: (v) => setState(() => importAutoPublish = v),
+                ),
+                _switchTile(
+                  title: 'Enable AI for Imports',
+                  subtitle: 'Store the AI optimization preference for imported products.',
+                  value: importEnableAi,
+                  icon: Icons.auto_awesome_rounded,
+                  onChanged: (v) => setState(() => importEnableAi = v),
+                ),
+                _switchTile(
+                  title: 'Enable SEO for Imports',
+                  subtitle: 'Generate and retain SEO-ready import metadata.',
+                  value: importEnableSeo,
+                  icon: Icons.manage_search_rounded,
+                  onChanged: (v) => setState(() => importEnableSeo = v),
+                ),
+                _switchTile(
+                  title: 'Enable Marketing after Publish',
+                  subtitle: 'Allow approved imported products to enter the existing social marketing queue.',
+                  value: importEnableMarketing,
+                  icon: Icons.campaign_rounded,
+                  onChanged: (v) => setState(() => importEnableMarketing = v),
                 ),
               ],
             ),

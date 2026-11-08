@@ -1,6 +1,10 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import '../../services/category_service.dart';
 import '../../widgets/product_card.dart';
 import '../../widgets/global_web_header.dart';
@@ -23,6 +27,11 @@ class _SearchPageState extends State<SearchPage> {
   String _query = '';
   String _sort = 'relevance';
   String _selectedCategory = 'All';
+
+  // Tracks which query text has already triggered a search-miss AliExpress
+  // import this session, so a rebuild (e.g. from an unrelated Firestore
+  // snapshot) never fires a second request for the same query.
+  String? _autoImportTriggeredFor;
 
   bool _onlyInStock = false;
   bool _onlyMarketplace = false;
@@ -60,6 +69,30 @@ class _SearchPageState extends State<SearchPage> {
       });
     } catch (_) {
       // Search should never fail just because recent-search logging failed.
+    }
+  }
+
+  static const String _searchImportUrl =
+      'https://asia-south1-chalakchar-mart.cloudfunctions.net/aliexpressSearchImport';
+
+  Future<void> _triggerSearchImport(String query) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      final idToken = await user?.getIdToken();
+      // Fire-and-forget — the search UI must never wait on or depend on
+      // this. AliExpress fetch + import can take well over the time a
+      // shopper will stay on this screen; the result surfaces later via
+      // the normal Firestore query (or a push notification once imported).
+      http.post(
+        Uri.parse(_searchImportUrl),
+        headers: {
+          'content-type': 'application/json',
+          if (idToken != null) 'authorization': 'Bearer $idToken',
+        },
+        body: jsonEncode({'query': query, 'userId': user?.uid}),
+      );
+    } catch (_) {
+      // Silent — best-effort, search UI must not depend on it.
     }
   }
 
@@ -255,6 +288,16 @@ class _SearchPageState extends State<SearchPage> {
           }
 
           final products = _filterSort(snapshot.data!.docs);
+
+          if (products.isEmpty &&
+              _query.trim().isNotEmpty &&
+              _autoImportTriggeredFor != _query) {
+            // Set the flag before calling, not after — a rebuild that lands
+            // mid-request (e.g. an unrelated Firestore snapshot) must not
+            // double-fire the same query.
+            _autoImportTriggeredFor = _query;
+            _triggerSearchImport(_query);
+          }
 
           return LayoutBuilder(
             builder: (context, viewport) {
@@ -562,7 +605,9 @@ class _SearchPageState extends State<SearchPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Try another keyword or clear filters.',
+            _query.isEmpty
+                ? 'Try another keyword or clear filters.'
+                : 'প্রোডাক্টটি এখন নেই। আমরা AliExpress থেকে কিছুক্ষণের মধ্যে আপলোড করছি — একটু পরে আবার চেষ্টা করুন, অথবা পণ্যটি রেডি হলে নোটিফিকেশন পাবেন।',
             style: TextStyle(color: Colors.grey.shade600),
             textAlign: TextAlign.center,
           ),

@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../services/auth_service.dart';
 import '../../services/firebase_service.dart';
 import '../../services/image_upload_service.dart';
@@ -16,6 +17,8 @@ import '../../services/ai_product_optimizer_service.dart';
 import '../../widgets/ai_product_preview_dialog.dart';
 import '../../services/marketing_settings_service.dart';
 import '../../services/marketing_queue_service.dart';
+import '../../utils/variant_merge.dart';
+import '../../services/category_resolver_service.dart';
 
 class ManageProductsPage extends StatefulWidget {
   const ManageProductsPage({super.key});
@@ -155,6 +158,31 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
     return 'https://img.youtube.com/vi/$videoId/hqdefault.jpg';
   }
 
+  /// Resolves a raw category (and optional subcategory) name through the
+  /// shared backend resolver before a product is saved — used by every
+  /// admin product-writing path (manual save, CSV import, JSON import) so
+  /// category resolution is never duplicated or done inconsistently.
+  /// Falls back to the raw (or 'Other') text on any resolver error, so a
+  /// transient failure never blocks a product save.
+  Future<({String category, String? categoryId, String? subcategoryId})>
+      _resolveCategoryForImport(String rawCategory, {String? subCategory}) async {
+    final trimmed = rawCategory.trim().isEmpty ? 'Other' : rawCategory.trim();
+    try {
+      final resolution =
+          await CategoryResolverService.resolve(trimmed, subCategoryName: subCategory);
+      if (resolution != null) {
+        return (
+          category: resolution.categoryName,
+          categoryId: resolution.categoryId,
+          subcategoryId: resolution.subcategoryId,
+        );
+      }
+    } catch (_) {
+      // ignore — fall back to the raw value below
+    }
+    return (category: trimmed, categoryId: null, subcategoryId: null);
+  }
+
 
   Future<void> _pickCSVFile() async {
     if (_denyIf(!canBulkProducts, 'You do not have products.bulk permission.')) return;
@@ -240,9 +268,12 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
 
           variants.add(newVariant);
 
+          final rawCategory = _text(data['category']).isEmpty ? category : _text(data['category']);
+          final categoryResolution = await _resolveCategoryForImport(rawCategory);
+
           final payload = ProductService.buildProductPayload(
             name: _text(data['name']),
-            category: _text(data['category']).isEmpty ? category : _text(data['category']),
+            category: categoryResolution.category,
             generic: _text(data['generic']),
             manufacturer: _text(data['manufacturer']),
             type: _text(data['type']).isEmpty ? type : _text(data['type']),
@@ -258,6 +289,12 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
             approvalStatus: _text(data['approvalStatus']).isEmpty ? 'approved' : _text(data['approvalStatus']),
             variants: variants,
           );
+          if (categoryResolution.categoryId != null) {
+            payload['categoryId'] = categoryResolution.categoryId;
+          }
+          if (categoryResolution.subcategoryId != null) {
+            payload['subcategoryId'] = categoryResolution.subcategoryId;
+          }
 
           await ProductService.saveProduct(
             productId: doc.id,
@@ -266,9 +303,11 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
 
           updated++;
         } else {
+          final categoryResolution = await _resolveCategoryForImport(category);
+
           final payload = ProductService.buildProductPayload(
             name: name,
-            category: category,
+            category: categoryResolution.category,
             generic: generic,
             manufacturer: manufacturer,
             type: type,
@@ -284,6 +323,12 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
             variants: [newVariant],
             includeCreatedAt: true,
           );
+          if (categoryResolution.categoryId != null) {
+            payload['categoryId'] = categoryResolution.categoryId;
+          }
+          if (categoryResolution.subcategoryId != null) {
+            payload['subcategoryId'] = categoryResolution.subcategoryId;
+          }
 
           await ProductService.saveProduct(payload: payload);
 
@@ -337,10 +382,11 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                   final oldPrice = _toDouble(item['oldPrice'] ?? item['mrp'] ?? price);
                   final stock = _toInt(item['stock']);
                   final variantName = _text(item['variantName']).isEmpty ? 'Default' : _text(item['variantName']);
+                  final categoryResolution = await _resolveCategoryForImport(_text(item['category']));
 
                   final payload = ProductService.buildProductPayload(
                     name: _text(item['name']),
-                    category: _text(item['category']).isEmpty ? 'Other' : _text(item['category']),
+                    category: categoryResolution.category,
                     generic: _text(item['generic']),
                     manufacturer: _text(item['manufacturer']),
                     type: _text(item['type']).isEmpty ? 'Tablet' : _text(item['type']),
@@ -366,6 +412,12 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                     ],
                     includeCreatedAt: true,
                   );
+                  if (categoryResolution.categoryId != null) {
+                    payload['categoryId'] = categoryResolution.categoryId;
+                  }
+                  if (categoryResolution.subcategoryId != null) {
+                    payload['subcategoryId'] = categoryResolution.subcategoryId;
+                  }
 
                   await ProductService.saveProduct(payload: payload);
 
@@ -408,6 +460,13 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
     String youtubeVideoId = _text(data?['youtubeVideoId']);
     String videoThumbnailUrl = _text(data?['videoThumbnailUrl']);
     String videoDuration = _text(data?['videoDuration']);
+
+    final String productSource = _text(data?['source']);
+    final String sourceProductId = _text(data?['sourceProductId']);
+    final bool isAliExpressSourced = ProductService.isAliExpressSourced({'source': productSource});
+    final String aliExpressLink = isAliExpressSourced && sourceProductId.isNotEmpty
+        ? ProductService.buildAliExpressLink(sourceProductId)
+        : '';
 
     String? category = _text(data?['category']).isEmpty ? null : _text(data?['category']);
     String imageUrl = _text(data?['image']);
@@ -465,6 +524,12 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
     String productType = _text(data?['productType']);
 
     List<Map<String, TextEditingController>> variantControllers = [];
+    // Parallel to variantControllers (same length, same index): the exact
+    // original variant map each row was seeded from, or null for a row
+    // added fresh during this edit session (nothing to preserve for those).
+    // Kept in sync on add/delete so a row can never inherit another
+    // variant's metadata.
+    List<Map<String, dynamic>?> variantOriginals = [];
 
     final oldVariants = data?['variants'] is List ? data!['variants'] as List : [];
 
@@ -477,6 +542,7 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
           'mrp': TextEditingController(text: _toDouble(v['mrp'] ?? v['oldPrice']).toStringAsFixed(0)),
           'stock': TextEditingController(text: _toInt(v['stock']).toString()),
         });
+        variantOriginals.add(Map<String, dynamic>.from(v));
       }
     } else {
       variantControllers.add({
@@ -485,6 +551,8 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
         'mrp': TextEditingController(text: _toDouble(data?['oldPrice']).toStringAsFixed(0)),
         'stock': TextEditingController(text: _toInt(data?['stock']).toString()),
       });
+      // Synthesized from top-level product fields, not a real variant doc.
+      variantOriginals.add(null);
     }
 
     final pageContext = context;
@@ -527,54 +595,29 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                 'mrp': TextEditingController(text: '0'),
                 'stock': TextEditingController(text: '0'),
               });
+              variantOriginals.add(null);
             });
           }
           Future<void> applySuggestedCategory(String value) async {
             final suggested = value.trim();
             if (suggested.isEmpty) return;
 
-            final exists = await db
-                .collection('categories')
-                .where('name', isEqualTo: suggested)
-                .limit(1)
-                .get();
-
-            if (exists.docs.isNotEmpty) {
-              setDialogState(() => category = suggested);
-              return;
+            // Category Manager is now the single source of truth: the shared
+            // resolver reuses an existing (normalized-match) category or
+            // auto-creates one — no separate confirmation step, matching the
+            // approved "automatic" behavior. Falls back to just using the
+            // typed name if resolution fails, so an admin is never blocked
+            // from picking an AI-suggested category by a transient error.
+            String resolvedCategory = suggested;
+            try {
+              final resolution = await CategoryResolverService.resolve(suggested);
+              if (resolution != null) resolvedCategory = resolution.categoryName;
+            } catch (_) {
+              // ignore — fall back to the raw suggested name below
             }
 
             if (!pageContext.mounted) return;
-
-            final create = await showDialog<bool>(
-              context: pageContext,
-              builder: (_) => AlertDialog(
-                title: const Text('Create AI Suggested Category?'),
-                content: Text(
-                  'AI suggested "$suggested", but this category does not exist. Create it now?',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context, false),
-                    child: const Text('Cancel'),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: () => Navigator.pop(context, true),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Create'),
-                  ),
-                ],
-              ),
-            );
-
-            if (create == true) {
-              await FirebaseService.addCategory(suggested, 999, '');
-
-              if (!pageContext.mounted) return;
-
-              setDialogState(() => category = suggested);
-              _snack('Category "$suggested" created');
-            }
+            setDialogState(() => category = resolvedCategory);
           }
 
           Future<void> createProductFromImage() async {
@@ -964,15 +1007,20 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
               return;
             }
 
-            final variants = variantControllers.map((v) {
-              final vName = v['name']!.text.trim().isEmpty ? 'Default' : v['name']!.text.trim();
-              return {
-                'name': vName,
-                'price': _toDouble(v['price']!.text),
-                'mrp': _toDouble(v['mrp']!.text),
-                'stock': _toInt(v['stock']!.text),
-              };
-            }).toList();
+            final variants = <Map<String, dynamic>>[
+              for (var i = 0; i < variantControllers.length; i++)
+                mergeVariantEdit(
+                  variantOriginals[i],
+                  {
+                    'name': variantControllers[i]['name']!.text.trim().isEmpty
+                        ? 'Default'
+                        : variantControllers[i]['name']!.text.trim(),
+                    'price': _toDouble(variantControllers[i]['price']!.text),
+                    'mrp': _toDouble(variantControllers[i]['mrp']!.text),
+                    'stock': _toInt(variantControllers[i]['stock']!.text),
+                  },
+                ),
+            ];
 
             setDialogState(() => saving = true);
 
@@ -983,9 +1031,14 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                   ? _youtubeThumbnail(preparedYoutubeVideoId)
                   : videoThumbnailUrl;
 
+              final categoryResolution = await _resolveCategoryForImport(
+                category!,
+                subCategory: suggestedSubCategory,
+              );
+
               final payload = ProductService.buildProductPayload(
                 name: productName,
-                category: category!,
+                category: categoryResolution.category,
                 generic: generic.text.trim(),
                 manufacturer: manufacturer.text.trim(),
                 type: type.text.trim(),
@@ -1017,6 +1070,10 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                 'searchKeywords': searchKeywords,
                 'suggestedCategory': suggestedCategory,
                 'suggestedSubCategory': suggestedSubCategory,
+                if (categoryResolution.categoryId != null)
+                  'categoryId': categoryResolution.categoryId,
+                if (categoryResolution.subcategoryId != null)
+                  'subcategoryId': categoryResolution.subcategoryId,
                 'productType': productType,
                 'youtubeUrl': videoUrl.text.trim(),
                 'youtubeVideoId': preparedYoutubeVideoId,
@@ -1807,7 +1864,10 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                           Align(
                             alignment: Alignment.centerRight,
                             child: TextButton.icon(
-                              onPressed: () => setDialogState(() => variantControllers.removeAt(index)),
+                              onPressed: () => setDialogState(() {
+                                variantControllers.removeAt(index);
+                                variantOriginals.removeAt(index);
+                              }),
                               icon: const Icon(Icons.delete_outline, color: Colors.red),
                               label: const Text('Remove', style: TextStyle(color: Colors.red)),
                             ),
@@ -1838,7 +1898,10 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                       IconButton(
                         onPressed: variantControllers.length == 1
                             ? null
-                            : () => setDialogState(() => variantControllers.removeAt(index)),
+                            : () => setDialogState(() {
+                                variantControllers.removeAt(index);
+                                variantOriginals.removeAt(index);
+                              }),
                         icon: const Icon(Icons.delete_outline, color: Colors.red),
                       ),
                     ],
@@ -1974,6 +2037,61 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                 );
               }
 
+              Widget aliExpressSourceBox() {
+                return Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.deepOrange.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.deepOrange.withValues(alpha: 0.25)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.shopping_bag_outlined, color: Colors.deepOrange, size: 20),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'AliExpress Source',
+                            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: Colors.deepOrange),
+                          ),
+                          const SizedBox(width: 8),
+                          const Chip(
+                            label: Text('Read-only', style: TextStyle(fontSize: 11)),
+                            visualDensity: VisualDensity.compact,
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Source Product ID: ${sourceProductId.isEmpty ? 'N/A' : sourceProductId}',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      if (aliExpressLink.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        InkWell(
+                          onTap: () => launchUrl(
+                            Uri.parse(aliExpressLink),
+                            mode: LaunchMode.externalApplication,
+                          ),
+                          child: Text(
+                            aliExpressLink,
+                            style: const TextStyle(
+                              color: Colors.deepOrange,
+                              decoration: TextDecoration.underline,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                );
+              }
+
               final formContent = Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -2004,6 +2122,10 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                   ],
                   galleryStrip(),
                   const SizedBox(height: 16),
+                  if (isAliExpressSourced) ...[
+                    aliExpressSourceBox(),
+                    const SizedBox(height: 16),
+                  ],
                   formField(name, 'Product Name'),
                   const SizedBox(height: 10),
                   Align(

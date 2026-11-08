@@ -56,8 +56,6 @@ class _ChatPanelState extends State<ChatPanel> {
     final text = _controller.text.trim();
     if (text.isEmpty || _sending) return;
 
-    final history = List<ChatMessage>.from(_messages);
-
     setState(() {
       _messages.add(ChatMessage(role: 'user', content: text));
       _controller.clear();
@@ -66,10 +64,7 @@ class _ChatPanelState extends State<ChatPanel> {
     _scrollToBottom();
 
     try {
-      final reply = await ChatService.sendMessage(
-        message: text,
-        history: history,
-      );
+      final reply = await ChatService.sendMessage(message: text);
 
       if (!mounted) return;
       setState(() {
