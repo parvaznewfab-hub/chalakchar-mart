@@ -909,6 +909,21 @@ match /products/{productId} {
       allow delete: if can('categories.delete') || isSuperAdmin();
     }
 
+    // Leaf categories. Readable by shoppers so menus and filters can load
+    // them; writes follow the same permissions as categories.
+    match /subcategories/{subcategoryId} {
+      allow read: if true;
+      allow create, update: if can('categories.edit');
+      allow delete: if can('categories.delete') || isSuperAdmin();
+    }
+
+    // Top level of the category tree (e.g. "মোবাইল ও কম্পিউটার").
+    match /departments/{departmentId} {
+      allow read: if true;
+      allow create, update: if can('categories.edit');
+      allow delete: if can('categories.delete') || isSuperAdmin();
+    }
+
     // Search analytics. Shoppers (signed in or guest) may only append one
     // well-formed entry. No read/update/delete for shoppers: this holds
     // everyone's queries. Staff with analytics.view read it through the
