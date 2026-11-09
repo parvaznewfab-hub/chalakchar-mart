@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../services/category_service.dart';
+import '../../utils/search_import_guard.dart';
 import '../../widgets/product_card.dart';
 import '../../widgets/global_web_header.dart';
 import '../../widgets/global_web_footer.dart';
@@ -28,10 +30,22 @@ class _SearchPageState extends State<SearchPage> {
   String _sort = 'relevance';
   String _selectedCategory = 'All';
 
-  // Tracks which query text has already triggered a search-miss AliExpress
-  // import this session, so a rebuild (e.g. from an unrelated Firestore
-  // snapshot) never fires a second request for the same query.
-  String? _autoImportTriggeredFor;
+  // A query only counts as a real search once it "settles": the shopper
+  // pressed Enter, opened this page with a query, or stopped typing for
+  // [_settleDelay]. Only a settled query is logged to search_logs and may
+  // trigger a search-miss import. Typing alone never does; that used to fire
+  // an import for every prefix ("htm", "html", "html_a", ...).
+  static const Duration _settleDelay = Duration(milliseconds: 1000);
+  Timer? _settleTimer;
+
+  // A settled query waiting for the next build, which has the product list
+  // needed to know whether it found anything.
+  String? _pendingSettledQuery;
+
+  // Normalized queries already logged / sent for import in this app session.
+  // Static so it outlives this page: leaving and reopening search with the
+  // same query does not send it again.
+  static final Set<String> _handledQueryKeys = <String>{};
 
   bool _onlyInStock = false;
   bool _onlyMarketplace = false;
@@ -42,13 +56,48 @@ class _SearchPageState extends State<SearchPage> {
     super.initState();
     _query = widget.initialQuery.trim();
     _searchController.text = _query;
-    _saveRecentSearch(_query);
+    // Opening the page with a query (from the header or home search box) is
+    // a submit.
+    if (_query.isNotEmpty) _pendingSettledQuery = _query;
   }
 
   @override
   void dispose() {
+    _settleTimer?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _onQueryChanged(String value) {
+    setState(() => _query = value.trim());
+    _settleTimer?.cancel();
+    if (_query.isEmpty) return;
+    _settleTimer = Timer(_settleDelay, () {
+      if (!mounted) return;
+      setState(() => _pendingSettledQuery = _query);
+    });
+  }
+
+  void _onQuerySubmitted(String value) {
+    _settleTimer?.cancel();
+    final next = value.trim();
+    setState(() {
+      _query = next;
+      if (next.isNotEmpty) _pendingSettledQuery = next;
+    });
+  }
+
+  // Called from build() once a settled query has a loaded product list.
+  // [matchCount] ignores the stock/vendor/category filters, so a filter that
+  // hides results is never mistaken for a search miss.
+  void _handleSettledQuery(String query, int matchCount) {
+    final key = searchQueryKey(query);
+    if (key.isEmpty || !_handledQueryKeys.add(key)) return;
+
+    _logSearch(query, matchCount);
+    if (matchCount == 0 && isImportableSearchQuery(query)) {
+      _triggerSearchImport(normalizeSearchQuery(query));
+    }
   }
 
   String _text(dynamic value, [String fallback = '']) {
@@ -56,7 +105,7 @@ class _SearchPageState extends State<SearchPage> {
     return text.isEmpty ? fallback : text;
   }
 
-  Future<void> _saveRecentSearch(String q) async {
+  Future<void> _logSearch(String q, int resultCount) async {
     final query = q.trim();
     if (query.isEmpty) return;
 
@@ -242,7 +291,9 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   void _clearFilters() {
+    _settleTimer?.cancel();
     setState(() {
+      _pendingSettledQuery = null;
       _query = '';
       _searchController.clear();
       _sort = 'relevance';
@@ -289,14 +340,20 @@ class _SearchPageState extends State<SearchPage> {
 
           final products = _filterSort(snapshot.data!.docs);
 
-          if (products.isEmpty &&
-              _query.trim().isNotEmpty &&
-              _autoImportTriggeredFor != _query) {
-            // Set the flag before calling, not after — a rebuild that lands
-            // mid-request (e.g. an unrelated Firestore snapshot) must not
-            // double-fire the same query.
-            _autoImportTriggeredFor = _query;
-            _triggerSearchImport(_query);
+          final settled = _pendingSettledQuery;
+          if (settled != null) {
+            // Cleared during build without setState on purpose: it is a
+            // one-shot marker, and the work runs after this frame.
+            _pendingSettledQuery = null;
+            if (settled == _query) {
+              final matchCount = snapshot.data!.docs.where((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                return data['isActive'] != false && _matches(data, settled);
+              }).length;
+              WidgetsBinding.instance.addPostFrameCallback(
+                (_) => _handleSettledQuery(settled, matchCount),
+              );
+            }
           }
 
           return LayoutBuilder(
@@ -409,12 +466,8 @@ class _SearchPageState extends State<SearchPage> {
                     filled: true,
                     fillColor: Colors.white,
                   ),
-                  onSubmitted: (v) {
-                    final next = v.trim();
-                    setState(() => _query = next);
-                    _saveRecentSearch(next);
-                  },
-                  onChanged: (v) => setState(() => _query = v.trim()),
+                  onSubmitted: _onQuerySubmitted,
+                  onChanged: _onQueryChanged,
                 ),
                 if (widget.detectedLabel.trim().isNotEmpty) ...[
                   const SizedBox(height: 10),

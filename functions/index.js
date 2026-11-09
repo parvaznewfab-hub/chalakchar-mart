@@ -48,6 +48,7 @@ const {
   parseRateLimitSettings,
   evaluateSearchImportRateLimit,
 } = require("./aliexpress/searchImportRateLimit");
+const { validateSearchImportQuery } = require("./aliexpress/searchImportQueryGuard");
 const { resolveAliExpressShippingCostBDT } = require("./aliexpress/shippingCost");
 const { resolveProductTaxonomy } = require("./category/resolveProductTaxonomy");
 const { matchCategoryByKeyword } = require("./category/aliExpressCategoryKeywords");
@@ -3388,6 +3389,8 @@ async function enforceSearchImportRateLimit(req, uid) {
     uid,
     ipLimitPerHour: settings.ipLimitPerHour,
     uidLimitPerHour: settings.uidLimitPerHour,
+    burstLimit: settings.burstLimit,
+    burstWindowMs: settings.burstWindowMs,
   });
 }
 
@@ -3777,8 +3780,17 @@ exports.aliexpressSearchImport = onRequest(
     if (req.method !== "POST") return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
 
     const body = mapValue(req.body);
-    const query = textValue(body.query);
-    if (!query) return res.status(400).json({ ok: false, error: "QUERY_REQUIRED" });
+    if (!textValue(body.query)) return res.status(400).json({ ok: false, error: "QUERY_REQUIRED" });
+
+    // Rejects junk (partial keystrokes, item IDs, URLs, HTML/code) before
+    // anything else, so it costs no rate-limit quota, no Firestore write and
+    // no AliExpress call. See aliexpress/searchImportQueryGuard.js.
+    const validation = validateSearchImportQuery(body.query);
+    if (!validation.ok) {
+      logger.info("AliExpress search-import: query rejected", { query: validation.query.slice(0, 100), reason: validation.reason });
+      return res.status(400).json({ ok: false, error: "QUERY_REJECTED", reason: validation.reason });
+    }
+    const query = validation.query;
 
     const uid = await verifyOptionalFirebaseIdToken(req);
 

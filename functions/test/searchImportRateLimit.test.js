@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const { FakeFirestore } = require("./helpers/fakeFirestore");
 const {
   WINDOW_MS,
+  BURST_WINDOW_MS,
   extractClientIp,
   sanitizeRateLimitIdentity,
   checkRateLimit,
@@ -127,6 +128,14 @@ describe("parseRateLimitSettings", () => {
     assert.equal(parsed.enabled, true);
     assert.equal(parsed.ipLimitPerHour, 12);
     assert.equal(parsed.uidLimitPerHour, 25);
+    assert.equal(parsed.burstLimit, 5);
+    assert.equal(parsed.burstWindowMs, 10 * 60 * 1000);
+  });
+
+  test("burst limit and window are configurable from settings/app", () => {
+    const parsed = parseRateLimitSettings({ searchImportBurstLimit: 3, searchImportBurstWindowMinutes: 15 });
+    assert.equal(parsed.burstLimit, 3);
+    assert.equal(parsed.burstWindowMs, 15 * 60 * 1000);
   });
 
   test("null/undefined importSettings falls back to the same defaults", () => {
@@ -204,6 +213,50 @@ describe("evaluateSearchImportRateLimit", () => {
     const result = await evaluateSearchImportRateLimit(db, { ip: "1.2.3.4", uid: null, ipLimitPerHour: 5, uidLimitPerHour: 1, now: now + 10 });
     assert.equal(result, null);
     assert.equal(Object.keys(db._collections.rateLimits).some((k) => k.startsWith("uid_")), false);
+  });
+
+  test("burst layer: 5 per 10 minutes per IP, then denied with scope ip_burst", async () => {
+    const db = new FakeFirestore();
+    const now = 1_000_000;
+    const params = { ip: "1.2.3.4", uid: null, ipLimitPerHour: 12, uidLimitPerHour: 25, burstLimit: 5, burstWindowMs: BURST_WINDOW_MS };
+    for (let i = 0; i < 5; i++) {
+      assert.equal(await evaluateSearchImportRateLimit(db, { ...params, now: now + i }), null);
+    }
+    const sixth = await evaluateSearchImportRateLimit(db, { ...params, now: now + 10 });
+    assert.equal(sixth.scope, "ip_burst");
+    assert.equal(sixth.limit, 5);
+    // The denied 6th request must not consume hourly quota.
+    assert.equal(db._collections.rateLimits["ip_1.2.3.4"].count, 5);
+  });
+
+  test("burst layer resets after its window while the hourly count keeps accumulating", async () => {
+    const db = new FakeFirestore();
+    const now = 1_000_000;
+    const params = { ip: "1.2.3.4", uid: null, ipLimitPerHour: 12, uidLimitPerHour: 25, burstLimit: 5, burstWindowMs: BURST_WINDOW_MS };
+    for (let i = 0; i < 5; i++) await evaluateSearchImportRateLimit(db, { ...params, now: now + i });
+
+    const afterBurstWindow = await evaluateSearchImportRateLimit(db, { ...params, now: now + BURST_WINDOW_MS + 1 });
+    assert.equal(afterBurstWindow, null);
+    assert.equal(db._collections.rateLimits["ip_1.2.3.4"].count, 6);
+  });
+
+  test("burst layer applies per uid too, independent of other users on the same IP", async () => {
+    const db = new FakeFirestore();
+    const now = 1_000_000;
+    const base = { ip: "9.9.9.9", ipLimitPerHour: 100, uidLimitPerHour: 100, burstLimit: 2, burstWindowMs: BURST_WINDOW_MS };
+    // IP burst is also 2, so give user_b a different IP to isolate the uid layer.
+    await evaluateSearchImportRateLimit(db, { ...base, uid: "user_a", now });
+    await evaluateSearchImportRateLimit(db, { ...base, uid: "user_a", now: now + 1 });
+    const userA = await evaluateSearchImportRateLimit(db, { ...base, ip: "8.8.8.8", uid: "user_a", now: now + 2 });
+    const userB = await evaluateSearchImportRateLimit(db, { ...base, ip: "7.7.7.7", uid: "user_b", now: now + 2 });
+    assert.equal(userA.scope, "uid_burst");
+    assert.equal(userB, null);
+  });
+
+  test("no burstLimit means no burst layer (backward compatible)", async () => {
+    const db = new FakeFirestore();
+    await evaluateSearchImportRateLimit(db, { ip: "1.2.3.4", uid: "u", ipLimitPerHour: 12, uidLimitPerHour: 25, now: 1_000_000 });
+    assert.equal(Object.keys(db._collections.rateLimits).some((k) => k.includes("burst")), false);
   });
 
   test("two different signed-in users behind the same IP each get their own uid budget", async () => {

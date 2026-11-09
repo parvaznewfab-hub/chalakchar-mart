@@ -7,15 +7,17 @@
 // AliExpress-affiliate-API + up to 5 fetchAliExpressProduct calls. This
 // module is the layer that caps request volume regardless of query text.
 //
-// Fixed-window (per-hour) counter, one Firestore doc per (kind, identity)
-// pair in the `rateLimits` collection, incremented inside a transaction —
-// same transactional-claim shape already used by claimSearchImportSlot in
-// index.js. Deliberately dependency-light (db passed in, no admin.firestore
+// Fixed-window counters, one Firestore doc per (kind, identity) pair in the
+// `rateLimits` collection. Two window sizes are layered: a short burst window
+// (default 5 per 10 minutes) and the original per-hour window. Each counter
+// is incremented inside a transaction, the same transactional-claim shape
+// already used by claimSearchImportSlot in index.js. Deliberately dependency-light (db passed in, no admin.firestore
 // import needed) so it's unit-testable against the project's existing
 // FakeFirestore without a real emulator.
 // -----------------------------------------------------------------------------
 
 const WINDOW_MS = 60 * 60 * 1000; // 1 hour — matches the "per hour" limits this guards.
+const BURST_WINDOW_MS = 10 * 60 * 1000; // 10 minutes — the default short burst window.
 
 function textValue(value, fallback = "") {
   const text = String(value ?? "").trim();
@@ -60,19 +62,21 @@ function sanitizeRateLimitIdentity(value, fallback = "unknown") {
 
 /**
  * Checks and (if allowed) consumes one request against a fixed-window
- * per-hour limit for `key`. `now` is injectable for tests; defaults to the
- * real clock in production.
+ * limit for `key`. The window is one hour unless `windowMs` is given. `now`
+ * is injectable for tests; defaults to the real clock in production.
  *
  * Only writes to Firestore when the request is allowed (a reset or an
  * increment) — a denied request doesn't need to change stored state, since
  * retryAfterSeconds is computed from the window's existing start time.
  *
  * @param {FirebaseFirestore.Firestore} db
- * @param {{ key: string, limitPerHour: number, now?: number }} params
+ * @param {{ key: string, limitPerHour: number, windowMs?: number, now?: number }} params
+ *   limitPerHour is the limit per window; the name predates windowMs.
  * @returns {Promise<{ allowed: boolean, remaining: number, limit: number, retryAfterSeconds: number }>}
  */
-async function checkRateLimit(db, { key, limitPerHour, now = Date.now() }) {
+async function checkRateLimit(db, { key, limitPerHour, windowMs = WINDOW_MS, now = Date.now() }) {
   const limit = Math.max(1, Math.trunc(Number(limitPerHour) || 1));
+  const windowLength = Math.max(1000, Math.trunc(Number(windowMs) || WINDOW_MS));
   const docId = sanitizeRateLimitIdentity(key);
   const ref = db.collection("rateLimits").doc(docId);
 
@@ -80,7 +84,7 @@ async function checkRateLimit(db, { key, limitPerHour, now = Date.now() }) {
     const snap = await transaction.get(ref);
     const data = snap.exists ? snap.data() || {} : null;
 
-    const windowExpired = !data || (now - Number(data.windowStart || 0)) >= WINDOW_MS;
+    const windowExpired = !data || (now - Number(data.windowStart || 0)) >= windowLength;
 
     if (windowExpired) {
       transaction.set(ref, { count: 1, windowStart: now });
@@ -93,7 +97,7 @@ async function checkRateLimit(db, { key, limitPerHour, now = Date.now() }) {
       return { allowed: true, remaining: limit - (count + 1), limit, retryAfterSeconds: 0 };
     }
 
-    const retryAfterSeconds = Math.max(1, Math.ceil((Number(data.windowStart) + WINDOW_MS - now) / 1000));
+    const retryAfterSeconds = Math.max(1, Math.ceil((Number(data.windowStart) + windowLength - now) / 1000));
     return { allowed: false, remaining: 0, limit, retryAfterSeconds };
   });
 }
@@ -117,35 +121,54 @@ function parseRateLimitSettings(rawImportSettings) {
     enabled: toBool(settings.searchImportRateLimitEnabled, true),
     ipLimitPerHour: toPositiveInt(settings.searchImportIpLimitPerHour, 12),
     uidLimitPerHour: toPositiveInt(settings.searchImportUidLimitPerHour, 25),
+    // Short burst window, applied per IP and per uid on top of the hourly caps.
+    burstLimit: toPositiveInt(settings.searchImportBurstLimit, 5),
+    burstWindowMs: toPositiveInt(settings.searchImportBurstWindowMinutes, 10) * 60 * 1000,
   };
 }
 
 /**
- * Orchestrates the two rate-limit layers for one aliexpressSearchImport
- * request: IP first (the only signal available for the anonymous majority
- * of callers, since idToken is optional on this endpoint), then uid when
- * the caller is signed in, as a second, more generous cap. Denying on
- * either layer is enough to deny the request — these are independent
- * ceilings, not a compound threshold.
+ * Orchestrates the rate-limit layers for one aliexpressSearchImport request,
+ * in this order:
+ *   1. IP burst (only when burstLimit is set)
+ *   2. IP hourly
+ *   3. uid burst (signed-in callers, only when burstLimit is set)
+ *   4. uid hourly (signed-in callers)
+ * IP is the only signal for the anonymous majority of callers, since idToken
+ * is optional on this endpoint. Any one layer denying is enough to deny the
+ * request; these are independent ceilings, not a compound threshold.
  *
- * If the IP check itself denies, the uid check is skipped entirely (no
- * need to consume uid quota for a request that's already rejected).
+ * Checking stops at the first denial, so a rejected request never consumes
+ * quota from the layers after it.
  *
  * @param {FirebaseFirestore.Firestore} db
- * @param {{ ip: string, uid?: string|null, ipLimitPerHour: number, uidLimitPerHour: number, now?: number }} params
- * @returns {Promise<null|{ scope: "ip"|"uid", limit: number, retryAfterSeconds: number }>}
+ * @param {{ ip: string, uid?: string|null, ipLimitPerHour: number, uidLimitPerHour: number,
+ *           burstLimit?: number, burstWindowMs?: number, now?: number }} params
+ * @returns {Promise<null|{ scope: "ip_burst"|"ip"|"uid_burst"|"uid", limit: number, retryAfterSeconds: number }>}
  *          null when the request is allowed.
  */
-async function evaluateSearchImportRateLimit(db, { ip, uid, ipLimitPerHour, uidLimitPerHour, now = Date.now() }) {
-  const ipResult = await checkRateLimit(db, { key: `ip_${ip}`, limitPerHour: ipLimitPerHour, now });
-  if (!ipResult.allowed) {
-    return { scope: "ip", limit: ipResult.limit, retryAfterSeconds: ipResult.retryAfterSeconds };
+async function evaluateSearchImportRateLimit(db, {
+  ip,
+  uid,
+  ipLimitPerHour,
+  uidLimitPerHour,
+  burstLimit,
+  burstWindowMs = BURST_WINDOW_MS,
+  now = Date.now(),
+}) {
+  const hasBurst = Number(burstLimit) > 0;
+  const layers = [];
+  if (hasBurst) layers.push({ scope: "ip_burst", key: `ipburst_${ip}`, limit: burstLimit, windowMs: burstWindowMs });
+  layers.push({ scope: "ip", key: `ip_${ip}`, limit: ipLimitPerHour, windowMs: WINDOW_MS });
+  if (uid) {
+    if (hasBurst) layers.push({ scope: "uid_burst", key: `uidburst_${uid}`, limit: burstLimit, windowMs: burstWindowMs });
+    layers.push({ scope: "uid", key: `uid_${uid}`, limit: uidLimitPerHour, windowMs: WINDOW_MS });
   }
 
-  if (uid) {
-    const uidResult = await checkRateLimit(db, { key: `uid_${uid}`, limitPerHour: uidLimitPerHour, now });
-    if (!uidResult.allowed) {
-      return { scope: "uid", limit: uidResult.limit, retryAfterSeconds: uidResult.retryAfterSeconds };
+  for (const layer of layers) {
+    const result = await checkRateLimit(db, { key: layer.key, limitPerHour: layer.limit, windowMs: layer.windowMs, now });
+    if (!result.allowed) {
+      return { scope: layer.scope, limit: result.limit, retryAfterSeconds: result.retryAfterSeconds };
     }
   }
 
@@ -154,6 +177,7 @@ async function evaluateSearchImportRateLimit(db, { ip, uid, ipLimitPerHour, uidL
 
 module.exports = {
   WINDOW_MS,
+  BURST_WINDOW_MS,
   extractClientIp,
   sanitizeRateLimitIdentity,
   checkRateLimit,
