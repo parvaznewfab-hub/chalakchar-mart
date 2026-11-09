@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -600,6 +602,10 @@ class _CartPageState extends State<CartPage> {
         debugPrint('Order notification failed: $e');
       }
 
+
+      // Placing an order is a user action, so the browser may ask for
+      // notification permission now (for order updates). Not awaited.
+      unawaited(NotificationService.requestAndSaveToken(user.uid));
 
       if (mounted) _showOrderSuccessDialog(context, user.uid);
     } catch (e) {

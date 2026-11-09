@@ -1,26 +1,95 @@
+import 'dart:async';
+
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
-class NotificationService {
-  static final FirebaseMessaging _messaging = FirebaseMessaging.instance;
-  static final FirebaseFirestore _db = FirebaseFirestore.instance;
+/// Outcome of asking the visitor for notification permission.
+enum NotificationPermissionResult { granted, denied, unsupported }
 
+class NotificationService {
+  static FirebaseMessaging get _messaging => FirebaseMessaging.instance;
+  static FirebaseFirestore get _db => FirebaseFirestore.instance;
+
+  // getToken() talks to FCM over the network; never let it hang a caller.
+  static const Duration _tokenTimeout = Duration(seconds: 10);
+
+  /// Startup hook. Call it after the first frame, never await it before
+  /// runApp(), and it never throws.
+  ///
+  /// On web it only registers listeners and never asks for permission: the
+  /// browser prompt is shown only after a user action (login, placing an
+  /// order, the "জানিয়ে দিন" button), via [requestPermission].
+  /// On Android/iOS it keeps the old ask-at-startup flow, without awaiting
+  /// the system dialog.
   static Future<void> init() async {
-    await _messaging.requestPermission(alert: true, badge: true, sound: true);
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      debugPrint('Foreground notification: ${message.notification?.title}');
-    });
+    try {
+      if (!await _messaging.isSupported()) return;
+      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+        debugPrint('Foreground notification: ${message.notification?.title}');
+      });
+      if (!kIsWeb) unawaited(requestPermission());
+    } catch (e) {
+      debugPrint('Notification init skipped: $e');
+    }
   }
 
+  /// Shows the permission prompt. On web, call only from a user action.
+  /// The returned future may stay pending while the prompt is open, so
+  /// callers must not block navigation or rendering on it. Never throws.
+  static Future<NotificationPermissionResult> requestPermission() async {
+    try {
+      // false on browsers without push support, e.g. iOS Safari outside an
+      // installed PWA.
+      if (!await _messaging.isSupported()) {
+        return NotificationPermissionResult.unsupported;
+      }
+      final settings = await _messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      final status = settings.authorizationStatus;
+      return status == AuthorizationStatus.authorized ||
+              status == AuthorizationStatus.provisional
+          ? NotificationPermissionResult.granted
+          : NotificationPermissionResult.denied;
+    } catch (e) {
+      debugPrint('Notification permission request failed: $e');
+      return NotificationPermissionResult.unsupported;
+    }
+  }
+
+  /// Asks for permission after a user action and, if granted and signed in,
+  /// saves the FCM token. Safe to call without awaiting. Never throws.
+  static Future<NotificationPermissionResult> requestAndSaveToken(String? userId) async {
+    final result = await requestPermission();
+    if (result == NotificationPermissionResult.granted && userId != null && userId.isNotEmpty) {
+      await saveToken(userId);
+    }
+    return result;
+  }
+
+  /// Saves this device's FCM token for [userId]. Never shows a prompt: on
+  /// web, getToken() would show one by itself, so it is only called once
+  /// permission is already granted. Never throws.
   static Future<void> saveToken(String userId) async {
-    final token = await _messaging.getToken();
-    if (token == null) return;
-    await _db.collection('users').doc(userId).set({
-      'fcmToken': token,
-      'fcmTokens': FieldValue.arrayUnion([token]),
-      'lastTokenAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    try {
+      if (!await _messaging.isSupported()) return;
+      if (kIsWeb) {
+        final settings = await _messaging.getNotificationSettings();
+        if (settings.authorizationStatus != AuthorizationStatus.authorized) return;
+      }
+      final token = await _messaging.getToken().timeout(_tokenTimeout);
+      if (token == null) return;
+      await _db.collection('users').doc(userId).set({
+        'fcmToken': token,
+        'fcmTokens': FieldValue.arrayUnion([token]),
+        'lastTokenAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('FCM token save skipped: $e');
+    }
   }
 
   static Future<void> sendNotification({

@@ -7,6 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../services/category_service.dart';
+import '../../services/notification_service.dart';
 import '../../utils/search_import_guard.dart';
 import '../../widgets/product_card.dart';
 import '../../widgets/global_web_header.dart';
@@ -674,13 +675,48 @@ class _SearchPageState extends State<SearchPage> {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 14),
-          OutlinedButton.icon(
-            onPressed: _clearFilters,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Clear filters'),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            alignment: WrapAlignment.center,
+            children: [
+              if (_query.isNotEmpty)
+                FilledButton.icon(
+                  onPressed: _onNotifyMePressed,
+                  icon: const Icon(Icons.notifications_active_outlined),
+                  label: const Text('জানিয়ে দিন'),
+                ),
+              OutlinedButton.icon(
+                onPressed: _clearFilters,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Clear filters'),
+              ),
+            ],
           ),
         ],
       ),
     );
+  }
+
+  // The only place on the search page that asks for notification permission,
+  // and only because the shopper tapped it. Awaiting here is fine: it is a
+  // button handler, so a pending prompt blocks nothing.
+  Future<void> _onNotifyMePressed() async {
+    final user = FirebaseAuth.instance.currentUser;
+    final result = await NotificationService.requestAndSaveToken(user?.uid);
+    if (!mounted) return;
+
+    final String message;
+    switch (result) {
+      case NotificationPermissionResult.unsupported:
+        message = 'এই ব্রাউজারে নোটিফিকেশন সাপোর্ট করে না।';
+      case NotificationPermissionResult.denied:
+        message = 'নোটিফিকেশন বন্ধ আছে। ব্রাউজারের সাইট সেটিংস থেকে চালু করুন।';
+      case NotificationPermissionResult.granted:
+        message = user == null
+            ? 'নোটিফিকেশন চালু হয়েছে। পণ্য রেডি হলে জানাতে লগইন করুন।'
+            : 'পণ্যটি রেডি হলে আপনাকে জানিয়ে দেব।';
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 }

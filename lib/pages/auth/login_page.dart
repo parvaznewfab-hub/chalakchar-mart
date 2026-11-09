@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -150,13 +152,10 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    // 2) Notification permission is NOT critical for login
-    try {
-      await NotificationService.init();
-      await NotificationService.saveToken(user.uid);
-    } catch (e) {
-      debugPrint('Notification skipped after login: $e');
-    }
+    // 2) Notification permission is NOT critical for login. Logging in is
+    // the user action that allows the prompt on web; it is not awaited, so a
+    // prompt the user ignores can never hold up navigation.
+    unawaited(NotificationService.requestAndSaveToken(user.uid));
 
     if (!mounted) return;
 

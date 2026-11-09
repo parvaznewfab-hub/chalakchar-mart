@@ -37,6 +37,9 @@ Future<void> main() async {
     usePathUrlStrategy();
   }
 
+  // Only what the first frame truly needs is awaited here. Notification
+  // permission and FCM must never be: a browser prompt the visitor ignores
+  // used to keep the page blank forever.
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
@@ -44,17 +47,6 @@ Future<void> main() async {
 
     if (kIsWeb) {
       await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
-    }
-
-    await NotificationService.init();
-
-    FirebaseMessaging.onMessageOpenedApp.listen(_handleMessage);
-
-    final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
-    if (initialMessage != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _handleMessage(initialMessage);
-      });
     }
   } catch (e, stack) {
     developer.log(
@@ -73,6 +65,31 @@ Future<void> main() async {
       child: const MyApp(),
     ),
   );
+
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    _initMessagingAfterFirstFrame();
+  });
+}
+
+// Runs after the first frame and is never awaited, so nothing here can delay
+// or block rendering. Every failure (unsupported browser, Firebase not
+// initialized, network) is logged and ignored.
+Future<void> _initMessagingAfterFirstFrame() async {
+  try {
+    await NotificationService.init();
+
+    FirebaseMessaging.onMessageOpenedApp.listen(_handleMessage);
+
+    final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
+    if (initialMessage != null) _handleMessage(initialMessage);
+  } catch (e, stack) {
+    developer.log(
+      'Messaging init skipped',
+      error: e,
+      stackTrace: stack,
+      name: 'main.dart',
+    );
+  }
 }
 
 void _handleMessage(RemoteMessage message) {
