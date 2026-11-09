@@ -281,22 +281,11 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
   Stream<List<Map<String, dynamic>>> _suggestionStream() {
     final q = _searchText.toLowerCase().trim();
 
+    // search_logs is write-only for shoppers (see firestore.rules): it holds
+    // every shopper's queries, so it must never be shown back to others as
+    // "recent searches".
     if (q.isEmpty) {
-      return db
-          .collection('search_logs')
-          .orderBy('createdAt', descending: true)
-          .limit(8)
-          .snapshots()
-          .map((snap) {
-        final seen = <String>{};
-        return snap.docs.map((doc) {
-          final data = doc.data();
-          final display = _text(data['displayQuery'] ?? data['query']);
-          if (display.isEmpty || seen.contains(display.toLowerCase())) return null;
-          seen.add(display.toLowerCase());
-          return {'title': display, 'type': 'Recent search'};
-        }).whereType<Map<String, dynamic>>().toList();
-      });
+      return Stream.value(const <Map<String, dynamic>>[]);
     }
 
     return db

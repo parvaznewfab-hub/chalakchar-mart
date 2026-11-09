@@ -909,6 +909,34 @@ match /products/{productId} {
       allow delete: if can('categories.delete') || isSuperAdmin();
     }
 
+    // Search analytics. Shoppers (signed in or guest) may only append one
+    // well-formed entry. No read/update/delete for shoppers: this holds
+    // everyone's queries. Staff with analytics.view read it through the
+    // catch-all analytics rule at the bottom of this file.
+    // Nothing personal is stored beyond an optional userId, which must be
+    // the caller's own uid.
+    match /search_logs/{logId} {
+      allow create: if request.resource.data.keys().hasOnly(
+            ['query', 'displayQuery', 'source', 'resultCount', 'createdAt', 'userId'])
+        && request.resource.data.keys().hasAll(['query', 'resultCount', 'createdAt'])
+        && request.resource.data.query is string
+        && request.resource.data.query.size() > 0
+        && request.resource.data.query.size() <= 100
+        && (!('displayQuery' in request.resource.data)
+            || (request.resource.data.displayQuery is string
+                && request.resource.data.displayQuery.size() <= 100))
+        && (!('source' in request.resource.data)
+            || (request.resource.data.source is string
+                && request.resource.data.source.size() <= 40))
+        && request.resource.data.resultCount is int
+        && request.resource.data.resultCount >= 0
+        && request.resource.data.resultCount <= 100000
+        && request.resource.data.createdAt == request.time
+        && (!('userId' in request.resource.data)
+            || (signedIn() && request.resource.data.userId == request.auth.uid));
+      allow update, delete: if false;
+    }
+
     match /banners/{bannerId} {
       allow read: if true;
       allow create, update: if can('banners.edit') || can('banners.status') || can('banners.priority');

@@ -105,19 +105,28 @@ class _SearchPageState extends State<SearchPage> {
     return text.isEmpty ? fallback : text;
   }
 
+  // Field set must match the search_logs create rule in firestore.rules.
   Future<void> _logSearch(String q, int resultCount) async {
-    final query = q.trim();
-    if (query.isEmpty) return;
+    final display = normalizeSearchQuery(q);
+    if (display.isEmpty) return;
+    final clipped = display.length > searchLogMaxQueryLength
+        ? display.substring(0, searchLogMaxQueryLength)
+        : display;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
 
     try {
       await db.collection('search_logs').add({
-        'query': query.toLowerCase(),
-        'displayQuery': query,
+        'query': clipped.toLowerCase(),
+        'displayQuery': clipped,
         'source': 'user_search_page',
+        'resultCount': resultCount,
         'createdAt': FieldValue.serverTimestamp(),
+        if (uid != null) 'userId': uid,
       });
-    } catch (_) {
-      // Search should never fail just because recent-search logging failed.
+    } catch (error) {
+      // Search must not fail because logging failed, but a rejected write
+      // (e.g. a rules mismatch) should be visible during development.
+      if (kDebugMode) debugPrint('search_logs write failed: $error');
     }
   }
 
