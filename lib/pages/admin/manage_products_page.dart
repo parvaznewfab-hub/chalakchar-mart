@@ -20,6 +20,8 @@ import '../../services/marketing_settings_service.dart';
 import '../../services/marketing_queue_service.dart';
 import '../../utils/variant_merge.dart';
 import '../../services/category_resolver_service.dart';
+import '../../utils/category_lookup.dart';
+import '../../utils/category_normalize.dart';
 
 class ManageProductsPage extends StatefulWidget {
   const ManageProductsPage({super.key});
@@ -35,6 +37,10 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
 
   static const String _kFilterAll = 'all';
   static const String _kUncategorized = '__uncategorized__';
+  // Non-selectable "Hidden" section header in the category filter.
+  static const String _kHiddenHeader = '__hidden_header__';
+  // Product-dialog category value for a name with no category doc yet.
+  static const String _kNameOnlyCategory = '__name_only__';
   // All products are loaded client-side (1 read each per page open); past
   // this size, switch to per-category queries + count() aggregations.
   static const int _kLargeCatalogNotice = 2000;
@@ -602,8 +608,10 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
     // Picked from the dropdown only; the AI suggestedSubCategory is shown as
     // a hint and never creates a subcategory on its own.
     String subcategoryId = _text(data?['subcategoryId']);
-    final String originalCategoryName = _text(data?['category']);
-    final String originalCategoryId = _text(data?['categoryId']);
+    // The selected category doc. Empty for old name-only products until the
+    // category list loads and their name is matched (see categoryDropdown);
+    // [category] always carries the selected doc's display name.
+    String categoryId = _text(data?['categoryId']);
     // Memoized so dialog rebuilds don't resubscribe and flicker.
     final Stream<QuerySnapshot> allCategoriesStream = FirebaseService.getCategories();
     String? subcategoryStreamParentId;
@@ -748,17 +756,23 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
             // typed name if resolution fails, so an admin is never blocked
             // from picking an AI-suggested category by a transient error.
             String resolvedCategory = suggested;
+            String resolvedCategoryId = '';
             try {
               final resolution = await CategoryResolverService.resolve(suggested);
-              if (resolution != null) resolvedCategory = resolution.categoryName;
+              if (resolution != null) {
+                resolvedCategory = resolution.categoryName;
+                resolvedCategoryId = resolution.categoryId;
+              }
             } catch (_) {
-              // ignore — fall back to the raw suggested name below
+              // ignore — fall back to the raw suggested name below (matched
+              // by name in the dropdown, or resolved on save)
             }
 
             if (!pageContext.mounted) return;
             setDialogState(() {
-              if (resolvedCategory != category) subcategoryId = '';
+              if (resolvedCategoryId != categoryId || resolvedCategory != category) subcategoryId = '';
               category = resolvedCategory;
+              categoryId = resolvedCategoryId;
             });
           }
 
@@ -1174,8 +1188,13 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                   : videoThumbnailUrl;
 
               // Category only: the subcategory comes from the dropdown, so the
-              // AI suggestedSubCategory text no longer auto-creates one.
-              final categoryResolution = await _resolveCategoryForImport(category!);
+              // AI suggestedSubCategory text no longer auto-creates one. A
+              // category picked from the dropdown is saved by its doc id; only
+              // a name with no matching doc goes through the resolver.
+              final ({String category, String? categoryId, String? subcategoryId}) categoryResolution =
+                  categoryId.isNotEmpty
+                      ? (category: category!, categoryId: categoryId, subcategoryId: null)
+                      : await _resolveCategoryForImport(category!);
 
               // Never store a subcategoryId that isn't a child of the
               // resolved categoryId (resolveProductTaxonomy invariant).
@@ -2071,28 +2090,87 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                 );
               }
 
+              /// Active categories by doc id. The product's current category is
+              /// kept (labelled "(hidden)") when inactive, so it never blanks.
               Widget categoryDropdown() {
                 return StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseService.getCategories(onlyActive: true),
+                  stream: allCategoriesStream,
                   builder: (context, snap) {
-                    final cats = snap.data?.docs
-                        .map((e) => (e.data() as Map<String, dynamic>)['name']?.toString() ?? '')
-                        .where((e) => e.isNotEmpty)
-                        .toList() ??
-                        [];
+                    if (snap.hasError) {
+                      debugPrint('PRODUCT DIALOG CATEGORIES ERROR: ${snap.error}');
+                      return _dialogLoadError('Category', 'Couldn\'t load categories: ${snap.error}');
+                    }
+                    final docs = snap.data?.docs ?? const <QueryDocumentSnapshot>[];
+                    final byId = {for (final d in docs) d.id: d.data() as Map<String, dynamic>};
 
-                    if (category != null && category!.isNotEmpty && !cats.contains(category)) {
-                      cats.insert(0, category!);
+                    if (snap.hasData) {
+                      final before = categoryId;
+                      final selection = _resolveCategorySelection(byId, categoryId, category);
+                      categoryId = selection.id;
+                      if (selection.name != null) category = selection.name;
+                      // The subcategory dropdown reads categoryId; rebuild it
+                      // once when the selection was resolved here.
+                      if (before != categoryId) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (pageContext.mounted) setDialogState(() {});
+                        });
+                      }
+                    }
+
+                    final active = byId.entries
+                        .where((e) => e.value['isActive'] == true && _text(e.value['mergedInto']).isEmpty)
+                        .toList()
+                      ..sort((a, b) => _text(a.value['name']).toLowerCase().compareTo(_text(b.value['name']).toLowerCase()));
+                    final nameUses = <String, int>{};
+                    for (final e in active) {
+                      final k = normalizeCategoryKey(_text(e.value['name']));
+                      nameUses[k] = (nameUses[k] ?? 0) + 1;
+                    }
+                    String label(MapEntry<String, Map<String, dynamic>> e) {
+                      final name = _text(e.value['name'], 'Unnamed');
+                      final clash = (nameUses[normalizeCategoryKey(name)] ?? 0) > 1;
+                      return clash ? '$name · ${e.key.substring(0, e.key.length < 4 ? e.key.length : 4)}' : name;
+                    }
+
+                    final items = <DropdownMenuItem<String>>[
+                      for (final e in active) DropdownMenuItem(value: e.key, child: Text(label(e))),
+                    ];
+                    if (categoryId.isNotEmpty && !active.any((e) => e.key == categoryId)) {
+                      items.insert(
+                        0,
+                        DropdownMenuItem(
+                          value: categoryId,
+                          child: Text('${category ?? 'Unnamed'} (hidden)'),
+                        ),
+                      );
+                    }
+                    // A name with no category doc yet (e.g. "Other", or an
+                    // AI suggestion the resolver couldn't reach): resolved on save.
+                    final nameOnly = categoryId.isEmpty && (category ?? '').isNotEmpty;
+                    if (nameOnly) {
+                      items.insert(
+                        0,
+                        DropdownMenuItem(
+                          value: _kNameOnlyCategory,
+                          child: Text(snap.hasData ? '$category (no category doc)' : category!),
+                        ),
+                      );
                     }
 
                     return DropdownButtonFormField<String>(
-                      initialValue: category,
+                      key: ValueKey('cat-$categoryId-$nameOnly'),
+                      initialValue: nameOnly ? _kNameOnlyCategory : (categoryId.isEmpty ? null : categoryId),
+                      isExpanded: true,
                       decoration: deco('Category'),
-                      items: cats.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                      onChanged: (v) => setDialogState(() {
-                        if (v != category) subcategoryId = '';
-                        category = v;
-                      }),
+                      items: items,
+                      onChanged: (v) {
+                        if (v == null || v == _kNameOnlyCategory) return;
+                        setDialogState(() {
+                          if (v != categoryId) subcategoryId = '';
+                          categoryId = v;
+                          category = _text(byId[v]?['name'], category ?? '');
+                        });
+                      },
                     );
                   },
                 );
@@ -2118,37 +2196,29 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                   return disabled('Select a category first');
                 }
 
+                // Loaded by the selected category's doc id only.
+                final parentId = categoryId;
+                if (parentId.isEmpty) {
+                  return disabled('No category doc yet — save the product first');
+                }
+
+                // Live query, re-created only when the parent changes, so a
+                // subcategory added in the Category Manager shows up at once.
+                if (subcategoryStreamParentId != parentId) {
+                  subcategoryStreamParentId = parentId;
+                  subcategoryStream = FirebaseFirestore.instance
+                      .collection('subcategories')
+                      .where('categoryId', isEqualTo: parentId)
+                      .snapshots();
+                }
+
                 return StreamBuilder<QuerySnapshot>(
-                  stream: allCategoriesStream,
-                  builder: (context, catSnap) {
-                    final docs = catSnap.data?.docs ?? const [];
-                    String parentId = '';
-                    if (category == originalCategoryName && originalCategoryId.isNotEmpty) {
-                      parentId = originalCategoryId;
-                    } else {
-                      for (final d in docs) {
-                        if (_text((d.data() as Map<String, dynamic>)['name']) == category) {
-                          parentId = d.id;
-                          break;
-                        }
-                      }
-                    }
-
-                    if (parentId.isEmpty) {
-                      return disabled(catSnap.hasData ? 'No subcategories' : 'Loading…');
-                    }
-
-                    if (subcategoryStreamParentId != parentId) {
-                      subcategoryStreamParentId = parentId;
-                      subcategoryStream = FirebaseFirestore.instance
-                          .collection('subcategories')
-                          .where('categoryId', isEqualTo: parentId)
-                          .snapshots();
-                    }
-
-                    return StreamBuilder<QuerySnapshot>(
                       stream: subcategoryStream,
                       builder: (context, subSnap) {
+                        if (subSnap.hasError) {
+                          debugPrint('PRODUCT DIALOG SUBCATEGORIES ERROR ($parentId): ${subSnap.error}');
+                          return _dialogLoadError('Subcategory', 'Couldn\'t load subcategories: ${subSnap.error}');
+                        }
                         if (!subSnap.hasData) return disabled('Loading…');
 
                         final subs = subSnap.data!.docs.toList()
@@ -2198,8 +2268,6 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                         );
                       },
                     );
-                  },
-                );
               }
 
               Widget aiResultBox() {
@@ -2594,9 +2662,22 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
     final options = <_FilterOption>[];
     final nameById = <String, String>{};
     final idByName = <String, String>{};
-    // Sorted by id so the duplicate a legacy (name-only) product falls into
-    // is stable across reloads.
-    final categoryDocs = _categoryDocs.toList()..sort((a, b) => a.id.compareTo(b.id));
+    // Docs merged into another (scripts/categoryMerge.js) are not listed;
+    // anything still pointing at one counts under the doc it was merged into.
+    final mergedInto = <String, String>{};
+    // Active first, then by id, so a legacy (name-only) product falls into the
+    // active doc of a name, and the choice is stable across reloads.
+    final categoryDocs = _categoryDocs.where((doc) {
+      final target = _text((doc.data() as Map<String, dynamic>)['mergedInto']);
+      if (target.isNotEmpty) mergedInto[doc.id] = target;
+      return target.isEmpty;
+    }).toList()
+      ..sort((a, b) {
+        final aActive = (a.data() as Map<String, dynamic>)['isActive'] == true;
+        final bActive = (b.data() as Map<String, dynamic>)['isActive'] == true;
+        if (aActive != bActive) return aActive ? -1 : 1;
+        return a.id.compareTo(b.id);
+      });
     final nameUses = <String, int>{};
     for (final doc in categoryDocs) {
       final key = _normName(_text((doc.data() as Map<String, dynamic>)['name'], 'Unnamed'));
@@ -2613,12 +2694,16 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
       final isDuplicate = (nameUses[_normName(name)] ?? 0) > 1;
       options.add(_FilterOption(
         id: doc.id,
-        // Same-named categories get a short id so they can be told apart.
+        // Only a real name clash left after merging gets a short id suffix.
         name: isDuplicate ? '$name · ${doc.id.substring(0, doc.id.length < 4 ? doc.id.length : 4)}' : name,
-        hidden: data['isActive'] == false || data['showOnHome'] == false,
+        hidden: data['isActive'] != true,
       ));
     }
-    options.sort((a, b) => _normName(a.name).compareTo(_normName(b.name)));
+    // Active categories first, hidden ones after (shown under a "Hidden" header).
+    options.sort((a, b) {
+      if (a.hidden != b.hidden) return a.hidden ? 1 : -1;
+      return _normName(a.name).compareTo(_normName(b.name));
+    });
 
     // Until categories load, keep the chosen id so a refresh doesn't reset it;
     // afterwards a deleted category falls back to "All".
@@ -2649,6 +2734,7 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
       options: options,
       nameById: nameById,
       idByName: idByName,
+      mergedInto: mergedInto,
       subOptions: subOptions,
       subIdByName: subIdByName,
       effectiveCategory: effectiveCategory,
@@ -2672,8 +2758,9 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
   /// matches; otherwise [_kUncategorized] (no id, "Uncategorized", unknown
   /// name, or an id pointing at a deleted category).
   String _categoryBucket(Map<String, dynamic> data, _ProductCategoryIndex index) {
-    final id = _text(data['categoryId']);
-    if (id.isNotEmpty) {
+    final rawId = _text(data['categoryId']);
+    if (rawId.isNotEmpty) {
+      final id = index.mergedInto[rawId] ?? rawId;
       return index.nameById.containsKey(id) ? id : _kUncategorized;
     }
     return index.idByName[_normName(_text(data['category']))] ?? _kUncategorized;
@@ -2736,6 +2823,34 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
   }
 
   /// "Name (count) (hidden)": the name ellipsizes, count and tag never do.
+  /// Product dialog: the category doc to select for a product with
+  /// [categoryId] / [categoryName]. Follows `mergedInto`; with no usable id,
+  /// matches the name by normalized key (active docs first). `id` is '' and
+  /// `name` null when nothing matches, leaving the selection as it was.
+  ({String id, String? name}) _resolveCategorySelection(
+    Map<String, Map<String, dynamic>> byId,
+    String categoryId,
+    String? categoryName,
+  ) {
+    final id = resolveCategoryId(byId, categoryId: categoryId, categoryName: categoryName);
+    if (id == null) return (id: '', name: null);
+    return (id: id, name: _text(byId[id]?['name'], categoryName ?? ''));
+  }
+
+  /// Disabled dialog field that shows a load failure instead of an endless
+  /// "Loading…" or an empty list that looks like real data.
+  Widget _dialogLoadError(String label, String message) {
+    return InputDecorator(
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+        errorText: message,
+        errorMaxLines: 4,
+      ),
+      child: const Text('—'),
+    );
+  }
+
   Widget _filterOptionLabel(String name, int? count, {bool hidden = false, bool muted = false}) {
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -2795,10 +2910,22 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
           value: _kFilterAll,
           child: _filterOptionLabel('All', countsReady ? _productDocs!.length : null),
         ),
-        for (final o in index.options)
+        for (final o in index.options.where((o) => !o.hidden))
           DropdownMenuItem(
             value: o.id,
-            child: _filterOptionLabel(o.name, countFor(index.categoryCounts, o.id), hidden: o.hidden),
+            child: _filterOptionLabel(o.name, countFor(index.categoryCounts, o.id)),
+          ),
+        if (index.options.any((o) => o.hidden))
+          DropdownMenuItem(
+            value: _kHiddenHeader,
+            enabled: false,
+            child: Text('Hidden',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12, fontWeight: FontWeight.w600)),
+          ),
+        for (final o in index.options.where((o) => o.hidden))
+          DropdownMenuItem(
+            value: o.id,
+            child: _filterOptionLabel(o.name, countFor(index.categoryCounts, o.id), hidden: true),
           ),
         DropdownMenuItem(
           value: _kUncategorized,
@@ -3324,6 +3451,7 @@ class _ProductCategoryIndex {
     required this.options,
     required this.nameById,
     required this.idByName,
+    required this.mergedInto,
     required this.subOptions,
     required this.subIdByName,
     required this.effectiveCategory,
@@ -3333,6 +3461,8 @@ class _ProductCategoryIndex {
   final List<_FilterOption> options;
   final Map<String, String> nameById;
   final Map<String, String> idByName;
+  /// Merged-away category id -> the id it was merged into.
+  final Map<String, String> mergedInto;
   final List<_FilterOption> subOptions;
   final Map<String, String> subIdByName;
   final String effectiveCategory;

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../services/auth_service.dart';
+import '../../utils/category_lookup.dart';
 import '../../utils/category_normalize.dart';
 
 class ManageCategoriesPage extends StatefulWidget {
@@ -205,14 +206,9 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
     setState(() => saving = true);
 
     try {
-      final duplicate = await db
-          .collection('categories')
-          .where('name', isEqualTo: name)
-          .limit(1)
-          .get();
-
-      if (duplicate.docs.isNotEmpty) {
-        _snack('Category already exists');
+      final duplicate = await _categoryNameClash(name);
+      if (duplicate != null) {
+        _snack('Category "$duplicate" already exists');
         return;
       }
 
@@ -220,6 +216,11 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
 
       await db.collection('categories').add({
         'name': name,
+        // Same key ensureCategoryExists (functions) looks up, so a later
+        // import of this name reuses this doc instead of duplicating it.
+        'normalizedName': normalizeCategoryKey(name),
+        'source': 'admin',
+        'autoCreated': false,
         'priority': _toInt(priorityController.text),
         'description': descriptionController.text.trim(),
         'image': imageUrl,
@@ -240,6 +241,19 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
     } finally {
       if (mounted) setState(() => saving = false);
     }
+  }
+
+  /// Name of an existing live category whose normalized key equals [name]'s
+  /// (other than [excludeId]); null when the name is free. Compares keys
+  /// computed from every doc's name rather than querying `normalizedName`,
+  /// because older docs created here never stored that field.
+  Future<String?> _categoryNameClash(String name, {String? excludeId}) async {
+    final snap = await db.collection('categories').get();
+    return findCategoryNameClash(
+      snap.docs.map((d) => (id: d.id, data: d.data())),
+      name,
+      excludeId: excludeId,
+    );
   }
 
   Future<int> _productCount(String categoryName) async {
@@ -328,6 +342,12 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
               return;
             }
 
+            final duplicate = await _categoryNameClash(newName, excludeId: id);
+            if (duplicate != null) {
+              _snack('Category "$duplicate" already exists');
+              return;
+            }
+
             String imageUrl = _text(data['imageUrl'] ?? data['image']);
 
             if (newImageFile != null || newWebImage != null) {
@@ -336,6 +356,9 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
 
             await db.collection('categories').doc(id).update({
               'name': newName,
+              // A merged-away doc keeps no key (categoryMerge.js removes it)
+              // so the backend resolver never matches it again.
+              if (!isMergedCategory(data)) 'normalizedName': normalizeCategoryKey(newName),
               'priority': _toInt(priority.text),
               'description': description.text.trim(),
               'image': imageUrl,
