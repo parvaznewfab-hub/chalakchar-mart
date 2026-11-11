@@ -103,7 +103,11 @@ class ProductDeliveryResolver {
 
   /// Resolves the delivery estimate to display for a product's raw Firestore
   /// data map, following the priority order documented above.
-  static ProductDeliveryEstimate resolve(Map<String, dynamic> data) {
+  ///
+  /// [now] is the reference date for the day-count tiers; it defaults to the
+  /// current time and is only passed explicitly by tests.
+  static ProductDeliveryEstimate resolve(Map<String, dynamic> data, {DateTime? now}) {
+    final today = now ?? DateTime.now();
     final exact = _toDateTimeValue(data['estimatedDeliveryDate']);
     if (exact != null) {
       return ProductDeliveryEstimate(
@@ -118,9 +122,8 @@ class ProductDeliveryResolver {
     if (hasDayRange) {
       final minDays = _toInt(minDaysRaw);
       final maxDays = _toInt(maxDaysRaw);
-      final now = DateTime.now();
-      final rangeMinDate = now.add(Duration(days: minDays));
-      final rangeMaxDate = now.add(Duration(days: maxDays));
+      final rangeMinDate = today.add(Duration(days: minDays));
+      final rangeMaxDate = today.add(Duration(days: maxDays));
       final label = _isSameCalendarDate(rangeMinDate, rangeMaxDate)
           ? formatShortDate(rangeMaxDate)
           : '${_formatDayMonth(rangeMinDate)}–${formatShortDate(rangeMaxDate)}';
@@ -160,7 +163,7 @@ class ProductDeliveryResolver {
     final hasDays = daysRaw != null && _toInt(daysRaw, -1) >= 0;
     if (hasDays) {
       final days = _toInt(daysRaw);
-      final fallbackDate = DateTime.now().add(Duration(days: days));
+      final fallbackDate = today.add(Duration(days: days));
       return ProductDeliveryEstimate(
         hasEstimate: true,
         date: fallbackDate,
