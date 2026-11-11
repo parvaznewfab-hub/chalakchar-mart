@@ -49,11 +49,13 @@ async function ensureSubcategoryExists(db, categoryId, categoryName, rawName, op
       subcategoriesRef
         .where("categoryId", "==", parentCategoryId)
         .where("normalizedName", "==", normalizedName)
-        .limit(1)
+        .limit(10)
     );
 
-    if (!existingQuery.empty) {
-      const doc = existingQuery.docs[0];
+    // Retired subcategories (mergedInto set by scripts/categoryMerge.js) are
+    // never reused.
+    const doc = existingQuery.docs.find((d) => !textValue(d.data().mergedInto));
+    if (doc) {
       return {
         subcategoryId: doc.id,
         subcategoryName: textValue(doc.data().name, name),

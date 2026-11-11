@@ -95,4 +95,23 @@ describe("resolveProductTaxonomy", () => {
     assert.equal(Object.keys(db._collections.categories).length, 1);
     assert.equal(Object.keys(db._collections.subcategories).length, 1);
   });
+
+  test("a Mobile Parts product with a motherboard subcategory is filed under top-level Motherboard", async () => {
+    const db = new FakeFirestore();
+    db._seed("categories", "mp", { name: "Mobile Parts", normalizedName: "mobile parts" });
+    db._seed("categories", "mb", { name: "Motherboard", normalizedName: "motherboard" });
+
+    const result = await resolveProductTaxonomy(db, "Mobile Parts", "Motherboard & Mainboard", { source: "aliexpress" });
+    assert.equal(result.categoryId, "mb");
+    assert.equal(result.categoryName, "Motherboard");
+    assert.equal(result.subcategoryId, null);
+    assert.equal(Object.keys(db._collections.subcategories || {}).length, 0);
+  });
+
+  test("blank category with a motherboard subcategory still stays Uncategorized", async () => {
+    const db = new FakeFirestore();
+    const result = await resolveProductTaxonomy(db, "", "Motherboard", { source: "admin" });
+    assert.equal(result.categoryId, null);
+    assert.equal(result.needsCategoryReview, true);
+  });
 });

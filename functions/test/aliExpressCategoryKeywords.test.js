@@ -14,7 +14,14 @@ describe("matchCategoryByKeyword", () => {
 
   test("Mobile Parts rules take priority over broader rules for repair-accessory titles", () => {
     assert.equal(matchCategoryByKeyword("iPhone 12 LCD Assembly Digitizer Replacement"), "Mobile Parts");
-    assert.equal(matchCategoryByKeyword("Samsung Galaxy Motherboard Logic Board Repair Part"), "Mobile Parts");
+    assert.equal(matchCategoryByKeyword("Samsung Galaxy Display Digitizer Repair Part"), "Mobile Parts");
+  });
+
+  test("motherboard/mainboard/logic board titles go to top-level Motherboard, not Mobile Parts", () => {
+    assert.equal(matchCategoryByKeyword("Samsung Galaxy Motherboard Logic Board Repair Part"), "Motherboard");
+    assert.equal(matchCategoryByKeyword("Fully Tested 100%Working Mainboard For iPhone 17 Pro Max"), "Motherboard");
+    assert.equal(matchCategoryByKeyword("Unlocked Main Board For Xiaomi Redmi Note 12"), "Motherboard");
+    assert.equal(matchCategoryByKeyword("For iPhone 11 Logic Board Face ID Display Digitizer"), "Motherboard");
   });
 
   test("Mobile Parts also catches phone repair TOOL kits (spudger/pry/disassembly + phone, any word order)", () => {

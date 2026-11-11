@@ -136,4 +136,44 @@ describe("ensureCategoryExists", () => {
     assert.equal(await ensureCategoryExists(db, null, { source: "admin" }), null);
     assert.equal(Object.keys(db._collections.categories || {}).length, 0);
   });
+
+  test("a merged-away doc is never reused; the live doc with the same key wins", async () => {
+    const db = new FakeFirestore();
+    db._seed("categories", "old", { name: "Motherboard", normalizedName: "motherboard", slug: "motherboard", mergedInto: "live" });
+    db._seed("categories", "live", { name: "Motherboard", normalizedName: "motherboard", slug: "motherboard-2" });
+
+    const result = await ensureCategoryExists(db, "Motherboard", { source: "aliexpress" });
+    assert.equal(result.categoryId, "live");
+    assert.equal(result.createdCategory, false);
+  });
+
+  test("a merged-away doc that still carries the key is followed to its mergedInto target", async () => {
+    const db = new FakeFirestore();
+    db._seed("categories", "old", { name: "Electronics", normalizedName: "electronics", mergedInto: "canon" });
+    db._seed("categories", "canon", { name: "Electronics" }); // no normalizedName yet
+
+    const result = await ensureCategoryExists(db, "electronics", { source: "aliexpress" });
+    assert.equal(result.categoryId, "canon");
+    assert.equal(result.createdCategory, false);
+    assert.equal(Object.keys(db._collections.categories).length, 2);
+  });
+
+  test("before any merge (no mergedInto anywhere) lookup behaves as before", async () => {
+    const db = new FakeFirestore();
+    db._seed("categories", "a", { name: "Home & Cleaning", normalizedName: "home & cleaning" });
+
+    const result = await ensureCategoryExists(db, "home &  cleaning", { source: "aliexpress" });
+    assert.equal(result.categoryId, "a");
+    assert.equal(result.createdCategory, false);
+  });
+
+  test("motherboard aliases resolve to the existing Motherboard category", async () => {
+    const db = new FakeFirestore();
+    db._seed("categories", "mb", { name: "Motherboard", normalizedName: "motherboard" });
+
+    for (const name of ["Mainboard", "Motherboard & Mainboard", "logic board"]) {
+      const result = await ensureCategoryExists(db, name, { source: "aliexpress" });
+      assert.equal(result.categoryId, "mb", name);
+    }
+  });
 });

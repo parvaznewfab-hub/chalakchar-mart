@@ -1,5 +1,11 @@
 #!/usr/bin/env node
 // -----------------------------------------------------------------------------
+// RETIRED (2026-11): Mobile Parts › "Motherboard & Mainboard" was retired by
+// scripts/categoryMerge.js --retire-subcategory; motherboards are now the
+// top-level "Motherboard" category with brand subcategories. Once that runs,
+// the retired subcategory has no normalizedName, so this script aborts at
+// loadSubcategory() instead of filing boards under Mobile Parts again.
+// -----------------------------------------------------------------------------
 // Second-stage, one-time backfill: moves the products that
 // backfillAliExpressCategoryReview.js flagged Uncategorized/needsCategoryReview
 // into the real "Mobile Parts" category (see functions/category/), splitting

@@ -54,16 +54,30 @@ async function ensureCategoryExists(db, rawName, options = {}) {
 
   return db.runTransaction(async (transaction) => {
     const existingQuery = await transaction.get(
-      categoriesRef.where("normalizedName", "==", normalizedName).limit(1)
+      categoriesRef.where("normalizedName", "==", normalizedName).limit(10)
     );
 
-    if (!existingQuery.empty) {
-      const doc = existingQuery.docs[0];
+    // A doc merged into another (scripts/categoryMerge.js sets mergedInto and
+    // removes normalizedName) is never reused; if one still carries the key,
+    // follow it to the doc it was merged into.
+    const live = existingQuery.docs.find((d) => !textValue(d.data().mergedInto));
+    if (live) {
       return {
-        categoryId: doc.id,
-        categoryName: textValue(doc.data().name, canonicalName),
+        categoryId: live.id,
+        categoryName: textValue(live.data().name, canonicalName),
         createdCategory: false,
       };
+    }
+    const merged = existingQuery.docs[0];
+    if (merged) {
+      const target = await transaction.get(categoriesRef.doc(textValue(merged.data().mergedInto)));
+      if (target.exists && !textValue(target.data().mergedInto)) {
+        return {
+          categoryId: target.id,
+          categoryName: textValue(target.data().name, canonicalName),
+          createdCategory: false,
+        };
+      }
     }
 
     const slug = await generateUniqueSlug(canonicalName, async (candidate) => {

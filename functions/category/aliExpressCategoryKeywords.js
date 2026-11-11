@@ -21,8 +21,14 @@
 
 const CATEGORY_KEYWORD_RULES = [
   {
+    // Top-level category with brand subcategories (iphone, ...). Checked
+    // before Mobile Parts so boards never land in Mobile Parts again.
+    name: "Motherboard",
+    pattern: /\b(motherboard|main\s?board|logic\s?board)\b/i,
+  },
+  {
     name: "Mobile Parts",
-    pattern: /\b(motherboard|main\s?board|logic\s?board|digitizer|flex\s?cable|phone\s?screen|lcd\s?assembly|spudger|pry\s?(tool|bar)|prying\s?tool|opening\s?tool)\b/i,
+    pattern: /\b(digitizer|flex\s?cable|phone\s?screen|lcd\s?assembly|spudger|pry\s?(tool|bar)|prying\s?tool|opening\s?tool)\b/i,
   },
   {
     // Phone repair TOOL kits (e.g. "10 Pcs Abs Plastic Spudger Disassembling

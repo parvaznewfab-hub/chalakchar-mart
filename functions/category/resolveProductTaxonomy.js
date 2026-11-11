@@ -1,5 +1,6 @@
 const { ensureCategoryExists } = require("./ensureCategoryExists");
 const { ensureSubcategoryExists } = require("./ensureSubcategoryExists");
+const { resolveTaxonomyRedirect } = require("./categoryAliasMap");
 
 // Display name + flag applied whenever a product has no usable category
 // input. Never invented/guessed (e.g. never forced into "Electronics" just
@@ -56,6 +57,12 @@ function uncategorizedResult() {
  * }>}
  */
 async function resolveProductTaxonomy(db, rawCategoryName, rawSubcategoryName, options = {}) {
+  // e.g. ("Mobile Parts", "Motherboard & Mainboard") -> ("Motherboard", "").
+  // Only when a category was given, so a blank category still stays Uncategorized.
+  if (textValue(rawCategoryName)) {
+    ({ categoryName: rawCategoryName, subcategoryName: rawSubcategoryName } =
+      resolveTaxonomyRedirect(rawCategoryName, rawSubcategoryName));
+  }
   const categoryInput = textValue(rawCategoryName);
   if (!categoryInput) return uncategorizedResult(); // validation: skip the resolver completely
 

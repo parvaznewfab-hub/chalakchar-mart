@@ -2056,8 +2056,13 @@ const ALIEXPRESS_CATEGORY_FALLBACK_NAME = "Imported Products";
 const ALIEXPRESS_CATEGORY_AI_TIMEOUT_MS = 15000;
 
 async function fetchAllCategoryNames(db) {
-  const snapshot = await db.collection("categories").select("name").get();
-  return snapshot.docs.map((doc) => textValue(doc.data().name)).filter(Boolean);
+  const snapshot = await db.collection("categories").select("name", "mergedInto").get();
+  // Merged-away duplicates would show the AI the same name twice.
+  const names = snapshot.docs
+    .filter((doc) => !textValue(doc.data().mergedInto))
+    .map((doc) => textValue(doc.data().name))
+    .filter(Boolean);
+  return [...new Set(names)];
 }
 
 async function suggestAliExpressCategoryWithAi({ title, candidateNames }) {

@@ -77,4 +77,16 @@ describe("ensureSubcategoryExists", () => {
     assert.equal(await ensureSubcategoryExists(db, "cat_1", "Electronics", "", { source: "admin" }), null);
     assert.equal(await ensureSubcategoryExists(db, "cat_1", "Electronics", "   ", { source: "admin" }), null);
   });
+
+  test("a retired (mergedInto) subcategory is not reused; a new one is created", async () => {
+    const db = new FakeFirestore();
+    db._seed("subcategories", "retired", {
+      categoryId: "cat_1", name: "Motherboard & Mainboard", normalizedName: "motherboard & mainboard",
+      slug: "motherboard-mainboard", mergedInto: "mb",
+    });
+
+    const result = await ensureSubcategoryExists(db, "cat_1", "Mobile Parts", "Motherboard & Mainboard", { source: "admin" });
+    assert.notEqual(result.subcategoryId, "retired");
+    assert.equal(result.createdSubcategory, true);
+  });
 });
