@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -32,10 +33,33 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
   final AuthService authService = AuthService();
 
 
+  static const String _kFilterAll = 'all';
+  static const String _kUncategorized = '__uncategorized__';
+  // All products are loaded client-side (1 read each per page open); past
+  // this size, switch to per-category queries + count() aggregations.
+  static const int _kLargeCatalogNotice = 2000;
+
+  final TextEditingController _searchController = TextEditingController();
   String searchText = '';
-  String stockFilter = 'all';
-  String statusFilter = 'all';
-  String? selectedCategoryFilter;
+  String stockFilter = _kFilterAll;
+  String statusFilter = _kFilterAll;
+  // A category doc id, _kFilterAll or _kUncategorized.
+  String categoryFilter = _kFilterAll;
+  // A subcategory doc id or _kFilterAll; only used with a specific category.
+  String subcategoryFilter = _kFilterAll;
+  // Bumped by "Clear filters" so the initialValue-based dropdowns rebuild.
+  int _filterResetEpoch = 0;
+
+  // One listener each, shared by the filter bar (option counts) and the list.
+  StreamSubscription<QuerySnapshot>? _productsSub;
+  StreamSubscription<QuerySnapshot>? _categoriesSub;
+  StreamSubscription<QuerySnapshot>? _subcategoriesSub;
+  List<QueryDocumentSnapshot>? _productDocs;
+  Object? _productsError;
+  List<QueryDocumentSnapshot> _categoryDocs = const [];
+  bool _categoriesLoaded = false;
+  List<QueryDocumentSnapshot> _subcategoryDocs = const [];
+  String? _subcategoriesFor;
 
   bool bulkWorking = false;
   bool permissionLoading = true;
@@ -49,6 +73,111 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
   void initState() {
     super.initState();
     _loadPermissions();
+  }
+
+  @override
+  void dispose() {
+    _productsSub?.cancel();
+    _categoriesSub?.cancel();
+    _subcategoriesSub?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _startListListeners() {
+    if (_productsSub != null) return;
+    // Every product, unordered and unlimited: the category filter exists to
+    // find old miscategorized products, and orderBy('createdAt') would
+    // silently drop any doc missing that field. Sorted newest-first below.
+    _productsSub = db.collection('products').snapshots().listen(
+      (snap) {
+        if (!mounted) return;
+        final docs = snap.docs.toList()..sort(_compareNewestFirst);
+        setState(() {
+          _productDocs = docs;
+          _productsError = null;
+        });
+      },
+      onError: (Object e) {
+        if (!mounted) return;
+        setState(() => _productsError = e);
+      },
+    );
+    // All categories, including inactive / hidden-from-home ones.
+    _categoriesSub = FirebaseService.getCategories().listen(
+      (snap) {
+        if (!mounted) return;
+        setState(() {
+          _categoryDocs = snap.docs;
+          _categoriesLoaded = true;
+        });
+      },
+      onError: (Object e) {
+        debugPrint('PRODUCT FILTER CATEGORIES ERROR: $e');
+        if (!mounted) return;
+        setState(() => _categoriesLoaded = true);
+      },
+    );
+  }
+
+  /// createdAt descending; products without a usable createdAt go last.
+  static int _compareNewestFirst(QueryDocumentSnapshot a, QueryDocumentSnapshot b) {
+    DateTime? created(QueryDocumentSnapshot d) {
+      final v = (d.data() as Map<String, dynamic>)['createdAt'];
+      if (v is Timestamp) return v.toDate();
+      if (v is DateTime) return v;
+      return null;
+    }
+
+    final ca = created(a);
+    final cb = created(b);
+    if (ca == null && cb == null) return 0;
+    if (ca == null) return 1;
+    if (cb == null) return -1;
+    return cb.compareTo(ca);
+  }
+
+  void _listenSubcategories(String categoryId) {
+    _subcategoriesSub?.cancel();
+    _subcategoriesSub = null;
+    _subcategoryDocs = const [];
+    _subcategoriesFor = null;
+    if (categoryId == _kFilterAll || categoryId == _kUncategorized) return;
+
+    _subcategoriesFor = categoryId;
+    _subcategoriesSub = db
+        .collection('subcategories')
+        .where('categoryId', isEqualTo: categoryId)
+        .snapshots()
+        .listen(
+      (snap) {
+        if (!mounted || _subcategoriesFor != categoryId) return;
+        setState(() => _subcategoryDocs = snap.docs);
+      },
+      onError: (Object e) => debugPrint('PRODUCT FILTER SUBCATEGORIES ERROR: $e'),
+    );
+  }
+
+  void _selectCategoryFilter(String value) {
+    if (value == categoryFilter) return;
+    setState(() {
+      categoryFilter = value;
+      subcategoryFilter = _kFilterAll;
+      _listenSubcategories(value);
+    });
+  }
+
+  void _clearFilters() {
+    _searchController.clear();
+    setState(() {
+      searchText = '';
+      statusFilter = _kFilterAll;
+      stockFilter = _kFilterAll;
+      categoryFilter = _kFilterAll;
+      subcategoryFilter = _kFilterAll;
+      _listenSubcategories(_kFilterAll);
+      _filterResetEpoch++;
+    });
   }
 
   Future<void> _loadPermissions() async {
@@ -71,6 +200,7 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
         canChangeProductStatus = results[4] || results[1];
         permissionLoading = false;
       });
+      if (canViewProducts) _startListListeners();
     } catch (e) {
       if (!mounted) return;
       setState(() => permissionLoading = false);
@@ -2315,13 +2445,118 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
     }, SetOptions(merge: true));
   }
 
-  List<QueryDocumentSnapshot> _filterProducts(List<QueryDocumentSnapshot> docs) {
+  static String _normName(String value) => value.trim().toLowerCase();
+
+  /// Lookup tables for the Category / Subcategory filters, rebuilt per build
+  /// from the in-memory category, subcategory and product docs.
+  _ProductCategoryIndex _buildCategoryIndex() {
+    final options = <_FilterOption>[];
+    final nameById = <String, String>{};
+    final idByName = <String, String>{};
+    // Sorted by id so the duplicate a legacy (name-only) product falls into
+    // is stable across reloads.
+    final categoryDocs = _categoryDocs.toList()..sort((a, b) => a.id.compareTo(b.id));
+    final nameUses = <String, int>{};
+    for (final doc in categoryDocs) {
+      final key = _normName(_text((doc.data() as Map<String, dynamic>)['name'], 'Unnamed'));
+      nameUses[key] = (nameUses[key] ?? 0) + 1;
+    }
+    for (final doc in categoryDocs) {
+      final data = doc.data() as Map<String, dynamic>;
+      final name = _text(data['name'], 'Unnamed');
+      // A real category literally named "Uncategorized" is merged into the
+      // synthetic "Uncategorized" option instead of being listed twice.
+      if (_normName(name) == 'uncategorized') continue;
+      nameById[doc.id] = name;
+      idByName.putIfAbsent(_normName(name), () => doc.id);
+      final isDuplicate = (nameUses[_normName(name)] ?? 0) > 1;
+      options.add(_FilterOption(
+        id: doc.id,
+        // Same-named categories get a short id so they can be told apart.
+        name: isDuplicate ? '$name · ${doc.id.substring(0, doc.id.length < 4 ? doc.id.length : 4)}' : name,
+        hidden: data['isActive'] == false || data['showOnHome'] == false,
+      ));
+    }
+    options.sort((a, b) => _normName(a.name).compareTo(_normName(b.name)));
+
+    // Until categories load, keep the chosen id so a refresh doesn't reset it;
+    // afterwards a deleted category falls back to "All".
+    final effectiveCategory = categoryFilter == _kFilterAll ||
+            categoryFilter == _kUncategorized ||
+            !_categoriesLoaded ||
+            nameById.containsKey(categoryFilter)
+        ? categoryFilter
+        : _kFilterAll;
+
+    final subOptions = <_FilterOption>[];
+    final subIdByName = <String, String>{};
+    if (effectiveCategory != _kFilterAll &&
+        effectiveCategory != _kUncategorized &&
+        _subcategoriesFor == effectiveCategory) {
+      for (final doc in _subcategoryDocs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final name = _text(data['name'], 'Unnamed');
+        subIdByName.putIfAbsent(_normName(name), () => doc.id);
+        subOptions.add(_FilterOption(id: doc.id, name: name, hidden: data['isActive'] == false));
+      }
+      subOptions.sort((a, b) => _normName(a.name).compareTo(_normName(b.name)));
+    }
+    final effectiveSubcategory =
+        subOptions.any((o) => o.id == subcategoryFilter) ? subcategoryFilter : _kFilterAll;
+
+    final index = _ProductCategoryIndex(
+      options: options,
+      nameById: nameById,
+      idByName: idByName,
+      subOptions: subOptions,
+      subIdByName: subIdByName,
+      effectiveCategory: effectiveCategory,
+      effectiveSubcategory: effectiveSubcategory,
+    );
+
+    for (final doc in _productDocs ?? const <QueryDocumentSnapshot>[]) {
+      final data = doc.data() as Map<String, dynamic>;
+      final bucket = _categoryBucket(data, index);
+      index.categoryCounts[bucket] = (index.categoryCounts[bucket] ?? 0) + 1;
+      if (bucket == effectiveCategory && subOptions.isNotEmpty) {
+        final sub = _subcategoryBucket(data, index);
+        if (sub.isNotEmpty) index.subCounts[sub] = (index.subCounts[sub] ?? 0) + 1;
+      }
+    }
+    return index;
+  }
+
+  /// The category a product belongs to for filtering: its categoryId when that
+  /// category exists; for old products with no id, the category whose name
+  /// matches; otherwise [_kUncategorized] (no id, "Uncategorized", unknown
+  /// name, or an id pointing at a deleted category).
+  String _categoryBucket(Map<String, dynamic> data, _ProductCategoryIndex index) {
+    final id = _text(data['categoryId']);
+    if (id.isNotEmpty) {
+      return index.nameById.containsKey(id) ? id : _kUncategorized;
+    }
+    return index.idByName[_normName(_text(data['category']))] ?? _kUncategorized;
+  }
+
+  /// Subcategory id within the selected category, by subcategoryId first and
+  /// the stored subcategory name only when the product has no id. '' = none.
+  String _subcategoryBucket(Map<String, dynamic> data, _ProductCategoryIndex index) {
+    final id = _text(data['subcategoryId']);
+    if (id.isNotEmpty) return id;
+    final name = _normName(_text(data['subCategoryName'], _text(data['subcategoryName'])));
+    if (name.isEmpty) return '';
+    return index.subIdByName[name] ?? '';
+  }
+
+  List<QueryDocumentSnapshot> _filterProducts(
+    List<QueryDocumentSnapshot> docs,
+    _ProductCategoryIndex index,
+  ) {
     return docs.where((doc) {
       final data = doc.data() as Map<String, dynamic>;
       final name = _text(data['name']).toLowerCase();
       final generic = _text(data['generic']).toLowerCase();
       final manufacturer = _text(data['manufacturer']).toLowerCase();
-      final category = _text(data['category']);
       final approvalStatus = _text(data['approvalStatus'], 'approved');
       final isVendorProduct = data['isMarketplace'] == true ||
           _text(data['vendorId'], 'super_admin') != 'super_admin';
@@ -2340,10 +2575,12 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
         return false;
       }
 
-      if (selectedCategoryFilter != null &&
-          selectedCategoryFilter!.isNotEmpty &&
-          category != selectedCategoryFilter) {
-        return false;
+      if (index.effectiveCategory != _kFilterAll) {
+        if (_categoryBucket(data, index) != index.effectiveCategory) return false;
+        if (index.effectiveSubcategory != _kFilterAll &&
+            _subcategoryBucket(data, index) != index.effectiveSubcategory) {
+          return false;
+        }
       }
 
       if (statusFilter == 'active' && !displayActive) return false;
@@ -2355,6 +2592,185 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
 
       return true;
     }).toList();
+  }
+
+  /// "Name (count) (hidden)": the name ellipsizes, count and tag never do.
+  Widget _filterOptionLabel(String name, int? count, {bool hidden = false, bool muted = false}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: muted ? TextStyle(color: Colors.grey.shade700, fontStyle: FontStyle.italic) : null,
+          ),
+        ),
+        if (count != null) Text(' ($count)', style: TextStyle(color: Colors.grey.shade700)),
+        if (hidden)
+          Text(' (hidden)', style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
+      ],
+    );
+  }
+
+  Widget _buildFilterBar(_ProductCategoryIndex index) {
+    final countsReady = _productDocs != null;
+    int? countFor(Map<String, int> counts, String key) => countsReady ? (counts[key] ?? 0) : null;
+    const fieldGap = SizedBox(width: 8);
+
+    final showSubcategory = index.effectiveCategory != _kFilterAll &&
+        index.effectiveCategory != _kUncategorized &&
+        index.subOptions.isNotEmpty;
+    final anyFilterActive = searchText.trim().isNotEmpty ||
+        statusFilter != _kFilterAll ||
+        stockFilter != _kFilterAll ||
+        index.effectiveCategory != _kFilterAll;
+
+    InputDecoration deco(String label) => InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+          isDense: true,
+        );
+
+    final search = TextField(
+      controller: _searchController,
+      decoration: const InputDecoration(
+        hintText: 'Search product, generic, manufacturer...',
+        prefixIcon: Icon(Icons.search_rounded),
+        border: OutlineInputBorder(),
+        isDense: true,
+      ),
+      onChanged: (v) => setState(() => searchText = v),
+    );
+
+    final category = DropdownButtonFormField<String>(
+      key: ValueKey('cat-$_filterResetEpoch-${index.effectiveCategory}'),
+      initialValue: index.effectiveCategory,
+      isExpanded: true,
+      decoration: deco('Category'),
+      items: [
+        DropdownMenuItem(
+          value: _kFilterAll,
+          child: _filterOptionLabel('All', countsReady ? _productDocs!.length : null),
+        ),
+        for (final o in index.options)
+          DropdownMenuItem(
+            value: o.id,
+            child: _filterOptionLabel(o.name, countFor(index.categoryCounts, o.id), hidden: o.hidden),
+          ),
+        DropdownMenuItem(
+          value: _kUncategorized,
+          child: _filterOptionLabel(
+            'Uncategorized',
+            countFor(index.categoryCounts, _kUncategorized),
+            muted: true,
+          ),
+        ),
+      ],
+      onChanged: (v) => _selectCategoryFilter(v ?? _kFilterAll),
+    );
+
+    final subcategory = DropdownButtonFormField<String>(
+      key: ValueKey('sub-$_filterResetEpoch-${index.effectiveCategory}-${index.effectiveSubcategory}'),
+      initialValue: index.effectiveSubcategory,
+      isExpanded: true,
+      decoration: deco('Subcategory'),
+      items: [
+        DropdownMenuItem(
+          value: _kFilterAll,
+          child: _filterOptionLabel('All', countFor(index.categoryCounts, index.effectiveCategory)),
+        ),
+        for (final o in index.subOptions)
+          DropdownMenuItem(
+            value: o.id,
+            child: _filterOptionLabel(o.name, countFor(index.subCounts, o.id), hidden: o.hidden),
+          ),
+      ],
+      onChanged: (v) => setState(() => subcategoryFilter = v ?? _kFilterAll),
+    );
+
+    final status = DropdownButtonFormField<String>(
+      key: ValueKey('status-$_filterResetEpoch'),
+      initialValue: statusFilter,
+      isExpanded: true,
+      decoration: deco('Status'),
+      items: const [
+        DropdownMenuItem(value: 'all', child: Text('All')),
+        DropdownMenuItem(value: 'active', child: Text('Active')),
+        DropdownMenuItem(value: 'inactive', child: Text('Inactive')),
+      ],
+      onChanged: (v) => setState(() => statusFilter = v ?? _kFilterAll),
+    );
+
+    final stock = DropdownButtonFormField<String>(
+      key: ValueKey('stock-$_filterResetEpoch'),
+      initialValue: stockFilter,
+      isExpanded: true,
+      decoration: deco('Stock'),
+      items: const [
+        DropdownMenuItem(value: 'all', child: Text('All')),
+        DropdownMenuItem(value: 'available', child: Text('Available')),
+        DropdownMenuItem(value: 'low', child: Text('Low')),
+        DropdownMenuItem(value: 'out', child: Text('Out')),
+      ],
+      onChanged: (v) => setState(() => stockFilter = v ?? _kFilterAll),
+    );
+
+    final clear = TextButton.icon(
+      onPressed: anyFilterActive ? _clearFilters : null,
+      icon: const Icon(Icons.filter_alt_off_rounded, size: 18),
+      label: const Text('Clear filters'),
+    );
+
+    return LayoutBuilder(
+      builder: (context, c) {
+        final width = c.maxWidth;
+
+        // One row: Search | Category | Subcategory | Status | Stock | Clear.
+        if (width >= 1100) {
+          return Row(
+            children: [
+              Expanded(flex: 3, child: search),
+              fieldGap,
+              Expanded(flex: 3, child: category),
+              fieldGap,
+              if (showSubcategory) ...[
+                Expanded(flex: 3, child: subcategory),
+                fieldGap,
+              ],
+              Expanded(flex: 2, child: status),
+              fieldGap,
+              Expanded(flex: 2, child: stock),
+              fieldGap,
+              clear,
+            ],
+          );
+        }
+
+        // Search on its own row; dropdowns wrap underneath in fixed columns.
+        final half = ((width - 8) / 2).floorToDouble();
+        final categoryWidth = width < 560 ? width : half;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            search,
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                SizedBox(width: categoryWidth, child: category),
+                if (showSubcategory) SizedBox(width: categoryWidth, child: subcategory),
+                SizedBox(width: half, child: status),
+                SizedBox(width: half, child: stock),
+              ],
+            ),
+            Align(alignment: Alignment.centerRight, child: clear),
+          ],
+        );
+      },
+    );
   }
 
   void _snack(String msg, {bool isError = false}) {
@@ -2489,6 +2905,8 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
       );
     }
 
+    final categoryIndex = _buildCategoryIndex();
+
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FB),
       body: Column(
@@ -2575,107 +2993,60 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                   },
                 ),
                 const SizedBox(height: 14),
-                LayoutBuilder(
-                  builder: (context, c) {
-                    final isSmall = c.maxWidth < 850;
-
-                    final filters = [
-                      Expanded(
-                        flex: isSmall ? 1 : 2,
-                        child: TextField(
-                          decoration: const InputDecoration(
-                            hintText: 'Search product, generic, manufacturer...',
-                            prefixIcon: Icon(Icons.search_rounded),
-                            border: OutlineInputBorder(),
-                            isDense: true,
-                          ),
-                          onChanged: (v) => setState(() => searchText = v),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          initialValue: statusFilter,
-                          decoration: const InputDecoration(
-                            labelText: 'Status',
-                            border: OutlineInputBorder(),
-                            isDense: true,
-                          ),
-                          items: const [
-                            DropdownMenuItem(value: 'all', child: Text('All')),
-                            DropdownMenuItem(value: 'active', child: Text('Active')),
-                            DropdownMenuItem(value: 'inactive', child: Text('Inactive')),
-                          ],
-                          onChanged: (v) => setState(() => statusFilter = v ?? 'all'),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          initialValue: stockFilter,
-                          decoration: const InputDecoration(
-                            labelText: 'Stock',
-                            border: OutlineInputBorder(),
-                            isDense: true,
-                          ),
-                          items: const [
-                            DropdownMenuItem(value: 'all', child: Text('All')),
-                            DropdownMenuItem(value: 'available', child: Text('Available')),
-                            DropdownMenuItem(value: 'low', child: Text('Low')),
-                            DropdownMenuItem(value: 'out', child: Text('Out')),
-                          ],
-                          onChanged: (v) => setState(() => stockFilter = v ?? 'all'),
-                        ),
-                      ),
-                    ];
-
-                    if (isSmall) {
-                      return Column(
-                        children: [
-                          filters[0],
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              filters[2],
-                              const SizedBox(width: 8),
-                              filters[4],
-                            ],
-                          ),
-                        ],
-                      );
-                    }
-
-                    return Row(children: filters);
-                  },
-                ),
+                _buildFilterBar(categoryIndex),
               ],
             ),
           ),
 
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: db.collection('products').orderBy('createdAt', descending: true).limit(300).snapshots(),
-              builder: (context, snap) {
-                if (snap.connectionState == ConnectionState.waiting) {
+            child: Builder(
+              builder: (context) {
+                final allDocs = _productDocs;
+                if (allDocs == null) {
+                  if (_productsError != null) {
+                    return Center(child: Text('Could not load products: $_productsError'));
+                  }
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                if (!snap.hasData || snap.data!.docs.isEmpty) {
+                if (allDocs.isEmpty) {
                   return const Center(child: Text('No products found'));
                 }
 
-                final products = _filterProducts(snap.data!.docs);
+                final products = _filterProducts(allDocs, categoryIndex);
+                final largeCatalog = allDocs.length > _kLargeCatalogNotice;
 
                 if (products.isEmpty) {
-                  return const Center(child: Text('No matching products'));
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('No matching products'),
+                        const SizedBox(height: 8),
+                        TextButton(onPressed: _clearFilters, child: const Text('Clear filters')),
+                      ],
+                    ),
+                  );
                 }
 
                 return ListView.separated(
                   padding: const EdgeInsets.all(18),
-                  itemCount: products.length,
+                  itemCount: products.length + 1,
                   separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (context, index) {
-                    final doc = products[index];
+                  itemBuilder: (context, rawIndex) {
+                    if (rawIndex == 0) {
+                      return Text(
+                        'Showing ${products.length} of ${allDocs.length} products'
+                        '${largeCatalog ? ' · Over $_kLargeCatalogNotice products are loaded on every '
+                            'open of this page; it should move to per-category queries.' : ''}',
+                        style: TextStyle(
+                          color: largeCatalog ? Colors.orange.shade900 : Colors.grey.shade700,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      );
+                    }
+                    final doc = products[rawIndex - 1];
                     final data = doc.data() as Map<String, dynamic>;
 
                     final active = data['isActive'] == true;
@@ -2796,4 +3167,35 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
       ),
     );
   }
+}
+/// One Category / Subcategory filter choice.
+class _FilterOption {
+  const _FilterOption({required this.id, required this.name, this.hidden = false});
+
+  final String id;
+  final String name;
+  final bool hidden;
+}
+
+/// Category lookup tables and option counts for the product list filters.
+class _ProductCategoryIndex {
+  _ProductCategoryIndex({
+    required this.options,
+    required this.nameById,
+    required this.idByName,
+    required this.subOptions,
+    required this.subIdByName,
+    required this.effectiveCategory,
+    required this.effectiveSubcategory,
+  });
+
+  final List<_FilterOption> options;
+  final Map<String, String> nameById;
+  final Map<String, String> idByName;
+  final List<_FilterOption> subOptions;
+  final Map<String, String> subIdByName;
+  final String effectiveCategory;
+  final String effectiveSubcategory;
+  final Map<String, int> categoryCounts = {};
+  final Map<String, int> subCounts = {};
 }
