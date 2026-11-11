@@ -1,0 +1,149 @@
+{
+  "generatedBy": "functions/category/categoryNormalize.js",
+  "cases": [
+    {
+      "label": "precomposed YYA U+09DF",
+      "input": "য়",
+      "normalized": "য়",
+      "slug": ""
+    },
+    {
+      "label": "precomposed RRA U+09DC",
+      "input": "ড়",
+      "normalized": "ড়",
+      "slug": ""
+    },
+    {
+      "label": "precomposed RHA U+09DD",
+      "input": "ঢ়",
+      "normalized": "ঢ়",
+      "slug": ""
+    },
+    {
+      "label": "decomposed YA U+09AF + NUKTA",
+      "input": "য়",
+      "normalized": "য়",
+      "slug": ""
+    },
+    {
+      "label": "decomposed DDA U+09A1 + NUKTA",
+      "input": "ড়",
+      "normalized": "ড়",
+      "slug": ""
+    },
+    {
+      "label": "decomposed DDHA U+09A2 + NUKTA",
+      "input": "ঢ়",
+      "normalized": "ঢ়",
+      "slug": ""
+    },
+    {
+      "label": "word with precomposed YYA",
+      "input": "পার্টস ও আনুষাঙ্গিক য়",
+      "normalized": "পার্টস ও আনুষাঙ্গিক য়",
+      "slug": ""
+    },
+    {
+      "label": "word with decomposed YYA",
+      "input": "পার্টস ও আনুষাঙ্গিক য়",
+      "normalized": "পার্টস ও আনুষাঙ্গিক য়",
+      "slug": ""
+    },
+    {
+      "label": "BORO (ব+ড়) precomposed",
+      "input": "বড়",
+      "normalized": "বড়",
+      "slug": ""
+    },
+    {
+      "label": "BORO (ব+ড়) decomposed",
+      "input": "বড়",
+      "normalized": "বড়",
+      "slug": ""
+    },
+    {
+      "label": "ASHARH (আষাঢ়) precomposed",
+      "input": "আষাঢ়",
+      "normalized": "আষাঢ়",
+      "slug": ""
+    },
+    {
+      "label": "ASHARH (আষাঢ়) decomposed",
+      "input": "আষাঢ়",
+      "normalized": "আষাঢ়",
+      "slug": ""
+    },
+    {
+      "label": "full-width MOBILE PARTS",
+      "input": "ＭＯＢＩＬＥ ＰＡＲＴＳ",
+      "normalized": "mobile parts",
+      "slug": "mobile-parts"
+    },
+    {
+      "label": "full-width LCD & 4K",
+      "input": "ＬＣＤ ＆ ４Ｋ",
+      "normalized": "lcd & 4k",
+      "slug": "lcd-4k"
+    },
+    {
+      "label": "ideographic space U+3000 between words",
+      "input": "Mobile　Parts",
+      "normalized": "mobile parts",
+      "slug": "mobile-parts"
+    },
+    {
+      "label": "leading/trailing/internal spaces",
+      "input": "   Display   &    Digitizer   ",
+      "normalized": "display & digitizer",
+      "slug": "display-digitizer"
+    },
+    {
+      "label": "tabs and newlines",
+      "input": "\tMotherboard \n& \t Mainboard\n",
+      "normalized": "motherboard & mainboard",
+      "slug": "motherboard-mainboard"
+    },
+    {
+      "label": "non-breaking spaces U+00A0",
+      "input": " Mobile  Parts ",
+      "normalized": "mobile parts",
+      "slug": "mobile-parts"
+    },
+    {
+      "label": "mixed Bangla+English",
+      "input": "Mobile Parts (মোবাইল পার্টস)",
+      "normalized": "mobile parts (মোবাইল পার্টস)",
+      "slug": "mobile-parts"
+    },
+    {
+      "label": "mixed with case + spaces",
+      "input": "  SAMSUNG   ডিসপ্লে  & Touch  ",
+      "normalized": "samsung ডিসপ্লে & touch",
+      "slug": "samsung-touch"
+    },
+    {
+      "label": "mixed full-width + decomposed nukta",
+      "input": "ＬＣＤ বড় Display",
+      "normalized": "lcd বড় display",
+      "slug": "lcd-display"
+    },
+    {
+      "label": "mixed Bangla with precomposed nukta + English",
+      "input": "  Mobile  বড়  Display  ",
+      "normalized": "mobile বড় display",
+      "slug": "mobile-display"
+    },
+    {
+      "label": "empty",
+      "input": "",
+      "normalized": "",
+      "slug": ""
+    },
+    {
+      "label": "only spaces",
+      "input": "    ",
+      "normalized": "",
+      "slug": ""
+    }
+  ]
+}

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../services/auth_service.dart';
+import '../../utils/category_normalize.dart';
 
 class ManageCategoriesPage extends StatefulWidget {
   const ManageCategoriesPage({super.key});
@@ -42,6 +43,14 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
 
   File? imageFile;
   Uint8List? webImage;
+
+  /// Category ids whose subcategory list is expanded in the card.
+  final Set<String> expandedCategoryIds = {};
+
+  /// Product count per category name for the card chip; refreshed when the
+  /// categories stream emits (see _categoryListBody).
+  final Map<String, Future<int>> _productCountCache = {};
+  QuerySnapshot? _lastCategorySnapshot;
 
   @override
   void initState() {
@@ -151,12 +160,15 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
     }
   }
 
-  Future<String> _uploadImage(File? file, Uint8List? bytes) async {
+  /// Uploads into the flat `categories/` folder (the only category path
+  /// storage.rules allows). [prefix] keeps subcategory images
+  /// distinguishable there without needing a new storage rule.
+  Future<String> _uploadImage(File? file, Uint8List? bytes, {String prefix = ''}) async {
     if (file == null && bytes == null) return '';
 
     final ref = FirebaseStorage.instance
         .ref()
-        .child('categories/${DateTime.now().millisecondsSinceEpoch}.jpg');
+        .child('categories/$prefix${DateTime.now().millisecondsSinceEpoch}.jpg');
 
     if (kIsWeb && bytes != null) {
       await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
@@ -334,6 +346,11 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
               'updatedAt': FieldValue.serverTimestamp(),
             });
 
+            // Subcategories carry a denormalized copy of the parent name.
+            if (newName != _text(data['name'])) {
+              await _syncSubcategoryParentName(id, newName);
+            }
+
             if (!context.mounted) return;
             Navigator.pop(context);
             _snack('Category updated');
@@ -412,34 +429,603 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
       return;
     }
 
-    final count = await _productCount(_text(data['name']));
+    final categoryName = _text(data['name']);
 
-    if (!mounted) return;
-    if (count > 0) {
-      _snack('Cannot delete. $count products are using this category.');
+    try {
+      // Fresh read (not the stream) so the safety check sees every child.
+      final subSnap = await db
+          .collection('subcategories')
+          .where('categoryId', isEqualTo: id)
+          .get();
+      final subDocs = subSnap.docs;
+
+      // A product can point at this category three different ways; all
+      // three must be zero before anything is deleted.
+      final byName = categoryName.isEmpty
+          ? 0
+          : await _countProducts(
+              db.collection('products').where('category', isEqualTo: categoryName));
+      final byId = await _countProducts(
+          db.collection('products').where('categoryId', isEqualTo: id));
+      final bySubcategory = await _countProductsInSubcategories(
+          subDocs.map((d) => d.id).toList());
+
+      if (!mounted) return;
+
+      if (byName > 0 || byId > 0 || bySubcategory > 0) {
+        await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Cannot delete category'),
+            content: Text(
+              'Products are still linked to "$categoryName":\n\n'
+              '• by category name: $byName\n'
+              '• by category id: $byId\n'
+              '• through its subcategories: $bySubcategory\n\n'
+              'Move or delete those products first.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+
+      final subNames = subDocs
+          .map((d) => _text(d.data()['name'], 'Unnamed'))
+          .toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Delete category?'),
+          content: SizedBox(
+            width: 480,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('"$categoryName" will be permanently deleted.'),
+                if (subNames.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'This category has ${subNames.length} '
+                            '${subNames.length == 1 ? 'subcategory' : 'subcategories'}. '
+                            'They will be deleted too:',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 220),
+                    child: Scrollbar(
+                      thumbVisibility: subNames.length > 8,
+                      child: ListView(
+                        shrinkWrap: true,
+                        children: [
+                          for (final n in subNames)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 2),
+                              child: Text('• $n'),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(subNames.isEmpty
+                  ? 'Delete'
+                  : 'Delete category + ${subNames.length}'),
+            ),
+          ],
+        ),
+      );
+
+      if (ok != true) return;
+
+      // Children first, parent in the last batch, so a partial failure
+      // never leaves subcategories pointing at a missing parent.
+      final refs = [
+        ...subDocs.map((d) => d.reference),
+        db.collection('categories').doc(id),
+      ];
+      for (var i = 0; i < refs.length; i += _batchLimit) {
+        final batch = db.batch();
+        for (final ref in refs.skip(i).take(_batchLimit)) {
+          batch.delete(ref);
+        }
+        await batch.commit();
+      }
+
+      expandedCategoryIds.remove(id);
+      _snack(subNames.isEmpty
+          ? 'Category deleted'
+          : 'Category and ${subNames.length} subcategories deleted');
+    } catch (e) {
+      _snack('Delete failed: $e');
+    }
+  }
+
+  static const int _batchLimit = 450;
+
+  Future<int> _countProducts(Query query) async {
+    final agg = await query.count().get();
+    return agg.count ?? 0;
+  }
+
+  /// Products whose subcategoryId is any of [subIds]. `whereIn` takes at
+  /// most 30 values per query, so ids are chunked.
+  Future<int> _countProductsInSubcategories(List<String> subIds) async {
+    var total = 0;
+    for (var i = 0; i < subIds.length; i += 30) {
+      final chunk = subIds.skip(i).take(30).toList();
+      total += await _countProducts(
+        db.collection('products').where('subcategoryId', whereIn: chunk),
+      );
+    }
+    return total;
+  }
+
+  Future<void> _syncSubcategoryParentName(String categoryId, String newName) async {
+    final snap = await db
+        .collection('subcategories')
+        .where('categoryId', isEqualTo: categoryId)
+        .get();
+    for (var i = 0; i < snap.docs.length; i += _batchLimit) {
+      final batch = db.batch();
+      for (final doc in snap.docs.skip(i).take(_batchLimit)) {
+        batch.update(doc.reference, {
+          'categoryName': newName,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Subcategories
+  //
+  // Schema is the one functions/category/ensureSubcategoryExists.js writes:
+  // top-level `subcategories` collection, parent link in `categoryId`, dedup
+  // on (categoryId, normalizedName), slug unique per parent. Products link
+  // through `subcategoryId` only.
+  // ---------------------------------------------------------------------------
+
+  /// Another subcategory under [categoryId] already using [normalizedName],
+  /// ignoring [excludeId] (the doc being edited). Case- and
+  /// whitespace-insensitive via normalizeCategoryKey.
+  Future<String?> _duplicateSubcategoryName(
+    String categoryId,
+    String normalizedName, {
+    String? excludeId,
+  }) async {
+    final snap = await db
+        .collection('subcategories')
+        .where('categoryId', isEqualTo: categoryId)
+        .where('normalizedName', isEqualTo: normalizedName)
+        .limit(2)
+        .get();
+    for (final doc in snap.docs) {
+      if (doc.id != excludeId) return _text(doc.data()['name'], normalizedName);
+    }
+    return null;
+  }
+
+  /// Same algorithm as generateUniqueSlug in categoryNormalize.js: base slug,
+  /// then "-2", "-3", ... scoped to the parent category.
+  Future<String> _uniqueSubcategorySlug(
+    String categoryId,
+    String name, {
+    String? excludeId,
+  }) async {
+    final base = slugifyCategoryName(name).isEmpty ? 'category' : slugifyCategoryName(name);
+    var candidate = base;
+    for (var suffix = 2; suffix <= 51; suffix++) {
+      final snap = await db
+          .collection('subcategories')
+          .where('categoryId', isEqualTo: categoryId)
+          .where('slug', isEqualTo: candidate)
+          .limit(2)
+          .get();
+      if (snap.docs.every((d) => d.id == excludeId)) return candidate;
+      candidate = '$base-$suffix';
+    }
+    throw StateError('Could not find a free slug for "$base"');
+  }
+
+  Future<void> _showSubcategoryDialog({
+    required List<QueryDocumentSnapshot> categories,
+    required String parentId,
+    String? subId,
+    Map<String, dynamic>? data,
+  }) async {
+    if (!_requirePermission(canEditCategories, 'You do not have permission to edit subcategories.')) {
       return;
     }
 
-    final ok = await showDialog<bool>(
+    final editing = subId != null;
+    final original = data ?? const <String, dynamic>{};
+    final originalParentId = _text(original['categoryId'], parentId);
+
+    final name = TextEditingController(text: _text(original['name']));
+    final priority = TextEditingController(text: _toInt(original['priority']).toString());
+    final description = TextEditingController(text: _text(original['description']));
+    final existingImage = _text(original['imageUrl'] ?? original['image']);
+
+    var selectedParentId = originalParentId;
+    var active = editing ? original['isActive'] != false : true;
+    var saving = false;
+    String? error;
+    File? newImageFile;
+    Uint8List? newWebImage;
+
+    final parentOptions = categories
+        .map((d) => MapEntry(d.id, _text((d.data() as Map<String, dynamic>)['name'], 'Unnamed')))
+        .toList()
+      ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
+
+    if (!mounted) return;
+    await showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Delete category?'),
-        content: const Text('This category will be permanently deleted.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          Future<void> save() async {
+            final trimmedName = name.text.trim();
+            final normalized = normalizeCategoryKey(trimmedName);
+            if (normalized.isEmpty) {
+              setDialogState(() => error = 'Subcategory name required');
+              return;
+            }
+            if (int.tryParse(priority.text.trim()) == null) {
+              setDialogState(() => error = 'Priority must be a whole number');
+              return;
+            }
+            final parentEntry = parentOptions.where((e) => e.key == selectedParentId);
+            if (parentEntry.isEmpty) {
+              setDialogState(() => error = 'Select a parent category');
+              return;
+            }
+            final parentName = parentEntry.first.value;
+
+            setDialogState(() {
+              saving = true;
+              error = null;
+            });
+
+            try {
+              final parentChanged = editing && selectedParentId != originalParentId;
+
+              // Products carry categoryId alongside subcategoryId; moving a
+              // subcategory that has products would split them from their
+              // parent, so that move is refused.
+              if (parentChanged) {
+                final linked = await _countProducts(
+                  db.collection('products').where('subcategoryId', isEqualTo: subId),
+                );
+                if (linked > 0) {
+                  setDialogState(() {
+                    saving = false;
+                    error = 'Cannot move to another category: $linked products use this subcategory.';
+                  });
+                  return;
+                }
+              }
+
+              final duplicate = await _duplicateSubcategoryName(
+                selectedParentId,
+                normalized,
+                excludeId: subId,
+              );
+              if (duplicate != null) {
+                setDialogState(() {
+                  saving = false;
+                  error = '"$duplicate" already exists in $parentName.';
+                });
+                return;
+              }
+
+              final nameChanged = normalized != _text(original['normalizedName']);
+              final slug = (!editing || parentChanged || nameChanged || _text(original['slug']).isEmpty)
+                  ? await _uniqueSubcategorySlug(selectedParentId, trimmedName, excludeId: subId)
+                  : _text(original['slug']);
+
+              var imageUrl = existingImage;
+              if (newImageFile != null || newWebImage != null) {
+                imageUrl = await _uploadImage(newImageFile, newWebImage, prefix: 'sub_');
+              }
+
+              final previousStatus = _text(original['status']);
+              final payload = <String, dynamic>{
+                'categoryId': selectedParentId,
+                'categoryName': parentName,
+                'name': trimmedName,
+                'normalizedName': normalized,
+                'slug': slug,
+                'priority': _toInt(priority.text),
+                'description': description.text.trim(),
+                'image': imageUrl,
+                'imageUrl': imageUrl,
+                'isActive': active,
+                'status': active
+                    ? 'active'
+                    : (previousStatus == 'pending' ? 'pending' : 'inactive'),
+                'updatedAt': FieldValue.serverTimestamp(),
+              };
+
+              if (editing) {
+                await db.collection('subcategories').doc(subId).update(payload);
+              } else {
+                await db.collection('subcategories').add({
+                  ...payload,
+                  'isFeatured': false,
+                  'showOnHome': false,
+                  'autoCreated': false,
+                  'source': 'admin',
+                  'createdAt': FieldValue.serverTimestamp(),
+                });
+              }
+
+              if (!dialogContext.mounted) return;
+              Navigator.pop(dialogContext);
+              if (mounted) setState(() => expandedCategoryIds.add(selectedParentId));
+              _snack(editing ? 'Subcategory updated' : 'Subcategory added');
+            } catch (e) {
+              setDialogState(() {
+                saving = false;
+                error = 'Save failed: $e';
+              });
+            }
+          }
+
+          Widget imageBox() {
+            Widget child;
+            if (newWebImage != null) {
+              child = Image.memory(newWebImage!, fit: BoxFit.cover);
+            } else if (newImageFile != null) {
+              child = Image.file(newImageFile!, fit: BoxFit.cover);
+            } else if (existingImage.isNotEmpty) {
+              child = Image.network(
+                existingImage,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const Icon(Icons.broken_image),
+              );
+            } else {
+              child = const Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.add_a_photo_rounded, size: 30),
+                  SizedBox(height: 4),
+                  Text('Image (optional)'),
+                ],
+              );
+            }
+            return InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: saving
+                  ? null
+                  : () => _pickImage(
+                        onFile: (f) => setDialogState(() => newImageFile = f),
+                        onWeb: (b) => setDialogState(() => newWebImage = b),
+                      ),
+              child: Container(
+                height: 110,
+                width: double.infinity,
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: child,
+              ),
+            );
+          }
+
+          return AlertDialog(
+            title: Text(editing ? 'Edit Subcategory' : 'Add Subcategory'),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: name,
+                      autofocus: !editing,
+                      maxLength: 120,
+                      decoration: const InputDecoration(
+                        labelText: 'Subcategory Name',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedParentId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Parent Category',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: parentOptions
+                          .map((e) => DropdownMenuItem(
+                                value: e.key,
+                                child: Text(e.value, overflow: TextOverflow.ellipsis),
+                              ))
+                          .toList(),
+                      onChanged: saving
+                          ? null
+                          : (v) => setDialogState(() => selectedParentId = v ?? selectedParentId),
+                    ),
+                    const SizedBox(height: 10),
+                    imageBox(),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: priority,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Priority',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: description,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        labelText: 'Description',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: active,
+                      title: const Text('Active'),
+                      onChanged: saving ? null : (v) => setDialogState(() => active = v),
+                    ),
+                    if (error != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          error!,
+                          style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton.icon(
+                onPressed: saving ? null : save,
+                icon: saving
+                    ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.save_rounded),
+                label: Text(editing ? 'Update' : 'Add'),
+              ),
+            ],
+          );
+        },
       ),
     );
+    // Controllers are left to GC, like the category edit dialog: disposing
+    // here races the dialog's exit animation, which still reads them.
+  }
 
-    if (ok == true) {
-      await db.collection('categories').doc(id).delete();
+  Future<void> _toggleSubcategory(String id, Map<String, dynamic> data, bool value) async {
+    if (!_requirePermission(canChangeCategoryStatus, 'You do not have permission to change subcategory status.')) {
+      return;
+    }
+    final previousStatus = _text(data['status']);
+    try {
+      await db.collection('subcategories').doc(id).update({
+        'isActive': value,
+        'status': value ? 'active' : (previousStatus == 'pending' ? 'pending' : 'inactive'),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      _snack('Status change failed: $e');
+    }
+  }
+
+  Future<void> _deleteSubcategory(String id, Map<String, dynamic> data) async {
+    if (!_requirePermission(canDeleteCategories, 'You do not have permission to delete subcategories.')) {
+      return;
+    }
+    final subName = _text(data['name'], 'this subcategory');
+
+    try {
+      final count = await _countProducts(
+        db.collection('products').where('subcategoryId', isEqualTo: id),
+      );
       if (!mounted) return;
-      _snack('Category deleted');
+
+      if (count > 0) {
+        await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Cannot delete subcategory'),
+            content: Text(
+              '$count ${count == 1 ? 'product uses' : 'products use'} "$subName". '
+              'Move those products to another subcategory first.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Delete subcategory?'),
+          content: Text('"$subName" will be permanently deleted.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true) return;
+
+      await db.collection('subcategories').doc(id).delete();
+      _snack('Subcategory deleted');
+    } catch (e) {
+      _snack('Delete failed: $e');
     }
   }
 
@@ -844,14 +1430,201 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
     );
   }
 
-  Widget _categoryCard(String id, Map<String, dynamic> data) {
+  Widget _subcategoryAvatar(Map<String, dynamic> data) {
+    final url = _text(data['imageUrl'] ?? data['image']);
+    final initial = _text(data['name'], '?').characters.first.toUpperCase();
+    return CircleAvatar(
+      radius: 18,
+      backgroundColor: const Color(0xFFEAF6FA),
+      backgroundImage: url.isEmpty ? null : NetworkImage(url),
+      child: url.isEmpty
+          ? Text(
+              initial,
+              style: const TextStyle(
+                color: Color(0xFF1592B3),
+                fontWeight: FontWeight.bold,
+              ),
+            )
+          : null,
+    );
+  }
+
+  Widget _subcategoryTile(
+    QueryDocumentSnapshot doc,
+    List<QueryDocumentSnapshot> categories,
+    String parentId,
+    bool parentActive,
+  ) {
+    final data = doc.data() as Map<String, dynamic>;
+    final name = _text(data['name'], 'Unnamed');
+    final active = data['isActive'] != false;
+    final pending = _text(data['status']) == 'pending';
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
+      decoration: BoxDecoration(
+        color: active ? const Color(0xFFF8FAFC) : const Color(0xFFFFF7F7),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Row(
+        children: [
+          _subcategoryAvatar(data),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Tooltip(
+                  message: name,
+                  waitDuration: const Duration(milliseconds: 400),
+                  child: Text(
+                    name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700, height: 1.25),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: [
+                    _chip(active ? 'Active' : 'Inactive', active ? Colors.green : Colors.red),
+                    if (pending) _chip('Pending review', Colors.orange),
+                    if (active && !parentActive) _chip('Hidden: parent inactive', Colors.grey),
+                    _chip('P ${_toInt(data['priority'])}', Colors.blueGrey),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: active,
+            onChanged: canChangeCategoryStatus ? (v) => _toggleSubcategory(doc.id, data, v) : null,
+          ),
+          if (canEditCategories)
+            IconButton(
+              tooltip: 'Edit subcategory',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => _showSubcategoryDialog(
+                categories: categories,
+                parentId: parentId,
+                subId: doc.id,
+                data: data,
+              ),
+              icon: const Icon(Icons.edit_rounded, size: 20, color: Colors.orange),
+            ),
+          if (canDeleteCategories)
+            IconButton(
+              tooltip: 'Delete subcategory',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => _deleteSubcategory(doc.id, data),
+              icon: const Icon(Icons.delete_outline_rounded, size: 20, color: Colors.red),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _subcategorySection(
+    String categoryId,
+    bool parentActive,
+    List<QueryDocumentSnapshot> subs,
+    List<QueryDocumentSnapshot> categories,
+  ) {
+    final expanded = expandedCategoryIds.contains(categoryId);
+
+    final footer = Wrap(
+      spacing: 8,
+      runSpacing: 4,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        TextButton.icon(
+          onPressed: subs.isEmpty
+              ? null
+              : () => setState(() {
+                    if (!expandedCategoryIds.remove(categoryId)) {
+                      expandedCategoryIds.add(categoryId);
+                    }
+                  }),
+          icon: Icon(expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded),
+          label: Text(subs.isEmpty
+              ? 'No subcategories yet'
+              : expanded
+                  ? 'Hide subcategories'
+                  : 'Show subcategories (${subs.length})'),
+        ),
+        if (canEditCategories)
+          OutlinedButton.icon(
+            onPressed: () => _showSubcategoryDialog(
+              categories: categories,
+              parentId: categoryId,
+            ),
+            icon: const Icon(Icons.add_rounded, size: 18),
+            label: const Text('Subcategory যোগ করুন'),
+          ),
+      ],
+    );
+
+    if (!expanded || subs.isEmpty) return footer;
+
+    final tiles = [
+      for (final s in subs)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: _subcategoryTile(s, categories, categoryId, parentActive),
+        ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        footer,
+        const SizedBox(height: 6),
+        if (!parentActive)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              'Parent category is inactive, so none of these show in the customer app.',
+              style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+            ),
+          ),
+        // Long lists scroll inside the card instead of stretching the page.
+        if (subs.length > 8)
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 460),
+            child: Scrollbar(
+              thumbVisibility: true,
+              child: ListView(
+                primary: false,
+                shrinkWrap: true,
+                padding: const EdgeInsets.only(right: 8),
+                children: tiles,
+              ),
+            ),
+          )
+        else
+          ...tiles,
+      ],
+    );
+  }
+
+  Widget _categoryCard(
+    String id,
+    Map<String, dynamic> data,
+    List<QueryDocumentSnapshot> subs,
+    List<QueryDocumentSnapshot> categories,
+  ) {
     final active = data['isActive'] != false;
     final featured = data['isFeatured'] == true;
     final home = data['showOnHome'] != false;
     final categoryName = _text(data['name']);
 
     return FutureBuilder<int>(
-      future: _productCount(categoryName),
+      // Cached per name: expanding a card calls setState, and an uncached
+      // future would re-run this query for every card on every click.
+      future: _productCountCache.putIfAbsent(categoryName, () => _productCount(categoryName)),
       builder: (context, countSnap) {
         final count = countSnap.data ?? 0;
 
@@ -864,7 +1637,10 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
           ),
           child: Padding(
             padding: const EdgeInsets.all(14),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+            Row(
               children: [
                 _categoryImage(data),
                 const SizedBox(width: 14),
@@ -874,6 +1650,8 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
                     children: [
                       Text(
                         categoryName.isEmpty ? 'Unnamed Category' : categoryName,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
                       ),
                       if (_text(data['description']).isNotEmpty) ...[
@@ -895,6 +1673,10 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
                           if (home) _chip('Home', Colors.blue),
                           _chip('Priority ${_toInt(data['priority'])}', Colors.orange),
                           _chip('$count Products', Colors.teal),
+                          _chip(
+                            '${subs.length} ${subs.length == 1 ? 'Subcategory' : 'Subcategories'}',
+                            Colors.indigo,
+                          ),
                         ],
                       ),
                     ],
@@ -930,15 +1712,59 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
                 ),
               ],
             ),
+                const Divider(height: 18),
+                _subcategorySection(id, active, subs, categories),
+              ],
+            ),
           ),
         );
       },
     );
   }
 
+  /// One stream for every subcategory, grouped by parent client-side, so
+  /// the page costs one listener instead of one per category card and
+  /// needs no extra composite index.
+  late final Stream<QuerySnapshot> _subcategoryStream =
+      db.collection('subcategories').limit(2000).snapshots();
+
+  // Held once (it used to be rebuilt inline) so expanding a card, which
+  // calls setState, doesn't resubscribe and flash the loading spinner.
+  late final Stream<QuerySnapshot> _categoryStream =
+      db.collection('categories').orderBy('priority').limit(300).snapshots();
+
+  Map<String, List<QueryDocumentSnapshot>> _groupSubcategories(List<QueryDocumentSnapshot> docs) {
+    final grouped = <String, List<QueryDocumentSnapshot>>{};
+    for (final doc in docs) {
+      final parent = _text((doc.data() as Map<String, dynamic>)['categoryId']);
+      if (parent.isEmpty) continue;
+      grouped.putIfAbsent(parent, () => []).add(doc);
+    }
+    for (final list in grouped.values) {
+      list.sort((a, b) {
+        final da = a.data() as Map<String, dynamic>;
+        final dbb = b.data() as Map<String, dynamic>;
+        final byPriority = _toInt(da['priority']).compareTo(_toInt(dbb['priority']));
+        if (byPriority != 0) return byPriority;
+        return _text(da['name']).toLowerCase().compareTo(_text(dbb['name']).toLowerCase());
+      });
+    }
+    return grouped;
+  }
+
   Widget _categoryList() {
     return StreamBuilder<QuerySnapshot>(
-      stream: db.collection('categories').orderBy('priority').limit(300).snapshots(),
+      stream: _subcategoryStream,
+      builder: (context, subSnap) {
+        final subsByCategory = _groupSubcategories(subSnap.data?.docs ?? const []);
+        return _categoryListBody(subsByCategory);
+      },
+    );
+  }
+
+  Widget _categoryListBody(Map<String, List<QueryDocumentSnapshot>> subsByCategory) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _categoryStream,
       builder: (context, snap) {
         if (!snap.hasData) {
           return const Center(
@@ -947,6 +1773,13 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
               child: CircularProgressIndicator(),
             ),
           );
+        }
+
+        // New category data (add/edit/delete/toggle) → recount, matching
+        // the old behaviour where counts refreshed on every stream event.
+        if (!identical(snap.data, _lastCategorySnapshot)) {
+          _lastCategorySnapshot = snap.data;
+          _productCountCache.clear();
         }
 
         final allDocs = snap.data!.docs;
@@ -976,7 +1809,12 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
               ...docs.map((doc) {
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: _categoryCard(doc.id, doc.data() as Map<String, dynamic>),
+                  child: _categoryCard(
+                    doc.id,
+                    doc.data() as Map<String, dynamic>,
+                    subsByCategory[doc.id] ?? const [],
+                    allDocs,
+                  ),
                 );
               }),
           ],
