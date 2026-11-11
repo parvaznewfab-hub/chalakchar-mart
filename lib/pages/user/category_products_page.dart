@@ -221,7 +221,12 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
                     _filterAndSort(allProducts);
 
                     return SingleChildScrollView(
-                      padding: const EdgeInsets.all(16),
+                      padding: isDesktop
+                          ? const EdgeInsets.all(16)
+                          : const EdgeInsets.symmetric(
+                              horizontal: ProductCard.gridHorizontalPadding,
+                              vertical: 16,
+                            ),
                       child: Center(
                         child: ConstrainedBox(
                           constraints:
@@ -254,31 +259,19 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
                                   }).toList(),
                                 )
                               else
-                                LayoutBuilder(
-                                  builder: (context, constraints) {
-                                    int crossAxisCount = 2;
+                                GridView.builder(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  clipBehavior: Clip.none, // keep card shadows
+                                  padding: EdgeInsets.zero,
+                                  itemCount: products.length,
+                                  gridDelegate: ProductCard.gridDelegate(context),
+                                  itemBuilder: (context, index) {
+                                    final doc = products[index];
+                                    final data = doc.data() as Map<String, dynamic>;
+                                    data['id'] = doc.id;
 
-                                    if (crossAxisCount < 2) crossAxisCount = 2;
-                                    if (crossAxisCount > 6) crossAxisCount = 6;
-
-                                    return GridView.builder(
-                                      shrinkWrap: true,
-                                      physics: const NeverScrollableScrollPhysics(),
-                                      itemCount: products.length,
-                                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                        crossAxisCount: crossAxisCount,
-                                        childAspectRatio: 150 / 205,
-                                        crossAxisSpacing: 8,
-                                        mainAxisSpacing: 8,
-                                      ),
-                                      itemBuilder: (context, index) {
-                                        final doc = products[index];
-                                        final data = doc.data() as Map<String, dynamic>;
-                                        data['id'] = doc.id;
-
-                                        return Center(child: ProductCard(data: data));
-                                      },
-                                    );
+                                    return ProductCard(data: data, gridMode: true);
                                   },
                                 ),
 

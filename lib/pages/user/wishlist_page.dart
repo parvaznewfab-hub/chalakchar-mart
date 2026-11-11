@@ -238,7 +238,10 @@ class _WishlistPageState extends State<WishlistPage> {
                 }
 
                 return SingleChildScrollView(
-                  padding: const EdgeInsets.all(14),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: ProductCard.gridHorizontalPadding,
+                    vertical: 14,
+                  ),
 
                   child: Center(
                     child: ConstrainedBox(
@@ -287,19 +290,12 @@ class _WishlistPageState extends State<WishlistPage> {
 
                                 itemCount: docs.length,
 
-                                gridDelegate:
-                                SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount:
-                                  crossAxisCount,
+                                clipBehavior: Clip.none,
+                                padding: EdgeInsets.zero,
 
-                                  childAspectRatio:
-                                  constraints.maxWidth <
-                                      600
-                                      ? 0.60
-                                      : 0.68,
-
-                                  crossAxisSpacing: 12,
-                                  mainAxisSpacing: 12,
+                                gridDelegate: ProductCard.gridDelegate(
+                                  context,
+                                  crossAxisCount: crossAxisCount,
                                 ),
 
                                 itemBuilder: (_, i) {
@@ -324,6 +320,7 @@ class _WishlistPageState extends State<WishlistPage> {
                                       Positioned.fill(
                                         child: ProductCard(
                                           data: data,
+                                          gridMode: true,
                                         ),
                                       ),
 

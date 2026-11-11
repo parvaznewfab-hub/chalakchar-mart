@@ -9,12 +9,39 @@ import '../services/web_url_service.dart';
 class ProductCard extends StatelessWidget {
   final dynamic data;
   final Function(GlobalKey)? onAddToCart;
-  /// Kept for backward compatibility with older pages.
-  /// ProductCard now uses one universal size everywhere.
+  /// false (default): fixed 150px-wide card with outer margin, for
+  /// horizontal lists / Wrap.
+  /// true: card fills its grid cell exactly (no margin, no fixed width) —
+  /// use together with [gridDelegate] so the cell height matches the content.
   final bool gridMode;
 
   static const double cardWidth = 150;
   static const double imageHeight = 112;
+  static const double gridSpacing = 10;
+  static const double gridHorizontalPadding = 12;
+
+  /// Cell height that fits: image + 1-line title + 1-line manufacturer +
+  /// price/add row. Text lines get ~1.4x line-height headroom; the
+  /// manufacturer and price follow the system text scale (the title is a
+  /// RichText, which does not scale).
+  static double gridMainAxisExtent(BuildContext context) {
+    final scaler = MediaQuery.textScalerOf(context);
+    const fixed = imageHeight + 5 + 8 + 2 + 2; // image, paddings, gaps
+    final priceRow = scaler.scale(12) * 1.4 > 26 ? scaler.scale(12) * 1.4 : 26.0;
+    return fixed + 13 * 1.4 + scaler.scale(10) * 1.4 + priceRow;
+  }
+
+  static SliverGridDelegateWithFixedCrossAxisCount gridDelegate(
+    BuildContext context, {
+    int crossAxisCount = 2,
+  }) {
+    return SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: crossAxisCount,
+      mainAxisExtent: gridMainAxisExtent(context),
+      mainAxisSpacing: gridSpacing,
+      crossAxisSpacing: gridSpacing,
+    );
+  }
 
   const ProductCard({
     super.key,
@@ -143,13 +170,15 @@ class ProductCard extends StatelessWidget {
         Navigator.of(context, rootNavigator: true).pushNamed(path);
       },
       child: Container(
-        width: cardWidth,
-        margin: const EdgeInsets.only(
-          right: 12,
-          bottom: 8,
-          top: 4,
-          left: 4,
-        ),
+        width: gridMode ? double.infinity : cardWidth,
+        margin: gridMode
+            ? EdgeInsets.zero
+            : const EdgeInsets.only(
+                right: 12,
+                bottom: 8,
+                top: 4,
+                left: 4,
+              ),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
@@ -162,7 +191,7 @@ class ProductCard extends StatelessWidget {
           ],
         ),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisSize: gridMode ? MainAxisSize.max : MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
@@ -230,7 +259,7 @@ class ProductCard extends StatelessWidget {
                 ),
               ),
             ),
-            Padding(
+            _gridExpanded(Padding(
               padding: const EdgeInsets.fromLTRB(8, 5, 8, 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -271,19 +300,33 @@ class ProductCard extends StatelessWidget {
                     ),
                   ],
                   const SizedBox(height: 2),
+                  // In a grid cell, pin the price row to the card bottom so
+                  // cards without a manufacturer line still fill the cell.
+                  if (gridMode) const Spacer(),
                   Row(
                     children: [
-                      Text(
-                        '৳${price.toStringAsFixed(2)}',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: primaryColor,
-                          fontSize: 12,
+                      // Shrinks (never clips) a long price on narrow cells /
+                      // large text instead of overflowing the row.
+                      Flexible(
+                        flex: 3,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            '৳${price.toStringAsFixed(2)}',
+                            maxLines: 1,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: primaryColor,
+                              fontSize: 12,
+                            ),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 4),
                       if (oldPrice > price)
                         Expanded(
+                          flex: 2,
                           child: Text(
                             '৳${oldPrice.toStringAsFixed(2)}',
                             maxLines: 1,
@@ -319,10 +362,13 @@ class ProductCard extends StatelessWidget {
                   ),
                 ],
               ),
-            ),
+            )),
           ],
         ),
       ),
     );
   }
+
+  Widget _gridExpanded(Widget child) =>
+      gridMode ? Expanded(child: child) : child;
 }

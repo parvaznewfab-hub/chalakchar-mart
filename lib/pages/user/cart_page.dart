@@ -834,16 +834,7 @@ class _CartPageState extends State<CartPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(10)),
-            child: Image.network(
-              _text(data['image']),
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) => const Icon(Icons.shopping_bag_outlined, size: 40, color: Colors.grey),
-            ),
-          ),
+          _buildCartThumbnail(_text(data['image']), Icons.shopping_bag_outlined),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -859,6 +850,7 @@ class _CartPageState extends State<CartPage> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    const SizedBox(width: 8),
                     Text(
                       '৳${price.toStringAsFixed(0)}',
                       style: const TextStyle(
@@ -894,16 +886,26 @@ class _CartPageState extends State<CartPage> {
                 const SizedBox(height: 10),
                 Row(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(7),
-                        border: Border.all(color: Colors.grey.shade300),
-                      ),
-                      child: Text(
-                        _text(data['unit'], 'Default'),
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                    // Variant labels can be long (e.g. "XR 64g With Face ID / China Mainland"):
+                    // let the label take only the leftover width and ellipsize, so the
+                    // qty selector and delete button always stay on-screen.
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(7),
+                            border: Border.all(color: Colors.grey.shade300),
+                          ),
+                          child: Text(
+                            _text(data['unit'], 'Default'),
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -936,7 +938,6 @@ class _CartPageState extends State<CartPage> {
                         ],
                       ),
                     ),
-                    const Spacer(),
                     IconButton(
                       icon: const Icon(Icons.delete_outline, color: Color(0xFF32A8C7), size: 22),
                       onPressed: () async {
@@ -1461,16 +1462,7 @@ class _CartPageState extends State<CartPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(10)),
-            child: Image.network(
-              _text(data['image']),
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) => const Icon(Icons.medication, size: 40, color: Colors.grey),
-            ),
-          ),
+          _buildCartThumbnail(_text(data['image']), Icons.medication),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -1486,6 +1478,7 @@ class _CartPageState extends State<CartPage> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    const SizedBox(width: 8),
                     Text(
                       "৳${price.toStringAsFixed(0)}",
                       style: const TextStyle(
@@ -1521,8 +1514,13 @@ class _CartPageState extends State<CartPage> {
                 const SizedBox(height: 10),
                 Row(
                   children: [
-                    if (units.isNotEmpty)
-                      Container(
+                    // Variant labels can be long (e.g. "XR 64g With Face ID / China Mainland"):
+                    // the dropdown takes only the leftover width and ellipsizes, so the
+                    // qty selector and delete button always stay on-screen.
+                    Expanded(
+                      child: units.isEmpty
+                          ? const SizedBox.shrink()
+                          : Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         height: 34,
                         decoration: BoxDecoration(
@@ -1532,10 +1530,27 @@ class _CartPageState extends State<CartPage> {
                         child: DropdownButtonHideUnderline(
                           child: DropdownButton<String>(
                             value: currentUnit,
+                            isExpanded: true,
+                            selectedItemBuilder: (_) => units
+                                .map((u) => Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                u,
+                                style: const TextStyle(fontSize: 12),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ))
+                                .toList(),
                             items: units
                                 .map((u) => DropdownMenuItem(
                               value: u,
-                              child: Text(u, style: const TextStyle(fontSize: 12)),
+                              child: Text(
+                                u,
+                                style: const TextStyle(fontSize: 12),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ))
                                 .toList(),
                             onChanged: (v) async {
@@ -1550,6 +1565,7 @@ class _CartPageState extends State<CartPage> {
                           ),
                         ),
                       ),
+                    ),
                     const SizedBox(width: 10),
                     Container(
                       height: 34,
@@ -1581,7 +1597,6 @@ class _CartPageState extends State<CartPage> {
                         ],
                       ),
                     ),
-                    const Spacer(),
                     IconButton(
                       icon: const Icon(Icons.delete_outline, color: Color(0xFF32A8C7), size: 22),
                       onPressed: () => db.collection('cart').doc(userId).collection('items').doc(itemId).delete(),
@@ -1593,6 +1608,32 @@ class _CartPageState extends State<CartPage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildCartThumbnail(String url, IconData fallbackIcon) {
+    final fallback = Center(child: Icon(fallbackIcon, size: 40, color: Colors.grey));
+    return Container(
+      width: 72,
+      height: 72,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(10)),
+      child: url.trim().isEmpty
+          ? fallback
+          : Image.network(
+              url,
+              fit: BoxFit.contain,
+              loadingBuilder: (_, child, progress) => progress == null
+                  ? child
+                  : const Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+              errorBuilder: (_, __, ___) => fallback,
+            ),
     );
   }
 

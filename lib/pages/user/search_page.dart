@@ -401,21 +401,38 @@ class _SearchPageState extends State<SearchPage> {
                         child: Center(
                           child: ConstrainedBox(
                             constraints: const BoxConstraints(maxWidth: 1350),
-                            child: Wrap(
-                              spacing: 12,
-                              runSpacing: 12,
-                              alignment: WrapAlignment.start,
-                              children: products.map((doc) {
-                                final data = Map<String, dynamic>.from(
-                                  doc.data() as Map<String, dynamic>,
-                                );
-                                data['id'] = doc.id;
+                            child: isDesktop
+                                ? Wrap(
+                                    spacing: 12,
+                                    runSpacing: 12,
+                                    alignment: WrapAlignment.start,
+                                    children: products.map((doc) {
+                                      final data = Map<String, dynamic>.from(
+                                        doc.data() as Map<String, dynamic>,
+                                      );
+                                      data['id'] = doc.id;
 
-                                // Same card size as Home page and Product Details
-                                // alternative product list: ProductCard default width = 150.
-                                return ProductCard(data: data);
-                              }).toList(),
-                            ),
+                                      // Same card size as Home page and Product Details
+                                      // alternative product list: ProductCard default width = 150.
+                                      return ProductCard(data: data);
+                                    }).toList(),
+                                  )
+                                : GridView.builder(
+                                    shrinkWrap: true,
+                                    physics: const NeverScrollableScrollPhysics(),
+                                    clipBehavior: Clip.none,
+                                    padding: EdgeInsets.zero,
+                                    itemCount: products.length,
+                                    gridDelegate: ProductCard.gridDelegate(context),
+                                    itemBuilder: (context, index) {
+                                      final doc = products[index];
+                                      final data = Map<String, dynamic>.from(
+                                        doc.data() as Map<String, dynamic>,
+                                      );
+                                      data['id'] = doc.id;
+                                      return ProductCard(data: data, gridMode: true);
+                                    },
+                                  ),
                           ),
                         ),
                       ),
