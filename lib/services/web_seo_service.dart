@@ -1,9 +1,8 @@
-// ignore_for_file: avoid_web_libraries_in_flutter, deprecated_member_use
-
 import 'dart:convert';
-import 'dart:html' as html;
 
 import 'package:flutter/foundation.dart';
+
+import 'web_seo_dom.dart' as dom;
 
 class WebSeoService {
   WebSeoService._();
@@ -43,51 +42,13 @@ class WebSeoService {
     return '${clean.substring(0, 152).trim()}...';
   }
 
-  static html.MetaElement _metaByName(String name) {
-    final existing = html.document.head?.querySelector('meta[name="$name"]');
-    if (existing is html.MetaElement) return existing;
-
-    final meta = html.MetaElement()..name = name;
-    html.document.head?.append(meta);
-    return meta;
-  }
-
-  static html.MetaElement _metaByProperty(String property) {
-    final existing = html.document.head?.querySelector('meta[property="$property"]');
-    if (existing is html.MetaElement) return existing;
-
-    final meta = html.MetaElement();
-    meta.setAttribute('property', property);
-    html.document.head?.append(meta);
-    return meta;
-  }
-
-  static void _setCanonical(String url) {
-    final existing = html.document.head?.querySelector('link[rel="canonical"]');
-    final link = existing is html.LinkElement ? existing : html.LinkElement();
-    link.rel = 'canonical';
-    link.href = url;
-    if (existing == null) html.document.head?.append(link);
-  }
-
-  static void _setJsonLd(Map<String, dynamic> schema) {
-    html.document.getElementById('product-json-ld')?.remove();
-
-    final script = html.ScriptElement()
-      ..id = 'product-json-ld'
-      ..type = 'application/ld+json'
-      ..text = const JsonEncoder.withIndent('  ').convert(schema);
-
-    html.document.head?.append(script);
-  }
-
   /// Sets the `<meta name="robots">` tag content directly.
   ///
   /// Used to mark private/user-specific routes (e.g. /login, /cart) as
   /// noindex while leaving the rest of the site indexable.
   static void setRobots(String content) {
     if (!kIsWeb) return;
-    _metaByName('robots').content = content;
+    dom.setMetaByName('robots', content);
   }
 
   static void setProductSeo({
@@ -122,30 +83,30 @@ class WebSeoService {
         ? 'https://schema.org/InStock'
         : 'https://schema.org/OutOfStock';
 
-    html.document.title = metaTitle;
-    _metaByName('title').content = metaTitle;
-    _metaByName('description').content = metaDescription;
-    _metaByName('robots').content = 'index, follow';
+    dom.setDocumentTitle(metaTitle);
+    dom.setMetaByName('title', metaTitle);
+    dom.setMetaByName('description', metaDescription);
+    dom.setMetaByName('robots', 'index, follow');
 
     final keywords = product['searchKeywords'] is List
         ? (product['searchKeywords'] as List).map((e) => e.toString()).join(', ')
         : _text(product['keywords']);
     if (keywords.trim().isNotEmpty) {
-      _metaByName('keywords').content = keywords;
+      dom.setMetaByName('keywords', keywords);
     }
 
-    _metaByProperty('og:title').content = metaTitle;
-    _metaByProperty('og:description').content = metaDescription;
-    _metaByProperty('og:type').content = 'product';
-    _metaByProperty('og:url').content = url;
-    _metaByProperty('og:image').content = image;
+    dom.setMetaByProperty('og:title', metaTitle);
+    dom.setMetaByProperty('og:description', metaDescription);
+    dom.setMetaByProperty('og:type', 'product');
+    dom.setMetaByProperty('og:url', url);
+    dom.setMetaByProperty('og:image', image);
 
-    _metaByName('twitter:card').content = 'summary_large_image';
-    _metaByName('twitter:title').content = metaTitle;
-    _metaByName('twitter:description').content = metaDescription;
-    _metaByName('twitter:image').content = image;
+    dom.setMetaByName('twitter:card', 'summary_large_image');
+    dom.setMetaByName('twitter:title', metaTitle);
+    dom.setMetaByName('twitter:description', metaDescription);
+    dom.setMetaByName('twitter:image', image);
 
-    _setCanonical(url);
+    dom.setCanonical(url);
 
     final schema = <String, dynamic>{
       '@context': 'https://schema.org',
@@ -183,6 +144,9 @@ class WebSeoService {
       };
     }
 
-    _setJsonLd(schema);
+    dom.setJsonLd(
+      'product-json-ld',
+      const JsonEncoder.withIndent('  ').convert(schema),
+    );
   }
 }
