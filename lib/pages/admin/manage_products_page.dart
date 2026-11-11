@@ -599,6 +599,15 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
         : '';
 
     String? category = _text(data?['category']).isEmpty ? null : _text(data?['category']);
+    // Picked from the dropdown only; the AI suggestedSubCategory is shown as
+    // a hint and never creates a subcategory on its own.
+    String subcategoryId = _text(data?['subcategoryId']);
+    final String originalCategoryName = _text(data?['category']);
+    final String originalCategoryId = _text(data?['categoryId']);
+    // Memoized so dialog rebuilds don't resubscribe and flicker.
+    final Stream<QuerySnapshot> allCategoriesStream = FirebaseService.getCategories();
+    String? subcategoryStreamParentId;
+    Stream<QuerySnapshot>? subcategoryStream;
     String imageUrl = _text(data?['image']);
     List<String> images = List<String>.from(data?['images'] ?? []);
     bool isActive = data?['isActive'] != false;
@@ -747,7 +756,10 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
             }
 
             if (!pageContext.mounted) return;
-            setDialogState(() => category = resolvedCategory);
+            setDialogState(() {
+              if (resolvedCategory != category) subcategoryId = '';
+              category = resolvedCategory;
+            });
           }
 
           Future<void> createProductFromImage() async {
@@ -1161,10 +1173,31 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                   ? _youtubeThumbnail(preparedYoutubeVideoId)
                   : videoThumbnailUrl;
 
-              final categoryResolution = await _resolveCategoryForImport(
-                category!,
-                subCategory: suggestedSubCategory,
-              );
+              // Category only: the subcategory comes from the dropdown, so the
+              // AI suggestedSubCategory text no longer auto-creates one.
+              final categoryResolution = await _resolveCategoryForImport(category!);
+
+              // Never store a subcategoryId that isn't a child of the
+              // resolved categoryId (resolveProductTaxonomy invariant).
+              Object? subcategoryField; // null = leave the field untouched
+              if (categoryResolution.categoryId != null) {
+                if (subcategoryId.isEmpty) {
+                  if (id != null) subcategoryField = FieldValue.delete();
+                } else {
+                  final subDoc = await FirebaseFirestore.instance
+                      .collection('subcategories')
+                      .doc(subcategoryId)
+                      .get();
+                  if (!subDoc.exists ||
+                      _text(subDoc.data()?['categoryId']) != categoryResolution.categoryId) {
+                    setDialogState(() => saving = false);
+                    _snack('Selected subcategory does not belong to "${categoryResolution.category}". Pick it again.',
+                        isError: true);
+                    return;
+                  }
+                  subcategoryField = subcategoryId;
+                }
+              }
 
               final payload = ProductService.buildProductPayload(
                 name: productName,
@@ -1202,8 +1235,7 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                 'suggestedSubCategory': suggestedSubCategory,
                 if (categoryResolution.categoryId != null)
                   'categoryId': categoryResolution.categoryId,
-                if (categoryResolution.subcategoryId != null)
-                  'subcategoryId': categoryResolution.subcategoryId,
+                if (subcategoryField != null) 'subcategoryId': subcategoryField,
                 'productType': productType,
                 'youtubeUrl': videoUrl.text.trim(),
                 'youtubeVideoId': preparedYoutubeVideoId,
@@ -2057,7 +2089,114 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                       initialValue: category,
                       decoration: deco('Category'),
                       items: cats.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                      onChanged: (v) => setDialogState(() => category = v),
+                      onChanged: (v) => setDialogState(() {
+                        if (v != category) subcategoryId = '';
+                        category = v;
+                      }),
+                    );
+                  },
+                );
+              }
+
+              /// Subcategories of the currently selected category only.
+              Widget subcategoryDropdown() {
+                final aiHint = suggestedSubCategory.isEmpty
+                    ? null
+                    : 'AI suggestion: $suggestedSubCategory (hint only — pick from the list)';
+
+                Widget disabled(String label) => DropdownButtonFormField<String>(
+                      key: ValueKey('sub-disabled-$label'),
+                      initialValue: null,
+                      isExpanded: true,
+                      decoration: deco('Subcategory').copyWith(helperText: aiHint ?? label),
+                      hint: Text(label),
+                      items: const [],
+                      onChanged: null,
+                    );
+
+                if (category == null || category!.isEmpty) {
+                  return disabled('Select a category first');
+                }
+
+                return StreamBuilder<QuerySnapshot>(
+                  stream: allCategoriesStream,
+                  builder: (context, catSnap) {
+                    final docs = catSnap.data?.docs ?? const [];
+                    String parentId = '';
+                    if (category == originalCategoryName && originalCategoryId.isNotEmpty) {
+                      parentId = originalCategoryId;
+                    } else {
+                      for (final d in docs) {
+                        if (_text((d.data() as Map<String, dynamic>)['name']) == category) {
+                          parentId = d.id;
+                          break;
+                        }
+                      }
+                    }
+
+                    if (parentId.isEmpty) {
+                      return disabled(catSnap.hasData ? 'No subcategories' : 'Loading…');
+                    }
+
+                    if (subcategoryStreamParentId != parentId) {
+                      subcategoryStreamParentId = parentId;
+                      subcategoryStream = FirebaseFirestore.instance
+                          .collection('subcategories')
+                          .where('categoryId', isEqualTo: parentId)
+                          .snapshots();
+                    }
+
+                    return StreamBuilder<QuerySnapshot>(
+                      stream: subcategoryStream,
+                      builder: (context, subSnap) {
+                        if (!subSnap.hasData) return disabled('Loading…');
+
+                        final subs = subSnap.data!.docs.toList()
+                          ..sort((a, b) {
+                            final da = a.data() as Map<String, dynamic>;
+                            final dbb = b.data() as Map<String, dynamic>;
+                            final p = _toInt(da['priority']).compareTo(_toInt(dbb['priority']));
+                            if (p != 0) return p;
+                            return _text(da['name']).toLowerCase().compareTo(_text(dbb['name']).toLowerCase());
+                          });
+
+                        final items = <DropdownMenuItem<String>>[
+                          const DropdownMenuItem(value: '', child: Text('— None —')),
+                          for (final s in subs)
+                            DropdownMenuItem(
+                              value: s.id,
+                              child: Text(
+                                '${_text((s.data() as Map<String, dynamic>)['name'], 'Unnamed')}'
+                                '${(s.data() as Map<String, dynamic>)['isActive'] == false ? '  (inactive)' : ''}',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ];
+
+                        // A saved id that no longer belongs to this
+                        // category (deleted, or moved) must still be a
+                        // valid item, or the dropdown asserts.
+                        if (subcategoryId.isNotEmpty && !subs.any((s) => s.id == subcategoryId)) {
+                          items.add(DropdownMenuItem(
+                            value: subcategoryId,
+                            child: const Text('⚠ Not in this category — pick again',
+                                style: TextStyle(color: Colors.red)),
+                          ));
+                        }
+
+                        return DropdownButtonFormField<String>(
+                          key: ValueKey('sub-$parentId'),
+                          initialValue: subcategoryId,
+                          isExpanded: true,
+                          decoration: deco('Subcategory').copyWith(
+                            helperText: aiHint ??
+                                (subs.isEmpty ? 'This category has no subcategories yet' : null),
+                            helperMaxLines: 2,
+                          ),
+                          items: items,
+                          onChanged: (v) => setDialogState(() => subcategoryId = v ?? ''),
+                        );
+                      },
                     );
                   },
                 );
@@ -2291,6 +2430,8 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                   ),
                   const SizedBox(height: 12),
                   categoryDropdown(),
+                  const SizedBox(height: 12),
+                  subcategoryDropdown(),
                   const SizedBox(height: 12),
                   formField(overview, 'Overview', maxLines: isMobile ? 4 : 3),
                   const SizedBox(height: 12),
