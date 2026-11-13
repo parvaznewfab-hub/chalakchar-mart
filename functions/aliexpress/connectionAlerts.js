@@ -92,11 +92,16 @@ function decideRefreshExpiryAlert({ status, refreshExpiresAtMs, warnedForMs, exp
 
 // ---- 3. sync failure ----------------------------------------------------------
 
+// Products AliExpress answered for. "unsaleable" counts: AliExpress did
+// respond (with "All SKU Unsaleable"), so the connection and sync work.
+function syncSucceededCount(summary) {
+  return (Number(summary?.updated) || 0) + (Number(summary?.unchanged) || 0) + (Number(summary?.unsaleable) || 0);
+}
+
 function isTotalSyncFailure(summary) {
   if (!summary) return false;
   if (summary.fatal) return true;
-  const succeeded = (Number(summary.updated) || 0) + (Number(summary.unchanged) || 0);
-  return succeeded === 0 && (Number(summary.failed) || 0) > 0;
+  return syncSucceededCount(summary) === 0 && (Number(summary.failed) || 0) > 0;
 }
 
 /**
@@ -129,8 +134,7 @@ function topSyncErrorCode(summary) {
  */
 function decideSyncFailureAlert({ summary, inFailure, lastAlertAtMs, nowMs }) {
   if (isTotalSyncFailure(summary)) return isReminderDue(lastAlertAtMs, nowMs) ? "alert" : null;
-  const succeeded = (Number(summary?.updated) || 0) + (Number(summary?.unchanged) || 0);
-  if (inFailure && succeeded > 0) return "recovered";
+  if (inFailure && syncSucceededCount(summary) > 0) return "recovered";
   return null;
 }
 

@@ -94,6 +94,11 @@ describe("isTotalSyncFailure / topSyncErrorCode", () => {
     assert.equal(isTotalSyncFailure({ totalChecked: 3, updated: 0, unchanged: 0, skipped: 1, failed: 2 }), true);
   });
 
+  test("unsaleable products count as answered, not failed", () => {
+    assert.equal(isTotalSyncFailure({ totalChecked: 3, updated: 0, unchanged: 0, unsaleable: 3, skipped: 0, failed: 0 }), false);
+    assert.equal(isTotalSyncFailure({ totalChecked: 3, updated: 0, unchanged: 0, unsaleable: 1, skipped: 0, failed: 2 }), false);
+  });
+
   test("a crashed run is a total failure", () => {
     assert.equal(isTotalSyncFailure({ fatal: true, message: "boom" }), true);
     assert.equal(topSyncErrorCode({ fatal: true }), "SYNC_FATAL");

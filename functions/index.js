@@ -55,6 +55,12 @@ const {
   runSyncAlerts: runAliExpressSyncAlerts,
   createAliExpressAlertDeps,
 } = require("./aliexpress/connectionAlerts");
+const {
+  isAliExpressUnsaleableError,
+  buildUnsaleableUpdate,
+  buildSaleableAgainUpdate,
+  buildUnsaleableChangeNote,
+} = require("./aliexpress/unsaleable");
 const { resolveProductTaxonomy } = require("./category/resolveProductTaxonomy");
 const { matchCategoryByKeyword } = require("./category/aliExpressCategoryKeywords");
 const {
@@ -2939,7 +2945,24 @@ async function syncAliExpressProduct(productSnap, importSettings) {
   }
 
   logger.info("AliExpress sync: fetching product", { productId: productSnap.id, sourceProductId });
-  const fresh = await fetchAliExpressProduct(sourceProductId, { targetCurrency: "USD" });
+  let fresh;
+  try {
+    fresh = await fetchAliExpressProduct(sourceProductId, { targetCurrency: "USD" });
+  } catch (error) {
+    if (!isAliExpressUnsaleableError(error)) throw error;
+    // AliExpress: "All SKU Unsaleable" (rsp_code 604). Zero product + variant
+    // stock and flag for review instead of counting a failure — see
+    // aliexpress/unsaleable.js. Price and isActive are left untouched.
+    const { update, newlyUnsaleable } = buildUnsaleableUpdate(productData, admin.firestore.FieldValue.serverTimestamp());
+    await productSnap.ref.update({
+      ...update,
+      lastSyncedAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastStockSyncAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    logger.info("AliExpress sync: product unsaleable, stock set to 0", { productId: productSnap.id, sourceProductId, newlyUnsaleable });
+    return { changed: newlyUnsaleable, unsaleable: true, newlyUnsaleable };
+  }
 
   // Resolved before price so the freight amount can be folded into it — see
   // resolveAliExpressShippingCostBDT()'s own comment.
@@ -3016,6 +3039,20 @@ async function syncAliExpressProduct(productSnap, importSettings) {
     }
   }
 
+  // Previously flagged unsaleable and AliExpress answers normally again:
+  // restore variant stock by exact SKU match, keep needsReview, never touch
+  // isActive. No-op (null) for every product that wasn't flagged.
+  const saleableAgain = buildSaleableAgainUpdate(productData, fresh.variants, admin.firestore.FieldValue.serverTimestamp());
+  if (saleableAgain) {
+    Object.assign(updates, saleableAgain.update);
+    logger.info("AliExpress sync: product saleable again, variant stock restored", {
+      productId: productSnap.id,
+      sourceProductId,
+      variantsMatched: saleableAgain.matched,
+      variantsUnmatched: saleableAgain.unmatched,
+    });
+  }
+
   const changed = aliExpressSyncHasRealChange(productData, updates);
 
   updates.lastSyncedAt = admin.firestore.FieldValue.serverTimestamp();
@@ -3034,7 +3071,7 @@ async function syncAliExpressProduct(productSnap, importSettings) {
     deliverySourceField: updates.deliverySourceField,
     changed,
   });
-  return { changed };
+  return { changed, saleableAgain: Boolean(saleableAgain) };
 }
 
 // Single shared sync core used by BOTH the manual HTTP endpoint and the
@@ -3050,7 +3087,10 @@ async function runAliExpressSync({ requireSyncEnabled }) {
   let unchanged = 0;
   let skipped = 0;
   let failed = 0;
+  let unsaleable = 0;
   const errors = [];
+  const newlyUnsaleableProducts = [];
+  const saleableAgainProducts = [];
 
   logger.info("AliExpress sync: starting", { totalChecked, requireSyncEnabled });
   const importSettings = await marketplaceImportSettings("aliexpress");
@@ -3066,7 +3106,18 @@ async function runAliExpressSync({ requireSyncEnabled }) {
     await Promise.all(batch.map(async (docSnap) => {
       try {
         const result = await syncAliExpressProduct(docSnap, importSettings);
-        if (result.changed) updated++; else unchanged++;
+        const productRef = {
+          productId: docSnap.id,
+          sourceProductId: textValue(docSnap.data()?.sourceProductId),
+          name: textValue(docSnap.data()?.name),
+        };
+        if (result.unsaleable) {
+          unsaleable++;
+          if (result.newlyUnsaleable) newlyUnsaleableProducts.push(productRef);
+        } else {
+          if (result.changed) updated++; else unchanged++;
+          if (result.saleableAgain) saleableAgainProducts.push(productRef);
+        }
       } catch (error) {
         const entry = {
           productId: docSnap.id,
@@ -3089,9 +3140,30 @@ async function runAliExpressSync({ requireSyncEnabled }) {
     if (!isLastBatch) await sleep(ALIEXPRESS_SYNC_BATCH_DELAY_MS);
   }
 
-  const summary = { totalChecked, updated, unchanged, skipped, failed };
+  const summary = {
+    totalChecked,
+    updated,
+    unchanged,
+    unsaleable,
+    newlyUnsaleable: newlyUnsaleableProducts.length,
+    saleableAgain: saleableAgainProducts.length,
+    skipped,
+    failed,
+  };
   logger.info("AliExpress sync: completed", summary);
-  return { ...summary, errors };
+
+  // One admin note per run, only when some product changed availability.
+  // Never fails the sync.
+  const note = buildUnsaleableChangeNote(newlyUnsaleableProducts, saleableAgainProducts);
+  if (note) {
+    try {
+      await createAliExpressAlertDeps({ db, admin, notifyAdmins, logger }).sendAlert(note);
+    } catch (error) {
+      logger.error("AliExpress sync: availability-change note failed", { message: error.message || String(error) });
+    }
+  }
+
+  return { ...summary, errors, newlyUnsaleableProducts, saleableAgainProducts };
 }
 
 exports.aliexpressSyncAllProducts = onRequest(
