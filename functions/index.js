@@ -50,6 +50,11 @@ const {
 } = require("./aliexpress/searchImportRateLimit");
 const { validateSearchImportQuery } = require("./aliexpress/searchImportQueryGuard");
 const { resolveAliExpressShippingCostBDT } = require("./aliexpress/shippingCost");
+const {
+  runConnectionAlerts: runAliExpressConnectionAlerts,
+  runSyncAlerts: runAliExpressSyncAlerts,
+  createAliExpressAlertDeps,
+} = require("./aliexpress/connectionAlerts");
 const { resolveProductTaxonomy } = require("./category/resolveProductTaxonomy");
 const { matchCategoryByKeyword } = require("./category/aliExpressCategoryKeywords");
 const {
@@ -1846,8 +1851,30 @@ exports.aliexpressConnectionStatus = onRequest(
 exports.aliexpressRefreshToken = onSchedule(
   { schedule: "every 12 hours", secrets: [ALIEXPRESS_APP_SECRET], timeoutSeconds: 120 },
   async () => {
-    const result = await refreshAliExpressConnection(false);
-    logger.info("AliExpress token refresh sweep completed", result);
+    let refreshError = null;
+    try {
+      const result = await refreshAliExpressConnection(false);
+      logger.info("AliExpress token refresh sweep completed", result);
+    } catch (error) {
+      refreshError = error;
+    }
+
+    // Admin alerts (connection_failed / refresh_expiring / refresh_expired).
+    // Read after the refresh attempt so they see the status it just wrote.
+    // Never throws — see aliexpress/connectionAlerts.js.
+    const snap = await db.collection("marketplace_connections").doc("aliexpress").get().catch(() => null);
+    const connection = snap?.exists ? (snap.data() || {}) : {};
+    await runAliExpressConnectionAlerts(
+      {
+        status: textValue(connection.status, "not_connected"),
+        refreshExpiresAtMs: connection.refreshExpiresAt?.toMillis?.() || 0,
+        lastError: textValue(connection.lastError),
+      },
+      createAliExpressAlertDeps({ db, admin, notifyAdmins, logger })
+    );
+
+    // Same outcome as before this change: a failed refresh still fails the run.
+    if (refreshError) throw refreshError;
   }
 );
 
@@ -3151,12 +3178,15 @@ exports.aliexpressScheduledSync = onSchedule(
       logger.warn("AliExpress scheduled sync: previous run still in progress (lock held), skipping this tick");
       return;
     }
+    const alertDeps = createAliExpressAlertDeps({ db, admin, notifyAdmins, logger });
     try {
       logger.info("AliExpress scheduled sync: starting");
       const result = await runAliExpressSync({ requireSyncEnabled: true });
       logger.info("AliExpress scheduled sync: finished", result);
+      await runAliExpressSyncAlerts(result, alertDeps); // never throws
     } catch (error) {
       logger.error("AliExpress scheduled sync: fatal error", { message: error.message || String(error) });
+      await runAliExpressSyncAlerts({ fatal: true, message: error.message || String(error) }, alertDeps);
     } finally {
       await releaseAliExpressSyncLock(lockOwner);
     }
