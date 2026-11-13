@@ -608,6 +608,10 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
     // Picked from the dropdown only; the AI suggestedSubCategory is shown as
     // a hint and never creates a subcategory on its own.
     String subcategoryId = _text(data?['subcategoryId']);
+    // Set when an AI category suggestion moved the product to another
+    // category and so dropped the selected subcategory; saving without
+    // picking a new one asks for confirmation first.
+    bool aiDroppedSubcategory = false;
     // The selected category doc. Empty for old name-only products until the
     // category list loads and their name is matched (see categoryDropdown);
     // [category] always carries the selected doc's display name.
@@ -769,11 +773,32 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
             }
 
             if (!pageContext.mounted) return;
+
+            // Same category (by id, or by name when the resolver gave no
+            // id): keep categoryId and the subcategory as they are.
+            final sameCategory = resolvedCategoryId.isNotEmpty
+                ? resolvedCategoryId == categoryId
+                : resolvedCategory == category;
+            if (sameCategory) {
+              setDialogState(() => category = resolvedCategory);
+              return;
+            }
+
+            // A subcategory belongs to one category, so it can't follow the
+            // product to another one — drop it, but say so.
+            final dropped = subcategoryId.isNotEmpty;
             setDialogState(() {
-              if (resolvedCategoryId != categoryId || resolvedCategory != category) subcategoryId = '';
+              subcategoryId = '';
+              if (dropped) aiDroppedSubcategory = true;
               category = resolvedCategory;
               categoryId = resolvedCategoryId;
             });
+            if (dropped) {
+              _snack(
+                'AI changed the category to "$resolvedCategory" — the subcategory was cleared. Pick a new one or it will be removed on save.',
+                isError: true,
+              );
+            }
           }
 
           Future<void> createProductFromImage() async {
@@ -1161,6 +1186,33 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
             if (category == null || category!.isEmpty) {
               _snack('Category required', isError: true);
               return;
+            }
+
+            if (aiDroppedSubcategory && subcategoryId.isEmpty && id != null) {
+              if (!context.mounted) return;
+              final proceed = await showDialog<bool>(
+                context: context,
+                builder: (dialogContext) => AlertDialog(
+                  title: const Text('Subcategory will be removed'),
+                  content: Text(
+                    'AI changed the category to "$category", so the product\'s '
+                    'previous subcategory no longer applies. Saving now removes '
+                    'the subcategory. Pick one under "$category" first to keep '
+                    'the product in a subcategory.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, false),
+                      child: const Text('Go back'),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: const Text('Save without subcategory'),
+                    ),
+                  ],
+                ),
+              );
+              if (proceed != true) return;
             }
 
             final variants = <Map<String, dynamic>>[
