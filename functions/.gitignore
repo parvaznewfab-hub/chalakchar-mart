@@ -1,2 +1,4 @@
 node_modules/
 *.local
+# Local Firestore data backups written by one-off maintenance scripts
+scripts/backups/
