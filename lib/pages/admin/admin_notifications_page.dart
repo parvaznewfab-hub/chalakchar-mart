@@ -502,6 +502,7 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
                 DropdownMenuItem(value: 'list', child: Text('List')),
                 DropdownMenuItem(value: 'vendor', child: Text('Vendor')),
                 DropdownMenuItem(value: 'broadcast', child: Text('Broadcast')),
+                DropdownMenuItem(value: 'admin_system_alert', child: Text('System Alert')),
                 DropdownMenuItem(value: 'general', child: Text('General')),
               ],
               onChanged: (v) => setState(() => typeFilter = v ?? 'all'),

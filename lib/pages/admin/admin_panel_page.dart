@@ -25,6 +25,35 @@ class _AdminPanelState extends State<AdminPanel> {
   Uint8List? _webImage; // For web support
   bool _isUploading = false;
 
+  Future<void> _confirmAndDeleteProduct(String id, String name) async {
+    final displayName = name.trim().isEmpty ? 'this product' : '"${name.trim()}"';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete product?'),
+        content: Text('$displayName will be permanently deleted. This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    await db.collection('products').doc(id).delete();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Deleted ${name.trim().isEmpty ? 'product' : name.trim()}')),
+    );
+  }
+
   Future<void> _pickImage() async {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(source: ImageSource.gallery);
@@ -203,7 +232,7 @@ class _AdminPanelState extends State<AdminPanel> {
                             ),
                             IconButton(
                               icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => db.collection('products').doc(p.id).delete(),
+                              onPressed: () => _confirmAndDeleteProduct(p.id, '${p.data()['name'] ?? ''}'),
                             ),
                           ],
                         ),
