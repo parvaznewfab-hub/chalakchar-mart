@@ -61,6 +61,7 @@ const {
   buildSaleableAgainUpdate,
   buildUnsaleableChangeNote,
 } = require("./aliexpress/unsaleable");
+const { verifyIncomingVariants, isAliExpressIdOnlyImport } = require("./aliexpress/importVariantGuard");
 const {
   SYNC_MARKETING_SUPPRESSED_FIELD,
   buildVariantRefreshUpdate,
@@ -4169,9 +4170,88 @@ exports.aliexpressSearchImport = onRequest(
   })
 );
 
+function importHttpError(code, message, httpStatus, details = undefined) {
+  const error = new Error(message);
+  error.code = code;
+  error.httpStatus = httpStatus;
+  if (details !== undefined) error.details = details;
+  return error;
+}
+
+// AliExpress lookup used to build or verify an n8n import. Failures become
+// clear, coded HTTP errors: an import is refused rather than saved unverified.
+async function fetchAliExpressProductForImport(productId) {
+  try {
+    return await fetchAliExpressProduct(productId);
+  } catch (error) {
+    if (isAliExpressUnsaleableError(error)) {
+      throw importHttpError("ALIEXPRESS_UNSALEABLE", "AliExpress reports no variant of this product can be bought (All SKU Unsaleable).", 422);
+    }
+    if (error.code === "ALIEXPRESS_NOT_CONNECTED") {
+      throw importHttpError("ALIEXPRESS_NOT_CONNECTED", "AliExpress is not connected; reconnect it and retry the import.", 503);
+    }
+    throw importHttpError("ALIEXPRESS_VERIFY_FAILED", `Could not load the product from AliExpress: ${error.message || error}`, 502);
+  }
+}
+
+// Prepares the body importAliExpressProduct saves (see
+// aliexpress/importVariantGuard.js for why):
+//   - ID-only body (AliExpress product id or link, no product data): the
+//     product is fetched from AliExpress here, so every variant's name and
+//     SKU come from the same AliExpress SKU.
+//   - Full-data AliExpress body with variants: each variant's SKU is checked
+//     against AliExpress's name for it; mismatches are repaired from the
+//     same-name SKU, or the import is refused (422 VARIANT_SKU_MISMATCH).
+//   - Anything else (other marketplaces, no variants): unchanged.
+async function prepareN8nImportBody(rawBody) {
+  const body = mapValue(rawBody);
+
+  if (isAliExpressIdOnlyImport(body)) {
+    const data = mapValue(body.product || body.data);
+    const productId = aliExpressProductId(
+      body.productId || body.productUrl || body.url || body.sourceProductId ||
+      data.productId || data.productUrl || data.url || data.sourceProductId
+    );
+    if (!productId) throw importHttpError("PRODUCT_ID_REQUIRED", "A valid AliExpress product id or link is required.", 400);
+    const product = await fetchAliExpressProductForImport(productId);
+    return {
+      body: { mode: body.mode, source: "aliexpress", sourceProductId: productId, product, importedBy: textValue(body.importedBy, "n8n") },
+      variantCheck: { mode: "id_only", variants: Array.isArray(product.variants) ? product.variants.length : 0 },
+    };
+  }
+
+  const sourceData = mapValue(body.product || body.data || body);
+  const source = importSafeId(body.source || sourceData.source || "aliexpress", "aliexpress");
+  const variants = Array.isArray(sourceData.variants) ? sourceData.variants : [];
+  const sourceProductId = textValue(body.sourceProductId || sourceData.sourceProductId || sourceData.productId || sourceData.itemId);
+  if (source !== "aliexpress" || !variants.length || !sourceProductId) {
+    return { body, variantCheck: { mode: "skipped" } };
+  }
+
+  const fresh = await fetchAliExpressProductForImport(sourceProductId);
+  const guard = verifyIncomingVariants(variants, fresh.variants);
+  if (guard.rejected.length) {
+    throw importHttpError(
+      "VARIANT_SKU_MISMATCH",
+      `${guard.rejected.length} variant(s) carry an AliExpress SKU that belongs to a differently-named variant, with no unique same-name SKU to repair from. Send only the product id/link instead.`,
+      422,
+      guard.rejected
+    );
+  }
+
+  const fixedData = { ...sourceData, variants: guard.variants };
+  const nextBody = body.product ? { ...body, product: fixedData }
+    : body.data ? { ...body, data: fixedData }
+    : { ...body, variants: guard.variants };
+  return {
+    body: nextBody,
+    variantCheck: { mode: "verified", verified: guard.verified, repaired: guard.repaired, unverified: guard.unverified },
+  };
+}
+
 exports.importAliExpressProduct = onRequest(
   {
-    secrets: [PRODUCT_IMPORT_API_KEY, "OPENAI_API_KEY"],
+    secrets: [PRODUCT_IMPORT_API_KEY, ALIEXPRESS_APP_SECRET, "OPENAI_API_KEY"],
     timeoutSeconds: 120,
     memory: "512MiB",
   },
@@ -4189,8 +4269,12 @@ exports.importAliExpressProduct = onRequest(
           return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
         }
 
+        const { body: importBody, variantCheck } = await prepareN8nImportBody(req.body);
+        if (variantCheck.repaired?.length) {
+          logger.warn("n8n import: variant SKUs repaired from AliExpress", { repaired: variantCheck.repaired });
+        }
         const { source, sourceProductId, publish, payload } = await buildMarketplaceProductPayload(
-          mapValue(req.body),
+          importBody,
           { forceUnpublish: true, needsReview: true }
         );
         const productId = marketplaceImportDocumentId(source, sourceProductId);
@@ -4229,6 +4313,8 @@ exports.importAliExpressProduct = onRequest(
           source,
           sourceProductId,
           publish,
+          variantCheckMode: variantCheck.mode,
+          variantsRepaired: variantCheck.repaired?.length || 0,
           ...result,
         });
 
@@ -4238,12 +4324,15 @@ exports.importAliExpressProduct = onRequest(
           source,
           sourceProductId,
           publish,
+          needsReview: true,
           ...result,
+          variantCheck,
           productUrl: `https://chalakcharmart.com/product/${encodeURIComponent(productId)}`,
         });
       } catch (error) {
         const code = textValue(error?.code);
-        const status = code === "ALREADY_EXISTS" ? 409
+        const status = error?.httpStatus ? error.httpStatus
+          : code === "ALREADY_EXISTS" ? 409
           : code === "NOT_FOUND" ? 404
           : /required|valid variant|price greater/i.test(textValue(error?.message)) ? 400
           : 500;
@@ -4257,6 +4346,7 @@ exports.importAliExpressProduct = onRequest(
           ok: false,
           error: code || "IMPORT_FAILED",
           message: error?.message || String(error),
+          ...(error?.details ? { details: error.details } : {}),
         });
       }
     });
