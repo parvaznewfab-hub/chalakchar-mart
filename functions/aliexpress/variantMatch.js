@@ -56,4 +56,23 @@ function matchAliExpressVariant(existingVariant, freshVariants) {
   return { matched: null, matchField: null, ambiguous: false };
 }
 
-module.exports = { matchAliExpressVariant, cleanVariantNameForMatch, MATCH_PRIORITY_FIELDS };
+/**
+ * Saved (Firestore) variants carry the AliExpress SKU as `sourceSkuId`
+ * (set by normalizeMarketplaceVariants at import), while freshly-fetched
+ * variants from normalizeAliExpressProduct carry it as `skuId`. Because
+ * matchAliExpressVariant stops at the first identifier present on the saved
+ * variant, fresh variants must expose the same SKU as `sourceSkuId` or no
+ * saved variant ever matches. Returns copies; never mutates the input.
+ *
+ * @param {object[]} freshVariants
+ * @returns {object[]}
+ */
+function withSourceSkuIds(freshVariants) {
+  return (Array.isArray(freshVariants) ? freshVariants : []).map((variant) => {
+    const item = mapValue(variant);
+    const skuId = textValue(item.skuId);
+    return skuId && !textValue(item.sourceSkuId) ? { ...item, sourceSkuId: skuId } : item;
+  });
+}
+
+module.exports = { matchAliExpressVariant, cleanVariantNameForMatch, withSourceSkuIds, MATCH_PRIORITY_FIELDS };

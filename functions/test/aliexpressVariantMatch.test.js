@@ -84,3 +84,26 @@ describe("matchAliExpressVariant", () => {
     assert.equal(result.ambiguous, false);
   });
 });
+
+describe("withSourceSkuIds", () => {
+  const { withSourceSkuIds } = require("../aliexpress/variantMatch");
+
+  test("copies skuId into sourceSkuId without mutating the input", () => {
+    const fresh = [{ skuId: "1", name: "A" }];
+    const out = withSourceSkuIds(fresh);
+    assert.equal(out[0].sourceSkuId, "1");
+    assert.equal("sourceSkuId" in fresh[0], false);
+  });
+
+  test("keeps an existing sourceSkuId, and leaves variants without skuId alone", () => {
+    assert.equal(withSourceSkuIds([{ skuId: "1", sourceSkuId: "9" }])[0].sourceSkuId, "9");
+    assert.equal("sourceSkuId" in withSourceSkuIds([{ name: "A" }])[0], false);
+    assert.deepEqual(withSourceSkuIds(null), []);
+  });
+
+  test("saved sourceSkuId now matches a fresh variant that only had skuId", () => {
+    const result = matchAliExpressVariant({ sourceSkuId: "77", name: "Red" }, withSourceSkuIds([{ skuId: "77", name: "Red" }]));
+    assert.equal(result.matchField, "sourceSkuId");
+    assert.ok(result.matched);
+  });
+});

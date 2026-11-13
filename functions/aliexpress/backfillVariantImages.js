@@ -1,4 +1,4 @@
-const { matchAliExpressVariant, cleanVariantNameForMatch } = require("./variantMatch");
+const { matchAliExpressVariant, cleanVariantNameForMatch, withSourceSkuIds } = require("./variantMatch");
 
 // -----------------------------------------------------------------------------
 // Pure computation for the AliExpress variant-image backfill. Split into two
@@ -35,7 +35,9 @@ function mapValue(value) {
  */
 function computeVariantImagePatches(existingVariants, freshVariants) {
   const existing = Array.isArray(existingVariants) ? existingVariants : [];
-  const fresh = Array.isArray(freshVariants) ? freshVariants : [];
+  // Saved variants match by sourceSkuId, fresh ones only carry skuId — see
+  // withSourceSkuIds. Without this, no saved variant ever matched.
+  const fresh = withSourceSkuIds(freshVariants);
   const patches = [];
   const skipped = [];
 

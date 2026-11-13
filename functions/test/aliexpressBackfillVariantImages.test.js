@@ -117,3 +117,17 @@ describe("applyVariantImagePatchesToLatest (concurrency-safe re-merge)", () => {
     assert.equal(latest[0].image, undefined);
   });
 });
+
+describe("computeVariantImagePatches with real stored/fetched shapes", () => {
+  test("saved sourceSkuId matches fresh skuId (regression: previously matched nothing)", () => {
+    // Saved shape as stored in Firestore today; fresh shape from normalizeAliExpressProduct.
+    const saved = [{ id: "v1", variantId: "v1", name: "Black", sourceSkuId: "12000045", image: "" }];
+    const fresh = [{ id: "12000045", skuId: "12000045", name: "Black", image: "https://a/black.jpg", imageUrl: "https://a/black.jpg" }];
+    const { patches, skipped } = computeVariantImagePatches(saved, fresh);
+    assert.equal(skipped.length, 0);
+    assert.equal(patches.length, 1);
+    assert.equal(patches[0].matchField, "sourceSkuId");
+    assert.equal(patches[0].matchValue, "12000045");
+    assert.equal(patches[0].image, "https://a/black.jpg");
+  });
+});
