@@ -50,7 +50,7 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
 
   /// Product count per category name for the card chip; refreshed when the
   /// categories stream emits (see _categoryListBody).
-  final Map<String, Future<int>> _productCountCache = {};
+  final Map<String, Future<_ProductCounts>> _productCountCache = {};
   QuerySnapshot? _lastCategorySnapshot;
 
   @override
@@ -256,14 +256,25 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
     );
   }
 
-  Future<int> _productCount(String categoryName) async {
+  /// Total and live (isActive + approved — what customers see) products
+  /// in a category, plus live counts per subcategoryId, from one read.
+  Future<_ProductCounts> _productCount(String categoryName) async {
     final snap = await db
         .collection('products')
         .where('category', isEqualTo: categoryName)
-        .limit(100)
+        .limit(2000)
         .get();
 
-    return snap.docs.length;
+    var live = 0;
+    final liveBySub = <String, int>{};
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      if (data['isActive'] != true || data['approvalStatus'] != 'approved') continue;
+      live++;
+      final subId = _text(data['subcategoryId']);
+      if (subId.isNotEmpty) liveBySub[subId] = (liveBySub[subId] ?? 0) + 1;
+    }
+    return (total: snap.docs.length, live: live, liveBySub: liveBySub);
   }
 
   Future<void> _showEditDialog(String id, Map<String, dynamic> data) async {
@@ -1477,6 +1488,7 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
     List<QueryDocumentSnapshot> categories,
     String parentId,
     bool parentActive,
+    int liveCount,
   ) {
     final data = doc.data() as Map<String, dynamic>;
     final name = _text(data['name'], 'Unnamed');
@@ -1517,6 +1529,7 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
                     if (pending) _chip('Pending review', Colors.orange),
                     if (active && !parentActive) _chip('Hidden: parent inactive', Colors.grey),
                     _chip('P ${_toInt(data['priority'])}', Colors.blueGrey),
+                    _chip('$liveCount live', Colors.teal),
                   ],
                 ),
               ],
@@ -1555,6 +1568,7 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
     bool parentActive,
     List<QueryDocumentSnapshot> subs,
     List<QueryDocumentSnapshot> categories,
+    Map<String, int> liveBySub,
   ) {
     final expanded = expandedCategoryIds.contains(categoryId);
 
@@ -1596,7 +1610,7 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
       for (final s in subs)
         Padding(
           padding: const EdgeInsets.only(bottom: 6),
-          child: _subcategoryTile(s, categories, categoryId, parentActive),
+          child: _subcategoryTile(s, categories, categoryId, parentActive, liveBySub[s.id] ?? 0),
         ),
     ];
 
@@ -1644,12 +1658,12 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
     final home = data['showOnHome'] != false;
     final categoryName = _text(data['name']);
 
-    return FutureBuilder<int>(
+    return FutureBuilder<_ProductCounts>(
       // Cached per name: expanding a card calls setState, and an uncached
       // future would re-run this query for every card on every click.
       future: _productCountCache.putIfAbsent(categoryName, () => _productCount(categoryName)),
       builder: (context, countSnap) {
-        final count = countSnap.data ?? 0;
+        final counts = countSnap.data;
 
         return Card(
           elevation: 0,
@@ -1695,7 +1709,10 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
                           if (featured) _chip('Featured', Colors.deepPurple),
                           if (home) _chip('Home', Colors.blue),
                           _chip('Priority ${_toInt(data['priority'])}', Colors.orange),
-                          _chip('$count Products', Colors.teal),
+                          _chip(
+                            counts == null ? '… Products' : '${counts.live} live · ${counts.total} total',
+                            Colors.teal,
+                          ),
                           _chip(
                             '${subs.length} ${subs.length == 1 ? 'Subcategory' : 'Subcategories'}',
                             Colors.indigo,
@@ -1736,7 +1753,7 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
               ],
             ),
                 const Divider(height: 18),
-                _subcategorySection(id, active, subs, categories),
+                _subcategorySection(id, active, subs, categories, counts?.liveBySub ?? const {}),
               ],
             ),
           ),
@@ -1914,3 +1931,5 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
     );
   }
 }
+
+typedef _ProductCounts = ({int total, int live, Map<String, int> liveBySub});

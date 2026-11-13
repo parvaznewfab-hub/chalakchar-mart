@@ -13,6 +13,7 @@ import '../auth/login_page.dart';
 import 'my_lists_page.dart';
 import '../../widgets/global_web_header.dart';
 import '../../widgets/global_web_footer.dart';
+import '../../widgets/category_sidebar.dart';
 import 'profile/my_address_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'doctor_departments_page.dart';
@@ -2383,94 +2384,9 @@ class _ProductHomePageState extends State<ProductHomePage> {
 
   /// Builds the category box for the web version.
   Widget _buildWebCategoryBox() {
-    return Container(
+    return SizedBox(
       height: MediaQuery.of(context).size.height - 140,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
-          )
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Padding(
-            padding: EdgeInsets.all(20),
-            child: Text(
-              "Categories",
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black87),
-            ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: StreamBuilder<List<CategoryModel>>(
-              stream: CategoryService.watchHomeCategories(),
-              builder: (context, snap) {
-                if (snap.connectionState == ConnectionState.waiting) {
-                  return const SizedBox();
-                }
-
-                if (snap.hasError) {
-                  return Center(
-                    child: Text(
-                      'Category error: ${snap.error}',
-                      style: const TextStyle(fontSize: 12, color: Colors.red),
-                    ),
-                  );
-                }
-
-                final categories = snap.data ?? const <CategoryModel>[];
-                if (categories.isEmpty) return const SizedBox();
-
-                return ListView.builder(
-                  padding: EdgeInsets.zero,
-                  itemCount: categories.length,
-                  itemBuilder: (context, index) {
-                    final category = categories[index];
-
-                    return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                      leading: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[50],
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: category.imageUrl.isNotEmpty
-                            ? Image.network(
-                          category.imageUrl,
-                          width: 24,
-                          height: 24,
-                          errorBuilder: (_, __, ___) => const Icon(
-                            Icons.category_outlined,
-                            size: 20,
-                            color: Colors.grey,
-                          ),
-                        )
-                            : const Icon(Icons.category_outlined, size: 20, color: Colors.grey),
-                      ),
-                      title: Text(
-                        category.name,
-                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.black87),
-                      ),
-                      trailing: const Icon(Icons.chevron_right, size: 16, color: Colors.grey),
-                      onTap: () {
-                        _openCategorySeo(category.name);
-                      },
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 10),
-        ],
-      ),
+      child: const CategorySidebar(),
     );
   }
 }

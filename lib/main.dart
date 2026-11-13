@@ -412,6 +412,7 @@ class MyApp extends StatelessWidget {
           return MaterialPageRoute(
             builder: (_) => CategoryProductsPage(
               category: categorySlug,
+              initialSub: uri.queryParameters['sub'],
             ),
           );
         }

@@ -5,13 +5,19 @@ import '../../services/category_service.dart';
 import '../../widgets/product_card.dart';
 import '../../widgets/global_web_header.dart';
 import '../../widgets/global_web_footer.dart';
+import '../../widgets/category_sidebar.dart';
+import '../../services/web_url_service.dart';
 
 class CategoryProductsPage extends StatefulWidget {
   final String category;
 
+  /// Subcategory slug from `?sub=`; null shows all products.
+  final String? initialSub;
+
   const CategoryProductsPage({
     super.key,
     required this.category,
+    this.initialSub,
   });
 
   @override
@@ -23,6 +29,67 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
   bool onlyInStock = false;
   bool onlyMarketplace = false;
   bool onlyPharmacy = false;
+
+  /// Selected subcategory slug (the `?sub=` value), null = All.
+  String? _sub;
+  final Future<Map<String, List<SubcategoryModel>>> _subcategories =
+      CategoryService.activeSubcategoriesByCategory();
+  void Function()? _cancelPopState;
+
+  // Streams are created once, not in build(): a new stream per setState
+  // (chip, filter or sort tap) re-subscribed both queries, flashed the
+  // spinner and rebuilt the whole page.
+  late final Stream<List<CategoryModel>> _categoriesStream =
+      CategoryService.watchActiveCategories();
+  Stream<QuerySnapshot>? _productsStream;
+  String? _productsStreamCategory;
+
+  Stream<QuerySnapshot> _productsFor(String categoryName) {
+    if (_productsStream == null || _productsStreamCategory != categoryName) {
+      _productsStreamCategory = categoryName;
+      _productsStream = FirebaseFirestore.instance
+          .collection('products')
+          .where('category', isEqualTo: categoryName)
+          .where('isActive', isEqualTo: true)
+          .where('approvalStatus', isEqualTo: 'approved')
+          .snapshots();
+    }
+    return _productsStream!;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final fromUrl = kIsWeb ? WebUrlService.currentQuery()['sub'] : null;
+    _sub = _cleanSub(widget.initialSub ?? fromUrl);
+    // Back/forward between ?sub= entries of this page.
+    _cancelPopState = WebUrlService.onPopState((query) {
+      if (!mounted) return;
+      setState(() => _sub = _cleanSub(query['sub']));
+    });
+  }
+
+  @override
+  void dispose() {
+    _cancelPopState?.call();
+    super.dispose();
+  }
+
+  String? _cleanSub(String? value) {
+    final v = (value ?? '').trim();
+    return v.isEmpty ? null : v;
+  }
+
+  void _selectSub(String? slug) {
+    if (slug == _sub) return;
+    setState(() => _sub = slug);
+    if (kIsWeb) {
+      final path = Uri.base.path;
+      WebUrlService.pushInPage(
+        slug == null ? path : '$path?sub=${Uri.encodeQueryComponent(slug)}',
+      );
+    }
+  }
 
   String _normalizeSlug(String value) {
     return value
@@ -48,7 +115,9 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
         return double.tryParse((first['price'] ?? 0).toString()) ?? 0;
       }
     }
-    return double.tryParse((data['price'] ?? data['piecePrice'] ?? 0).toString()) ?? 0;
+    return double.tryParse(
+            (data['price'] ?? data['piecePrice'] ?? 0).toString()) ??
+        0;
   }
 
   int _stockOf(Map<String, dynamic> data) {
@@ -76,8 +145,10 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
     return vendorId.isNotEmpty && vendorId != 'super_admin';
   }
 
-  List<QueryDocumentSnapshot> _filterAndSort(List<QueryDocumentSnapshot> docs) {
-    final filtered = docs.where((doc) {
+  /// isActive plus the In stock / Marketplace / Official Store filters —
+  /// everything except the subcategory and the sort.
+  List<QueryDocumentSnapshot> _applyFilters(List<QueryDocumentSnapshot> docs) {
+    return docs.where((doc) {
       final data = doc.data() as Map<String, dynamic>;
 
       if (data['isActive'] == false) return false;
@@ -87,7 +158,9 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
 
       return true;
     }).toList();
+  }
 
+  List<QueryDocumentSnapshot> _sort(List<QueryDocumentSnapshot> filtered) {
     filtered.sort((a, b) {
       final ad = a.data() as Map<String, dynamic>;
       final bd = b.data() as Map<String, dynamic>;
@@ -117,13 +190,13 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
       appBar: (isDesktop
           ? const GlobalWebHeader()
           : AppBar(
-        title: Text(widget.category),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
-      )) as PreferredSizeWidget?,
+              title: Text(widget.category),
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.black,
+              elevation: 0,
+            )) as PreferredSizeWidget?,
       body: StreamBuilder<List<CategoryModel>>(
-        stream: CategoryService.watchActiveCategories(),
+        stream: _categoriesStream,
         builder: (context, categorySnap) {
           if (categorySnap.hasError) {
             return Center(
@@ -139,8 +212,7 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
             );
           }
 
-          final activeCategories =
-              categorySnap.data ?? const <CategoryModel>[];
+          final activeCategories = categorySnap.data ?? const <CategoryModel>[];
 
           final requestedSlug = _normalizeSlug(widget.category);
 
@@ -150,7 +222,7 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
           }).toList();
 
           final CategoryModel? matchedCategory =
-          matchedList.isNotEmpty ? matchedList.first : null;
+              matchedList.isNotEmpty ? matchedList.first : null;
 
           final exists = matchedCategory != null;
 
@@ -188,108 +260,243 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
             );
           }
 
-          return Column(
+          final content = FutureBuilder<Map<String, List<SubcategoryModel>>>(
+            future: _subcategories,
+            builder: (context, subSnap) {
+              // Cached after the first read; on failure the page just has
+              // no chip row.
+              final subcategories = subSnap.data?[matchedCategory.id] ??
+                  const <SubcategoryModel>[];
+              return _productsView(matchedCategory, subcategories, isDesktop);
+            },
+          );
+
+          if (!isDesktop) return content;
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance
-                      .collection('products')
-                      .where('category', isEqualTo: matchedCategory.name)
-                      .where('isActive', isEqualTo: true)
-                      .where('approvalStatus', isEqualTo: 'approved')
-                      .snapshots(),
-                  builder: (context, snapshot) {
-                    if (snapshot.hasError) {
-                      return Center(
-                        child: Text(
-                          'Products load failed: ${snapshot.error}',
-                        ),
-                      );
-                    }
-
-                    if (snapshot.connectionState ==
-                        ConnectionState.waiting) {
-                      return const Center(
-                        child: CircularProgressIndicator(),
-                      );
-                    }
-
-                    final allProducts =
-                        snapshot.data?.docs ?? [];
-
-                    final products =
-                    _filterAndSort(allProducts);
-
-                    return SingleChildScrollView(
-                      padding: isDesktop
-                          ? const EdgeInsets.all(16)
-                          : const EdgeInsets.symmetric(
-                              horizontal: ProductCard.gridHorizontalPadding,
-                              vertical: 16,
-                            ),
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints:
-                          const BoxConstraints(
-                            maxWidth: 1400,
-                          ),
-                          child: Column(
-                            crossAxisAlignment:
-                            CrossAxisAlignment.start,
-                            children: [
-                              _header(
-                                matchedCategory.name,
-                                allProducts.length,
-                                products.length,
-                              ),
-                              const SizedBox(height: 14),
-                              _filters(),
-                              const SizedBox(height: 16),
-                              if (products.isEmpty)
-                                _emptyState()
-                              else if (isDesktop)
-                                Wrap(
-                                  spacing: 14,
-                                  runSpacing: 14,
-                                  children: products.map((doc) {
-                                    final data = doc.data() as Map<String, dynamic>;
-                                    data['id'] = doc.id;
-
-                                    return ProductCard(data: data);
-                                  }).toList(),
-                                )
-                              else
-                                GridView.builder(
-                                  shrinkWrap: true,
-                                  physics: const NeverScrollableScrollPhysics(),
-                                  clipBehavior: Clip.none, // keep card shadows
-                                  padding: EdgeInsets.zero,
-                                  itemCount: products.length,
-                                  gridDelegate: ProductCard.gridDelegate(context),
-                                  itemBuilder: (context, index) {
-                                    final doc = products[index];
-                                    final data = doc.data() as Map<String, dynamic>;
-                                    data['id'] = doc.id;
-
-                                    return ProductCard(data: data, gridMode: true);
-                                  },
-                                ),
-
-                              if (isDesktop) ...[
-                                const SizedBox(height: 40),
-                                const GlobalWebFooter(),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
+              Container(
+                width: 260,
+                height: MediaQuery.of(context).size.height,
+                padding: const EdgeInsets.fromLTRB(40, 16, 0, 30),
+                child: SizedBox(
+                  height: MediaQuery.of(context).size.height - 140,
+                  child: CategorySidebar(
+                    activeCategoryId: matchedCategory.id,
+                    activeSubSlug: _sub,
+                    onSelectActiveSub: _selectSub,
+                  ),
                 ),
               ),
+              Expanded(child: content),
             ],
           );
         },
+      ),
+    );
+  }
+
+  Widget _productsView(
+    CategoryModel matchedCategory,
+    List<SubcategoryModel> subcategories,
+    bool isDesktop,
+  ) {
+    return Column(
+      children: [
+        Expanded(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _productsFor(matchedCategory.name),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text(
+                    'Products load failed: ${snapshot.error}',
+                  ),
+                );
+              }
+
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(
+                  child: CircularProgressIndicator(),
+                );
+              }
+
+              final allProducts = snapshot.data?.docs ?? [];
+
+              // Chip visibility uses unfiltered counts (so In stock
+              // can't make a chip vanish); chip numbers use the
+              // filtered set, so they match what a click shows.
+              final liveProducts = allProducts
+                  .where((d) =>
+                      (d.data() as Map<String, dynamic>)['isActive'] != false)
+                  .toList();
+              final filtered = _applyFilters(allProducts);
+              int countIn(List<QueryDocumentSnapshot> docs, String subId) =>
+                  docs
+                      .where((d) =>
+                          (d.data() as Map<String, dynamic>)['subcategoryId'] ==
+                          subId)
+                      .length;
+              final chipSubs = subcategories
+                  .where((sub) => countIn(liveProducts, sub.id) > 0)
+                  .toList();
+              final selected =
+                  chipSubs.where((sub) => sub.slug == _sub).firstOrNull;
+
+              final products = _sort(selected == null
+                  ? filtered
+                  : filtered
+                      .where((d) =>
+                          (d.data() as Map<String, dynamic>)['subcategoryId'] ==
+                          selected.id)
+                      .toList());
+
+              return SingleChildScrollView(
+                padding: isDesktop
+                    ? const EdgeInsets.all(16)
+                    : const EdgeInsets.symmetric(
+                        horizontal: ProductCard.gridHorizontalPadding,
+                        vertical: 16,
+                      ),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxWidth: 1400,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _header(
+                          matchedCategory.name,
+                          allProducts.length,
+                          products.length,
+                        ),
+                        if (chipSubs.isNotEmpty) ...[
+                          const SizedBox(height: 14),
+                          _subcategoryChips(
+                            chipSubs,
+                            selected,
+                            allCount: filtered.length,
+                            countFor: (sub) => countIn(filtered, sub.id),
+                          ),
+                        ],
+                        const SizedBox(height: 14),
+                        _filters(),
+                        const SizedBox(height: 16),
+                        if (products.isEmpty)
+                          _emptyState()
+                        else if (isDesktop)
+                          Wrap(
+                            spacing: 14,
+                            runSpacing: 14,
+                            children: products.map((doc) {
+                              final data = doc.data() as Map<String, dynamic>;
+                              data['id'] = doc.id;
+
+                              return ProductCard(data: data);
+                            }).toList(),
+                          )
+                        else
+                          GridView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            clipBehavior: Clip.none, // keep card shadows
+                            padding: EdgeInsets.zero,
+                            itemCount: products.length,
+                            gridDelegate: ProductCard.gridDelegate(context),
+                            itemBuilder: (context, index) {
+                              final doc = products[index];
+                              final data = doc.data() as Map<String, dynamic>;
+                              data['id'] = doc.id;
+
+                              return ProductCard(data: data, gridMode: true);
+                            },
+                          ),
+                        if (isDesktop) ...[
+                          const SizedBox(height: 40),
+                          const GlobalWebFooter(),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _subcategoryChips(
+    List<SubcategoryModel> subs,
+    SubcategoryModel? selected, {
+    required int allCount,
+    required int Function(SubcategoryModel) countFor,
+  }) {
+    const accent = Color(0xFF32A8C7);
+
+    Widget avatar(SubcategoryModel? sub) {
+      final url = sub?.imageUrl ?? '';
+      final letter = sub == null
+          ? null
+          : (sub.name.isEmpty ? '?' : sub.name.characters.first.toUpperCase());
+      return CircleAvatar(
+        backgroundColor: accent.withValues(alpha: 0.12),
+        backgroundImage: url.isEmpty ? null : NetworkImage(url),
+        child: url.isNotEmpty
+            ? null
+            : letter == null
+                ? const Icon(Icons.apps_rounded, size: 14, color: accent)
+                : Text(
+                    letter,
+                    style: const TextStyle(
+                      color: accent,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+      );
+    }
+
+    Widget chip(SubcategoryModel? sub, String label, int count) {
+      final isSelected = sub?.id == selected?.id;
+      return Padding(
+        padding: const EdgeInsets.only(right: 10),
+        child: ChoiceChip(
+          avatar: avatar(sub),
+          label: Text('$label ($count)'),
+          selected: isSelected,
+          showCheckmark: false,
+          selectedColor: accent.withValues(alpha: 0.16),
+          labelStyle: TextStyle(
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+            color: isSelected ? const Color(0xFF1592B3) : Colors.black87,
+          ),
+          onSelected: (_) => _selectSub(sub?.slug),
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      // One line that scrolls sideways on narrow screens; never wraps.
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.only(left: 12, right: 2),
+        child: Row(
+          children: [
+            chip(null, 'All', allCount),
+            for (final sub in subs) chip(sub, sub.name, countFor(sub)),
+          ],
+        ),
       ),
     );
   }
@@ -393,7 +600,8 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.inventory_2_outlined, size: 80, color: Colors.grey.shade300),
+            Icon(Icons.inventory_2_outlined,
+                size: 80, color: Colors.grey.shade300),
             const SizedBox(height: 14),
             Text(
               'No products found in ${widget.category}',
