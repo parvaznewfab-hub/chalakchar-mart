@@ -54,6 +54,17 @@ function computeVariantImagePatches(existingVariants, freshVariants) {
       skipped.push({ index, name, reason: "no_confident_match" });
       return;
     }
+    // An identifier match is only trusted when the names agree too: some
+    // imports saved another variant's SKU on a variant (see
+    // pickFreshVariantForSaved), which would put the wrong image on it.
+    if (matchField !== "name") {
+      const savedName = cleanVariantNameForMatch(name).replace(/\s+/g, " ");
+      const freshName = cleanVariantNameForMatch(matched.name).replace(/\s+/g, " ");
+      if (savedName && freshName && savedName !== freshName) {
+        skipped.push({ index, name, reason: "sku_name_mismatch" });
+        return;
+      }
+    }
 
     const image = textValue(matched.image || matched.imageUrl);
     if (!image) {

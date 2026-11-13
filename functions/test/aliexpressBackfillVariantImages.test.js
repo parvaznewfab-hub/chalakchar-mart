@@ -131,3 +131,13 @@ describe("computeVariantImagePatches with real stored/fetched shapes", () => {
     assert.equal(patches[0].image, "https://a/black.jpg");
   });
 });
+
+describe("computeVariantImagePatches never trusts a SKU whose name disagrees", () => {
+  test("saved SKU belongs to a differently-named variant -> skipped, no image patch", () => {
+    const saved = [{ id: "v1", name: "16 128g No Face", sourceSkuId: "A", image: "" }];
+    const fresh = [{ skuId: "A", name: "16 Pro 128g No Face", image: "https://a/pro.jpg" }];
+    const { patches, skipped } = computeVariantImagePatches(saved, fresh);
+    assert.equal(patches.length, 0);
+    assert.equal(skipped[0].reason, "sku_name_mismatch");
+  });
+});
