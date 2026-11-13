@@ -53,16 +53,35 @@ async function freshVariants(sourceProductId) {
   return json.product.variants || [];
 }
 
-function planForProduct(variants, fresh) {
+// Explicit, admin-decided extras (each named in the command line):
+//   clearSkuNames: variant names whose sourceSkuId is REMOVED (the variant
+//     doesn't exist on AliExpress; the sync then treats it as gone, stock 0)
+//   renameToAliExpress: for variants whose saved SKU belongs to exactly one
+//     AliExpress variant with a different name and no same-name variant
+//     exists (seller renamed it), rename name/unit/variantName to
+//     AliExpress's name. Variant ids are never changed.
+function planForProduct(variants, fresh, extras = {}) {
   const changes = [];
   const unresolved = [];
+  const clearSkuNames = new Set(extras.clearSkuNames || []);
   (Array.isArray(variants) ? variants : []).forEach((variant, index) => {
     if (!variant || typeof variant !== "object") return;
-    const pick = pickFreshVariantForSaved(variant, fresh);
     const fromSkuId = String(variant.sourceSkuId || "");
+    if (clearSkuNames.has(variant.name)) {
+      const owner = fresh.find((f) => String(f.skuId) === fromSkuId);
+      changes.push({ type: "clear_sku", index, name: variant.name, fromSkuId, toSkuId: "", why: "admin: not on AliExpress", oldSkuBelongsTo: owner ? owner.name : "(not on AliExpress)" });
+      return;
+    }
+    const pick = pickFreshVariantForSaved(variant, fresh);
+    if (!pick.fresh && pick.how === "sku_name_mismatch" && extras.renameToAliExpress) {
+      const owner = fresh.find((f) => String(f.skuId) === fromSkuId);
+      changes.push({ type: "rename", index, name: variant.name, fromSkuId, toSkuId: fromSkuId, toName: owner.name, why: "admin: seller renamed on AliExpress" });
+      return;
+    }
     if (pick.fresh && (pick.how === "name_sku_mismatch" || pick.how === "name_sku_changed")) {
       const owner = fresh.find((f) => String(f.skuId) === fromSkuId);
       changes.push({
+        type: "sku",
         index,
         name: variant.name,
         fromSkuId,
@@ -92,6 +111,14 @@ async function main() {
   const apply = process.argv.includes("--apply");
   const ids = arg("products", "").split(",").map((s) => s.trim()).filter(Boolean);
   const targets = ids.length ? ids : DEFAULT_PRODUCTS;
+  // --clear-sku=<sourceProductId>:<exact variant name>   (repeatable)
+  const clearSku = process.argv.filter((a) => a.startsWith("--clear-sku=")).map((a) => {
+    const value = a.slice("--clear-sku=".length);
+    const sep = value.indexOf(":");
+    return { sourceProductId: value.slice(0, sep), name: value.slice(sep + 1) };
+  });
+  // --rename-to-aliexpress=<sourceProductId>   (repeatable)
+  const renameTargets = new Set(process.argv.filter((a) => a.startsWith("--rename-to-aliexpress=")).map((a) => a.slice("--rename-to-aliexpress=".length)));
 
   admin.initializeApp({ projectId: "chalakchar-mart" });
   const db = admin.firestore();
@@ -105,13 +132,20 @@ async function main() {
     }
     const doc = snap.docs[0];
     const data = doc.data();
-    const plan = planForProduct(data.variants, await freshVariants(sourceProductId));
+    const plan = planForProduct(data.variants, await freshVariants(sourceProductId), {
+      clearSkuNames: clearSku.filter((c) => c.sourceProductId === sourceProductId).map((c) => c.name),
+      renameToAliExpress: renameTargets.has(sourceProductId),
+    });
     plans.push({ productId: doc.id, sourceProductId, name: data.name, variants: data.variants, ...plan });
   }
 
   for (const p of plans) {
     console.log(`\n${p.name.slice(0, 60)} (${p.sourceProductId}) — ${p.changes.length} change(s), ${p.unresolved.length} unresolved${p.duplicates.length ? `, DUPLICATE SKUs ${p.duplicates.join(",")} — product skipped` : ""}`);
-    p.changes.forEach((c) => console.log(`  [${c.index}] "${c.name}": ${c.fromSkuId} (AliExpress: "${c.oldSkuBelongsTo}") -> ${c.toSkuId}  [${c.why}]`));
+    p.changes.forEach((c) => {
+      if (c.type === "rename") console.log(`  [${c.index}] RENAME "${c.name}" -> "${c.toName}" (SKU ${c.fromSkuId} unchanged)  [${c.why}]`);
+      else if (c.type === "clear_sku") console.log(`  [${c.index}] "${c.name}": REMOVE sourceSkuId ${c.fromSkuId} (AliExpress: "${c.oldSkuBelongsTo}")  [${c.why}]`);
+      else console.log(`  [${c.index}] "${c.name}": ${c.fromSkuId} (AliExpress: "${c.oldSkuBelongsTo}") -> ${c.toSkuId}  [${c.why}]`);
+    });
     p.unresolved.forEach((u) => console.log(`  [${u.index}] "${u.name}": left as ${u.sourceSkuId} (${u.reason})`));
   }
   const total = plans.reduce((n, p) => n + (p.duplicates.length ? 0 : p.changes.length), 0);
@@ -133,7 +167,15 @@ async function main() {
       for (const c of p.changes) {
         const v = variants[c.index];
         if (!v || v.name !== c.name || String(v.sourceSkuId || "") !== c.fromSkuId) continue; // changed since planning
-        v.sourceSkuId = c.toSkuId;
+        if (c.type === "rename") {
+          v.name = c.toName;
+          v.unit = c.toName;
+          v.variantName = c.toName;
+        } else if (c.type === "clear_sku") {
+          delete v.sourceSkuId;
+        } else {
+          v.sourceSkuId = c.toSkuId;
+        }
         count += 1;
       }
       if (count) tx.update(ref, { variants, variantSkuRepairedAt: admin.firestore.FieldValue.serverTimestamp() });
