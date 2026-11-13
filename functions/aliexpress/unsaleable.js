@@ -21,7 +21,7 @@
 // FieldValue.serverTimestamp()) so it is unit-testable without Firestore.
 // -----------------------------------------------------------------------------
 
-const { matchAliExpressVariant } = require("./variantMatch");
+const { pickFreshVariantForSaved, withSourceSkuIds } = require("./variantMatch");
 
 const UNSALEABLE_RSP_CODE = "604";
 const UNSALEABLE_MESSAGE_PATTERN = /all\s*sku\s*unsaleable/i;
@@ -91,20 +91,17 @@ function buildUnsaleableUpdate(productData, now) {
  * @returns {{ variants: object[], matched: number, unmatched: number }}
  */
 function restoreVariantStock(savedVariants, freshVariants) {
-  const fresh = (Array.isArray(freshVariants) ? freshVariants : []).map((v) => {
-    const item = v && typeof v === "object" ? v : {};
-    const skuId = textValue(item.skuId);
-    return skuId && !textValue(item.sourceSkuId) ? { ...item, sourceSkuId: skuId } : item;
-  });
+  const fresh = withSourceSkuIds(freshVariants);
 
   let matched = 0;
   let unmatched = 0;
   const variants = (Array.isArray(savedVariants) ? savedVariants : []).map((variant) => {
     if (!variant || typeof variant !== "object") return variant;
-    const result = matchAliExpressVariant(variant, fresh);
-    if (result.matched && !result.ambiguous) {
+    // SKU and name must agree (some imports saved another variant's SKU).
+    const pick = pickFreshVariantForSaved(variant, fresh);
+    if (pick.fresh) {
       matched += 1;
-      return { ...variant, stock: toStock(result.matched.stock) };
+      return { ...variant, stock: toStock(pick.fresh.stock) };
     }
     unmatched += 1;
     return { ...variant, stock: 0 };

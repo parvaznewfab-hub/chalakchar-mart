@@ -61,6 +61,11 @@ const {
   buildSaleableAgainUpdate,
   buildUnsaleableChangeNote,
 } = require("./aliexpress/unsaleable");
+const {
+  SYNC_MARKETING_SUPPRESSED_FIELD,
+  buildVariantRefreshUpdate,
+  isSyncDiscountMarketingSuppressed,
+} = require("./aliexpress/variantRefresh");
 const { resolveProductTaxonomy } = require("./category/resolveProductTaxonomy");
 const { matchCategoryByKeyword } = require("./category/aliExpressCategoryKeywords");
 const {
@@ -2934,7 +2939,13 @@ function aliExpressSyncHasRealChange(existing, updates) {
 // so a previously-saved exact date is never overwritten by a synthetic
 // deliveryDays-derived date, and is never erased just because AliExpress
 // temporarily returned no delivery data this run.
-async function syncAliExpressProduct(productSnap, importSettings) {
+// options.dryRun: compute everything, write nothing (no product update, no
+//   category self-heal — it can create category docs — and the caller sends
+//   no notes). Returns before/after values for reporting instead.
+// options.suppressDiscountMarketing: stamp this write so onProductStockUpdated
+//   skips wishlist-discount notifications for it (see variantRefresh.js).
+async function syncAliExpressProduct(productSnap, importSettings, options = {}) {
+  const dryRun = options.dryRun === true;
   const productData = productSnap.data() || {};
   const sourceProductId = textValue(productData.sourceProductId);
   if (!sourceProductId) {
@@ -2954,6 +2965,7 @@ async function syncAliExpressProduct(productSnap, importSettings) {
     // stock and flag for review instead of counting a failure — see
     // aliexpress/unsaleable.js. Price and isActive are left untouched.
     const { update, newlyUnsaleable } = buildUnsaleableUpdate(productData, admin.firestore.FieldValue.serverTimestamp());
+    if (dryRun) return { changed: newlyUnsaleable, unsaleable: true, newlyUnsaleable, dryRun: true };
     await productSnap.ref.update({
       ...update,
       lastSyncedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -3009,7 +3021,7 @@ async function syncAliExpressProduct(productSnap, importSettings) {
   // needsCategoryReview flag itself. This is the ONLY category-related
   // write this function makes; every other product's category/categoryId/
   // subcategoryId stays untouched exactly as before.
-  if (!productData.categoryId && productData.needsCategoryReview === true) {
+  if (!dryRun && !productData.categoryId && productData.needsCategoryReview === true) {
     try {
       const resolvedCategory = await resolveAliExpressCategoryName(db, {
         title: textValue(fresh.name || productData.name),
@@ -3053,35 +3065,102 @@ async function syncAliExpressProduct(productSnap, importSettings) {
     });
   }
 
-  const changed = aliExpressSyncHasRealChange(productData, updates);
+  // Per-variant refresh (unless variantSyncEnabled:false): variant price/
+  // stock from AliExpress by exact SKU, with the same price rule the import
+  // used; product stock/price then derived from the saved variants. Runs
+  // after saleableAgain so its fuller result (stock + price) wins.
+  const priceForFreshVariant = (variant) => {
+    const price = applyImportPriceRule(variant.price, variant.price, importSettings, shippingCostBDT);
+    return {
+      price,
+      mrp: Math.max(price, applyImportPriceRule(variant.mrp ?? variant.price, variant.price, importSettings, shippingCostBDT)),
+    };
+  };
+  const variantRefresh = buildVariantRefreshUpdate(productData, fresh.variants, priceForFreshVariant);
+  if (variantRefresh) {
+    Object.assign(updates, variantRefresh.update);
+    for (const key of variantRefresh.omit) delete updates[key];
+  }
+
+  // variants is an array (always !== by reference), so it's compared via the
+  // refresh's own per-variant diff instead of aliExpressSyncHasRealChange.
+  const { variants: _variants, ...comparableUpdates } = updates;
+  const variantsChanged = variantRefresh ? variantRefresh.changes.length > 0 : Boolean(saleableAgain?.update?.variants);
+  const changed = aliExpressSyncHasRealChange(productData, comparableUpdates) || variantsChanged;
+
+  if (dryRun) {
+    return {
+      changed,
+      dryRun: true,
+      saleableAgain: Boolean(saleableAgain),
+      variantSyncApplied: Boolean(variantRefresh),
+      productBefore: { price: importNumber(productData.price, 0), oldPrice: importNumber(productData.oldPrice, 0), stock: importInteger(productData.stock, 0) },
+      productAfter: { price: importNumber(updates.price, 0), oldPrice: importNumber(updates.oldPrice, 0), stock: importInteger(updates.stock, 0) },
+      variantChanges: variantRefresh ? variantRefresh.changes : [],
+      variantsMissing: variantRefresh ? variantRefresh.missing : [],
+      variantsUnresolved: variantRefresh ? variantRefresh.unresolved : [],
+      variantsMatchedBy: variantRefresh ? variantRefresh.matchedBy : {},
+    };
+  }
 
   updates.lastSyncedAt = admin.firestore.FieldValue.serverTimestamp();
   updates.lastPriceSyncAt = admin.firestore.FieldValue.serverTimestamp();
   updates.lastStockSyncAt = admin.firestore.FieldValue.serverTimestamp();
   updates.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+  if (options.suppressDiscountMarketing === true) {
+    updates[SYNC_MARKETING_SUPPRESSED_FIELD] = admin.firestore.FieldValue.serverTimestamp();
+  }
 
   await productSnap.ref.update(updates);
   logger.info(`AliExpress sync: product ${changed ? "updated" : "unchanged"}`, {
     productId: productSnap.id,
     sourceProductId,
-    price: finalPrice,
-    oldPrice: finalMrp,
-    stock,
+    price: updates.price,
+    oldPrice: updates.oldPrice,
+    stock: updates.stock,
     deliverySyncStatus: updates.deliverySyncStatus,
     deliverySourceField: updates.deliverySourceField,
+    variantSyncApplied: Boolean(variantRefresh),
+    variantsChanged: variantRefresh ? variantRefresh.changes.length : 0,
+    variantsMissing: variantRefresh ? variantRefresh.missing.length : 0,
+    variantsUnresolved: variantRefresh ? variantRefresh.unresolved.length : 0,
+    variantsMatchedBy: variantRefresh ? variantRefresh.matchedBy : {},
     changed,
   });
-  return { changed, saleableAgain: Boolean(saleableAgain) };
+  return {
+    changed,
+    saleableAgain: Boolean(saleableAgain),
+    variantsChanged: variantRefresh ? variantRefresh.changes.length : 0,
+  };
 }
 
 // Single shared sync core used by BOTH the manual HTTP endpoint and the
 // scheduled job below — there is intentionally only one implementation of
 // the query+batch+log loop.
-async function runAliExpressSync({ requireSyncEnabled }) {
+// settings/app.importSettings flag: when true, the next REAL (non-dry) sync
+// run stamps its writes so onProductStockUpdated skips wishlist-discount
+// notifications, then clears the flag itself. Set before the first run of the
+// variant refresh, whose corrected prices would otherwise look like discounts.
+const SYNC_SUPPRESS_DISCOUNT_MARKETING_ONCE_KEY = "aliexpressSyncSuppressDiscountMarketingOnce";
+
+async function readSyncSuppressDiscountMarketingOnce() {
+  const snap = await db.collection("settings").doc("app").get();
+  const root = snap.exists ? mapValue(snap.data()) : {};
+  return mapValue(root.importSettings)[SYNC_SUPPRESS_DISCOUNT_MARKETING_ONCE_KEY] === true;
+}
+
+async function runAliExpressSync({ requireSyncEnabled, dryRun = false, onlySourceProductIds = null }) {
   let query = db.collection("products").where("source", "==", "aliexpress");
   if (requireSyncEnabled) query = query.where("syncEnabled", "==", true);
   const snapshot = await query.get();
-  const docs = snapshot.docs;
+  // onlySourceProductIds: dry-run-only narrowing (local dry-run script), so a
+  // few products can be re-checked without a full run.
+  const only = dryRun && Array.isArray(onlySourceProductIds) && onlySourceProductIds.length
+    ? new Set(onlySourceProductIds.map(String))
+    : null;
+  const docs = only
+    ? snapshot.docs.filter((d) => only.has(textValue(d.data()?.sourceProductId)))
+    : snapshot.docs;
   const totalChecked = docs.length;
   let updated = 0;
   let unchanged = 0;
@@ -3091,8 +3170,11 @@ async function runAliExpressSync({ requireSyncEnabled }) {
   const errors = [];
   const newlyUnsaleableProducts = [];
   const saleableAgainProducts = [];
+  const dryRunProducts = [];
+  let variantsChanged = 0;
 
-  logger.info("AliExpress sync: starting", { totalChecked, requireSyncEnabled });
+  const suppressDiscountMarketing = !dryRun && await readSyncSuppressDiscountMarketingOnce();
+  logger.info("AliExpress sync: starting", { totalChecked, requireSyncEnabled, dryRun, suppressDiscountMarketing });
   const importSettings = await marketplaceImportSettings("aliexpress");
 
   for (let i = 0; i < docs.length; i += ALIEXPRESS_SYNC_BATCH_SIZE) {
@@ -3105,7 +3187,7 @@ async function runAliExpressSync({ requireSyncEnabled }) {
 
     await Promise.all(batch.map(async (docSnap) => {
       try {
-        const result = await syncAliExpressProduct(docSnap, importSettings);
+        const result = await syncAliExpressProduct(docSnap, importSettings, { dryRun, suppressDiscountMarketing });
         const productRef = {
           productId: docSnap.id,
           sourceProductId: textValue(docSnap.data()?.sourceProductId),
@@ -3117,6 +3199,23 @@ async function runAliExpressSync({ requireSyncEnabled }) {
         } else {
           if (result.changed) updated++; else unchanged++;
           if (result.saleableAgain) saleableAgainProducts.push(productRef);
+          variantsChanged += dryRun ? result.variantChanges.length : (result.variantsChanged || 0);
+        }
+        if (dryRun) {
+          dryRunProducts.push({
+            ...productRef,
+            isActive: docSnap.data()?.isActive === true,
+            unsaleable: Boolean(result.unsaleable),
+            ...(result.unsaleable ? {} : {
+              variantSyncApplied: result.variantSyncApplied,
+              productBefore: result.productBefore,
+              productAfter: result.productAfter,
+              variantChanges: result.variantChanges,
+              variantsMissing: result.variantsMissing,
+              variantsUnresolved: result.variantsUnresolved,
+              variantsMatchedBy: result.variantsMatchedBy,
+            }),
+          });
         }
       } catch (error) {
         const entry = {
@@ -3147,10 +3246,26 @@ async function runAliExpressSync({ requireSyncEnabled }) {
     unsaleable,
     newlyUnsaleable: newlyUnsaleableProducts.length,
     saleableAgain: saleableAgainProducts.length,
+    variantsChanged,
     skipped,
     failed,
+    dryRun,
   };
   logger.info("AliExpress sync: completed", summary);
+
+  if (dryRun) {
+    return { ...summary, errors, newlyUnsaleableProducts, saleableAgainProducts, products: dryRunProducts };
+  }
+
+  // One-shot: clear the suppression flag once a real run has used it.
+  if (suppressDiscountMarketing) {
+    try {
+      await db.collection("settings").doc("app").update({ [`importSettings.${SYNC_SUPPRESS_DISCOUNT_MARKETING_ONCE_KEY}`]: false });
+      logger.info("AliExpress sync: discount-marketing suppression used and cleared");
+    } catch (error) {
+      logger.error("AliExpress sync: could not clear discount-marketing suppression flag", { message: error.message || String(error) });
+    }
+  }
 
   // One admin note per run, only when some product changed availability.
   // Never fails the sync.
@@ -3176,7 +3291,10 @@ exports.aliexpressSyncAllProducts = onRequest(
       if (!expectedKey || !secureKeyEquals(extractImportApiKey(req), expectedKey)) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
       // Manual/admin-triggered: syncs every AliExpress product regardless of
       // syncEnabled, since an explicit admin action overrides that flag.
-      const result = await runAliExpressSync({ requireSyncEnabled: false });
+      // dryRun:true (body or ?dryRun=true) reports per-variant changes and
+      // writes nothing.
+      const dryRun = boolValue(mapValue(req.body).dryRun ?? req.query?.dryRun, false);
+      const result = await runAliExpressSync({ requireSyncEnabled: false, dryRun });
       return res.status(200).json({ ok: true, ...result });
     } catch (error) {
       logger.error("AliExpress sync all failed", { message: error.message, code: error.code || "" });
@@ -3184,6 +3302,16 @@ exports.aliexpressSyncAllProducts = onRequest(
     }
   })
 );
+
+// Local-only, read-only hook for functions/scripts/aliexpressSyncDryRun.js:
+// lets the sync's dry run be checked against live data BEFORE deploying new
+// sync code. Only exported when that script sets the env var (never during
+// `firebase deploy`, which loads this file without it), and hard-wired to
+// dryRun:true so it cannot write.
+if (process.env.CHALAKCHAR_LOCAL_SYNC_DRY_RUN === "1") {
+  exports.__localAliExpressSyncDryRun = (onlySourceProductIds = null) =>
+    runAliExpressSync({ requireSyncEnabled: true, dryRun: true, onlySourceProductIds });
+}
 
 // -----------------------------------------------------------------------------
 // Scheduled AliExpress job overlap lock — shared by aliexpressScheduledSync
@@ -4431,7 +4559,15 @@ exports.onProductStockUpdated = onDocumentUpdated("products/{productId}", async 
   const beforeDiscount = discountPercentFromProduct(before);
   const afterDiscount = discountPercentFromProduct(after);
 
-  if (afterDiscount >= 5 && afterDiscount > beforeDiscount) {
+  // A sync write stamped for one-shot suppression (see
+  // aliexpressSyncSuppressDiscountMarketingOnce) never sends discount
+  // notifications; later admin edits are unaffected.
+  const discountMarketingSuppressed = isSyncDiscountMarketingSuppressed(before, after);
+  if (discountMarketingSuppressed && afterDiscount >= 5 && afterDiscount > beforeDiscount) {
+    logger.info("Wishlist discount marketing suppressed for sync write", { productId, afterDiscount, beforeDiscount });
+  }
+
+  if (!discountMarketingSuppressed && afterDiscount >= 5 && afterDiscount > beforeDiscount) {
     const discountKey = `discount_${afterDiscount}`;
 
     if (after.lastDiscountMarketingKey !== discountKey) {

@@ -107,3 +107,41 @@ describe("withSourceSkuIds", () => {
     assert.ok(result.matched);
   });
 });
+
+describe("pickFreshVariantForSaved (SKU and name must agree)", () => {
+  const { pickFreshVariantForSaved } = require("../aliexpress/variantMatch");
+  const fresh = [
+    { skuId: "A", name: "16 Pro 128g No Face", price: 276.76 },
+    { skuId: "B", name: "16 128g No Face", price: 200 },
+    { skuId: "C", name: "16 Pro 256g No Face", price: 297.16 },
+  ];
+
+  test("SKU match with the same name is used", () => {
+    const pick = pickFreshVariantForSaved({ sourceSkuId: "B", name: "16 128g No Face" }, fresh);
+    assert.equal(pick.how, "sku");
+    assert.equal(pick.fresh.skuId, "B");
+  });
+
+  test("live case: saved SKU belongs to another variant -> use the unique same-name variant instead", () => {
+    // Saved "16 128g No Face" carried the SKU of "16 Pro 128g No Face".
+    const pick = pickFreshVariantForSaved({ sourceSkuId: "A", name: "16 128g No Face" }, fresh);
+    assert.equal(pick.how, "name_sku_mismatch");
+    assert.equal(pick.fresh.skuId, "B");
+  });
+
+  test("SKU points elsewhere and no variant has the saved name -> not used", () => {
+    const pick = pickFreshVariantForSaved({ sourceSkuId: "A", name: "Renamed by admin" }, fresh);
+    assert.equal(pick.how, "sku_name_mismatch");
+    assert.equal(pick.fresh, null);
+  });
+
+  test("SKU gone but the name exists under a new SKU -> used; neither -> not_on_aliexpress", () => {
+    assert.equal(pickFreshVariantForSaved({ sourceSkuId: "Z", name: "16 pro 256G  no face" }, fresh).how, "name_sku_changed");
+    assert.equal(pickFreshVariantForSaved({ sourceSkuId: "Z", name: "Nothing like it" }, fresh).how, "not_on_aliexpress");
+  });
+
+  test("duplicate names are ambiguous, never guessed", () => {
+    const dup = [...fresh, { skuId: "D", name: "16 128g No Face" }];
+    assert.equal(pickFreshVariantForSaved({ sourceSkuId: "Z", name: "16 128g No Face" }, dup).how, "ambiguous");
+  });
+});

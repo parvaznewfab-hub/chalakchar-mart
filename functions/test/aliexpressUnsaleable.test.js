@@ -103,13 +103,27 @@ describe("restoreVariantStock", () => {
     assert.equal(variants[0].image, "img_111", "saved image is preserved");
   });
 
-  test("a SKU AliExpress no longer returns stays at 0 (never matched by index or fuzzy name)", () => {
+  test("a variant gone from AliExpress (no SKU, no exact name) stays at 0 — never matched by index or fuzzy name", () => {
     const saved = [savedVariant("111", "Black", 0), savedVariant("999", "Red", 0)];
-    const fresh = [freshVariant("111", "Black", 4), freshVariant("555", "Red", 9)];
+    const fresh = [freshVariant("111", "Black", 4), freshVariant("555", "Dark Red", 9)];
     const { variants, matched, unmatched } = restoreVariantStock(saved, fresh);
     assert.deepEqual(variants.map((v) => v.stock), [4, 0]);
     assert.equal(matched, 1);
     assert.equal(unmatched, 1);
+  });
+
+  test("SKU replaced but the exact same name exists once -> that variant's stock is used", () => {
+    const saved = [savedVariant("999", "Red", 0)];
+    const { variants, matched } = restoreVariantStock(saved, [freshVariant("555", "Red", 9)]);
+    assert.equal(variants[0].stock, 9);
+    assert.equal(matched, 1);
+  });
+
+  test("saved SKU belongs to a differently-named variant -> not used (live n8n data issue)", () => {
+    const saved = [savedVariant("A", "16 128g No Face", 0)];
+    const { variants, matched } = restoreVariantStock(saved, [freshVariant("A", "16 Pro 128g No Face", 50)]);
+    assert.equal(variants[0].stock, 0);
+    assert.equal(matched, 0);
   });
 
   test("bad stock values become 0", () => {

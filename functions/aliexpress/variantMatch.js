@@ -75,4 +75,65 @@ function withSourceSkuIds(freshVariants) {
   });
 }
 
-module.exports = { matchAliExpressVariant, cleanVariantNameForMatch, withSourceSkuIds, MATCH_PRIORITY_FIELDS };
+function savedVariantName(variant) {
+  const item = mapValue(variant);
+  return cleanVariantNameForMatch(item.name || item.unit || item.variantName).replace(/\s+/g, " ");
+}
+
+function freshVariantName(variant) {
+  return cleanVariantNameForMatch(mapValue(variant).name).replace(/\s+/g, " ");
+}
+
+/**
+ * Picks the fresh AliExpress variant for one saved variant, requiring the
+ * SKU and the customer-visible name to AGREE.
+ *
+ * Why: some n8n imports saved variants whose sourceSkuId belongs to a
+ * DIFFERENT AliExpress variant (seen live 2026-11-13: 14 of 17 saved
+ * variants on one product, e.g. saved "16 128g No Face" carrying the SKU of
+ * "16 Pro 128g No Face"). A SKU-only match would put that other variant's
+ * price/stock/image on what the customer sees and picks by name.
+ *
+ * Outcomes (`how`):
+ *   "sku"                - SKU matches and names agree: safe.
+ *   "name_sku_mismatch"  - SKU points at a differently-named variant, but
+ *                          exactly one fresh variant has the saved name: use it.
+ *   "name_sku_changed"   - SKU not on AliExpress any more, exactly one fresh
+ *                          variant has the saved name: use it.
+ *   "sku_name_mismatch"  - SKU matches a differently-named variant and no
+ *                          unique name match: do NOT use (leave untouched).
+ *   "ambiguous"          - several candidates: do NOT use.
+ *   "not_on_aliexpress"  - neither SKU nor name found: the variant is gone.
+ *
+ * @param {object} savedVariant
+ * @param {object[]} freshVariants (raw; skuId is enough)
+ * @returns {{ fresh: object|null, how: string }}
+ */
+function pickFreshVariantForSaved(savedVariant, freshVariants) {
+  const saved = mapValue(savedVariant);
+  const fresh = withSourceSkuIds(freshVariants);
+  const sku = textValue(saved.sourceSkuId || saved.skuId);
+  const name = savedVariantName(saved);
+
+  const skuHits = sku ? fresh.filter((f) => textValue(f.sourceSkuId) === sku) : [];
+  const nameHits = name ? fresh.filter((f) => freshVariantName(f) === name) : [];
+
+  if (skuHits.length === 1 && (!name || freshVariantName(skuHits[0]) === name)) {
+    return { fresh: skuHits[0], how: "sku" };
+  }
+  if (skuHits.length > 1) return { fresh: null, how: "ambiguous" };
+  if (nameHits.length === 1) {
+    return { fresh: nameHits[0], how: skuHits.length ? "name_sku_mismatch" : "name_sku_changed" };
+  }
+  if (nameHits.length > 1) return { fresh: null, how: "ambiguous" };
+  if (skuHits.length === 1) return { fresh: null, how: "sku_name_mismatch" };
+  return { fresh: null, how: "not_on_aliexpress" };
+}
+
+module.exports = {
+  matchAliExpressVariant,
+  cleanVariantNameForMatch,
+  withSourceSkuIds,
+  pickFreshVariantForSaved,
+  MATCH_PRIORITY_FIELDS,
+};
