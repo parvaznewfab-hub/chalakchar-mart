@@ -14,6 +14,7 @@ import 'package:flutter/foundation.dart';
 import '../../services/vendor_commission_service.dart';
 import '../../services/product_service.dart';
 import '../../services/guest_cart_service.dart';
+import '../../utils/price_format.dart';
 
 class CartPage extends StatefulWidget {
   const CartPage({super.key});
@@ -777,10 +778,10 @@ class _CartPageState extends State<CartPage> {
           children: [
             _buildSectionHeader('PAYMENT DETAILS'),
             const SizedBox(height: 15),
-            _buildPaymentRow('MRP Total', '৳${totalMrp.toStringAsFixed(2)}'),
+            _buildPaymentRow('MRP Total', formatTaka(totalMrp)),
             _buildPaymentRow(
               'Product Discount',
-              '-৳${totalSavings.toStringAsFixed(2)}',
+              '-${formatTaka(totalSavings)}',
               isDiscount: true,
             ),
             _buildPaymentRow(
@@ -788,7 +789,7 @@ class _CartPageState extends State<CartPage> {
               'Select address after login',
             ),
             const Divider(height: 30),
-            _buildPaymentRow('Cart Subtotal', '৳${finalTotal.toStringAsFixed(2)}', isBold: true),
+            _buildPaymentRow('Cart Subtotal', formatTaka(finalTotal), isBold: true),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(12),
@@ -1185,20 +1186,20 @@ class _CartPageState extends State<CartPage> {
               children: [
                 _buildSectionHeader("PAYMENT DETAILS"),
                 const SizedBox(height: 15),
-                _buildPaymentRow("MRP Total", "৳${totalMrp.toStringAsFixed(2)}"),
+                _buildPaymentRow("MRP Total", formatTaka(totalMrp)),
                 _buildPaymentRow(
                   "Product Discount",
-                  "-৳${(totalMrp - totalAmount).toStringAsFixed(2)}",
+                  "-${formatTaka(totalMrp - totalAmount)}",
                   isDiscount: true,
                 ),
                 if (_couponDiscount > 0)
-                  _buildPaymentRow("Coupon Discount", "-৳${_couponDiscount.toStringAsFixed(2)}", isDiscount: true),
+                  _buildPaymentRow("Coupon Discount", "-${formatTaka(_couponDiscount)}", isDiscount: true),
                 _buildPaymentRow(
                   "Delivery Charge",
-                  _selectedAddressId == null ? "Select address" : "৳${_deliveryCharge.toStringAsFixed(2)}",
+                  _selectedAddressId == null ? "Select address" : formatTaka(_deliveryCharge),
                 ),
                 if (_chalakCharCashUsed > 0)
-                  _buildPaymentRow("ChalakChar Mart Cash Used", "-৳${_chalakCharCashUsed.toStringAsFixed(2)}", isDiscount: true),
+                  _buildPaymentRow("ChalakChar Mart Cash Used", "-${formatTaka(_chalakCharCashUsed)}", isDiscount: true),
                 const SizedBox(height: 15),
                 InkWell(
                   onTap: () => _showCouponDialog(totalAmount),
@@ -1260,7 +1261,7 @@ class _CartPageState extends State<CartPage> {
                     ),
                   ),
                 const Divider(height: 30),
-                _buildPaymentRow("Total Amount", "৳${finalTotal.toStringAsFixed(2)}", isBold: true),
+                _buildPaymentRow("Total Amount", formatTaka(finalTotal), isBold: true),
                 const SizedBox(height: 15),
                 Container(
                   padding: const EdgeInsets.all(12),
@@ -1272,7 +1273,7 @@ class _CartPageState extends State<CartPage> {
                       const Text("Total savings", style: TextStyle(color: Colors.green, fontWeight: FontWeight.w600)),
                       const Spacer(),
                       Text(
-                        "৳${totalSavings.toStringAsFixed(2)}",
+                        formatTaka(totalSavings),
                         style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
                       ),
                     ],

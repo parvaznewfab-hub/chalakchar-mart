@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../utils/price_format.dart';
 
 class CustomerOrderTrackingPage extends StatefulWidget {
   final String orderId;
@@ -462,7 +463,7 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
             child: Text(label, style: TextStyle(fontWeight: bold ? FontWeight.w900 : FontWeight.w500)),
           ),
           Text(
-            '৳${amount.toStringAsFixed(2)}',
+            formatTaka(amount),
             style: TextStyle(
               fontWeight: bold ? FontWeight.w900 : FontWeight.w600,
               color: bold ? Colors.green : null,

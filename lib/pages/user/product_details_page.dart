@@ -18,6 +18,7 @@ import 'package:flutter/foundation.dart';
 import 'package:share_plus/share_plus.dart';
 import 'wishlist_page.dart';
 import 'cart_page.dart';
+import '../../utils/price_format.dart';
 
 class ProductDetailsPage extends StatefulWidget {
   final Map<String, dynamic> data;
@@ -1872,7 +1873,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '৳${totalPrice.toStringAsFixed(2)}',
+                formatTaka(totalPrice),
                 style: const TextStyle(
                   fontWeight: FontWeight.w900,
                   fontSize: 26,
@@ -1905,7 +1906,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
           if (discount > 0) ...[
             const SizedBox(height: 4),
             Text(
-              'MRP ৳${totalOldPrice.toStringAsFixed(2)}',
+              'MRP ${formatTaka(totalOldPrice)}',
               style: const TextStyle(
                   decoration: TextDecoration.lineThrough, color: Colors.grey),
             ),
@@ -2255,7 +2256,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
           _buildSidebarSoldByRow(data),
           const Divider(height: 20),
           if (shippingCost != null)
-            _sidebarValueRow('Shipping', '৳${shippingCost.toStringAsFixed(2)}'),
+            _sidebarValueRow('Shipping', formatTaka(shippingCost)),
           if (delivery.hasEstimate)
             _sidebarValueRow(
               delivery.isEstimateRange ? 'Estimated delivery' : 'Delivery',

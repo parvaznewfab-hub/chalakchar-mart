@@ -6,6 +6,7 @@ import '../../widgets/global_web_header.dart';
 import '../../widgets/global_web_footer.dart';
 import 'package:flutter/foundation.dart';
 import 'customer_order_tracking_page.dart';
+import '../../utils/price_format.dart';
 
 class OrderPage extends StatelessWidget {
   const OrderPage({super.key});
@@ -227,19 +228,19 @@ class OrderPage extends StatelessWidget {
                 const Divider(height: 24),
                 _sectionTitle('PAYMENT BREAKDOWN'),
                 const SizedBox(height: 10),
-                _paymentRow('Subtotal', '৳${totals['totalMrp']!.toStringAsFixed(2)}'),
+                _paymentRow('Subtotal', formatTaka(totals['totalMrp']!)),
                 if (totals['productDiscount']! > 0)
-                  _paymentRow('Product Discount', '-৳${totals['productDiscount']!.toStringAsFixed(2)}', valueColor: Colors.red),
+                  _paymentRow('Product Discount', '-${formatTaka(totals['productDiscount']!)}', valueColor: Colors.red),
                 if (totals['couponDiscount']! > 0)
-                  _paymentRow('Coupon Discount', '-৳${totals['couponDiscount']!.toStringAsFixed(2)}', valueColor: Colors.red),
+                  _paymentRow('Coupon Discount', '-${formatTaka(totals['couponDiscount']!)}', valueColor: Colors.red),
                 if (totals['chalakCharCashUsed']! > 0)
-                  _paymentRow('ChalakChar Cash Used', '-৳${totals['chalakCharCashUsed']!.toStringAsFixed(2)}', valueColor: Colors.red),
-                _paymentRow('After Discount', '৳${totals['subtotalAfterDiscount']!.toStringAsFixed(2)}'),
-                _paymentRow('Delivery Charge', '+৳${totals['deliveryCharge']!.toStringAsFixed(2)}', valueColor: Colors.green),
+                  _paymentRow('ChalakChar Cash Used', '-${formatTaka(totals['chalakCharCashUsed']!)}', valueColor: Colors.red),
+                _paymentRow('After Discount', formatTaka(totals['subtotalAfterDiscount']!)),
+                _paymentRow('Delivery Charge', '+${formatTaka(totals['deliveryCharge']!)}', valueColor: Colors.green),
                 const Divider(height: 18),
                 _paymentRow(
                   'Grand Total',
-                  '৳${totals['grandTotal']!.toStringAsFixed(2)}',
+                  formatTaka(totals['grandTotal']!),
                   isBold: true,
                   valueColor: const Color(0xFF32A8C7),
                 ),
