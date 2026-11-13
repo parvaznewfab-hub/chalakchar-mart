@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../services/guest_cart_service.dart';
 import '../services/product_service.dart';
 import '../services/web_url_service.dart';
+import '../utils/price_format.dart';
 
 class ProductCard extends StatelessWidget {
   final dynamic data;
@@ -20,16 +21,48 @@ class ProductCard extends StatelessWidget {
   static const double gridSpacing = 10;
   static const double gridHorizontalPadding = 12;
 
-  /// Cell height that fits: image + 1-line title + 1-line manufacturer +
-  /// price/add row. Text lines get ~1.4x line-height headroom; the
-  /// manufacturer and price follow the system text scale (the title is a
-  /// RichText, which does not scale).
-  static double gridMainAxisExtent(BuildContext context) {
+  // Text metrics the card height is computed from. Each style sets an
+  // explicit line height, so a line is exactly fontSize * height.
+  static const double _titleFontSize = 13;
+  static const double _titleLineHeight = 1.25;
+  static const int _titleMaxLines = 2;
+  static const double _metaFontSize = 10;
+  static const double _metaLineHeight = 1.3;
+  static const double _priceFontSize = 12;
+  static const double _priceLineHeight = 1.3;
+  static const double _addButtonSize = 26;
+  static const double _contentTopPadding = 5;
+  static const double _contentBottomPadding = 8;
+  static const double _lineGap = 2;
+
+  // Outer margin of the fixed-width (row / Wrap) card.
+  static const EdgeInsets _rowMargin = EdgeInsets.only(right: 12, bottom: 8, top: 4, left: 4);
+
+  /// Exact card height: image + 2-line title + manufacturer line + price row
+  /// + paddings, following the system text scale. Used for grid cells and
+  /// for the fixed-width card itself, so neither leaves empty space.
+  static double cardHeight(BuildContext context) {
     final scaler = MediaQuery.textScalerOf(context);
-    const fixed = imageHeight + 5 + 8 + 2 + 2; // image, paddings, gaps
-    final priceRow = scaler.scale(12) * 1.4 > 26 ? scaler.scale(12) * 1.4 : 26.0;
-    return fixed + 13 * 1.4 + scaler.scale(10) * 1.4 + priceRow;
+    final title = scaler.scale(_titleFontSize) * _titleLineHeight * _titleMaxLines;
+    final meta = scaler.scale(_metaFontSize) * _metaLineHeight;
+    final priceText = scaler.scale(_priceFontSize) * _priceLineHeight;
+    final priceRow = priceText > _addButtonSize ? priceText : _addButtonSize;
+    return (imageHeight +
+            _contentTopPadding +
+            title +
+            _lineGap +
+            meta +
+            _lineGap +
+            priceRow +
+            _contentBottomPadding)
+        .ceilToDouble();
   }
+
+  /// Height of a horizontal list of fixed-width cards (card + its margin).
+  static double rowHeight(BuildContext context) =>
+      cardHeight(context) + _rowMargin.vertical;
+
+  static double gridMainAxisExtent(BuildContext context) => cardHeight(context);
 
   static SliverGridDelegateWithFixedCrossAxisCount gridDelegate(
     BuildContext context, {
@@ -153,6 +186,7 @@ class ProductCard extends StatelessWidget {
     final oldPrice = ProductService.getDisplayMrp(product);
     final stock = ProductService.getStock(product);
     final isOutOfStock = stock <= 0;
+    final discount = discountPercent(price, oldPrice);
 
     return GestureDetector(
       onTap: () {
@@ -171,14 +205,10 @@ class ProductCard extends StatelessWidget {
       },
       child: Container(
         width: gridMode ? double.infinity : cardWidth,
-        margin: gridMode
-            ? EdgeInsets.zero
-            : const EdgeInsets.only(
-                right: 12,
-                bottom: 8,
-                top: 4,
-                left: 4,
-              ),
+        // Grid cells size the card; the fixed-width card sizes itself to the
+        // same computed content height, so rows have no empty space.
+        height: gridMode ? null : cardHeight(context),
+        margin: gridMode ? EdgeInsets.zero : _rowMargin,
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
@@ -191,7 +221,6 @@ class ProductCard extends StatelessWidget {
           ],
         ),
         child: Column(
-          mainAxisSize: gridMode ? MainAxisSize.max : MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
@@ -255,23 +284,52 @@ class ProductCard extends StatelessWidget {
                           ),
                         ),
                       ),
+                    if (discount > 0)
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE53935),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '-$discount%',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
             ),
-            _gridExpanded(Padding(
-              padding: const EdgeInsets.fromLTRB(8, 5, 8, 8),
+            Expanded(child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                8,
+                _contentTopPadding,
+                8,
+                _contentBottomPadding,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  RichText(
-                    maxLines: 1,
+                  Text.rich(
+                    maxLines: _titleMaxLines,
                     overflow: TextOverflow.ellipsis,
-                    text: TextSpan(
+                    TextSpan(
                       style: const TextStyle(
                         color: Colors.black,
                         fontWeight: FontWeight.w700,
-                        fontSize: 13,
+                        fontSize: _titleFontSize,
+                        height: _titleLineHeight,
                       ),
                       children: [
                         TextSpan(text: '$name '),
@@ -288,65 +346,43 @@ class ProductCard extends StatelessWidget {
                     ),
                   ),
                   if (manufacturer.isNotEmpty) ...[
-                    const SizedBox(height: 2),
+                    const SizedBox(height: _lineGap),
                     Text(
                       manufacturer,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 10,
+                        fontSize: _metaFontSize,
+                        height: _metaLineHeight,
                         color: Colors.grey,
                       ),
                     ),
                   ],
-                  const SizedBox(height: 2),
-                  // In a grid cell, pin the price row to the card bottom so
-                  // cards without a manufacturer line still fill the cell.
-                  if (gridMode) const Spacer(),
+                  // Pins the price row to the card bottom; any slack is the
+                  // room reserved for a 1-line title or missing manufacturer.
+                  const Spacer(),
                   Row(
                     children: [
-                      // Shrinks (never clips) a long price on narrow cells /
-                      // large text instead of overflowing the row.
-                      Flexible(
-                        flex: 3,
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            '৳${price.toStringAsFixed(2)}',
-                            maxLines: 1,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: primaryColor,
-                              fontSize: 12,
-                            ),
+                      Expanded(
+                        child: _PriceWithMrp(
+                          price: price,
+                          mrp: oldPrice,
+                          priceStyle: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: primaryColor,
+                            fontSize: _priceFontSize,
+                            height: _priceLineHeight,
                           ),
                         ),
                       ),
                       const SizedBox(width: 4),
-                      if (oldPrice > price)
-                        Expanded(
-                          flex: 2,
-                          child: Text(
-                            '৳${oldPrice.toStringAsFixed(2)}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              decoration: TextDecoration.lineThrough,
-                              fontSize: 9,
-                              color: Colors.grey,
-                            ),
-                          ),
-                        )
-                      else
-                        const Spacer(),
                       GestureDetector(
                         onTap: isOutOfStock
                             ? null
                             : () => _addToCart(context, product, imageKey),
                         child: Container(
-                          height: 26,
-                          width: 26,
+                          height: _addButtonSize,
+                          width: _addButtonSize,
                           decoration: BoxDecoration(
                             color: isOutOfStock ? Colors.grey : primaryColor,
                             borderRadius: BorderRadius.circular(6),
@@ -369,6 +405,82 @@ class ProductCard extends StatelessWidget {
     );
   }
 
-  Widget _gridExpanded(Widget child) =>
-      gridMode ? Expanded(child: child) : child;
+}
+
+/// Price, then the strikethrough MRP only when it fully fits; otherwise the
+/// MRP is dropped (the image badge still shows the discount). A price that
+/// is too wide on its own is scaled down rather than clipped.
+class _PriceWithMrp extends StatelessWidget {
+  const _PriceWithMrp({
+    required this.price,
+    required this.mrp,
+    required this.priceStyle,
+  });
+
+  final double price;
+  final double mrp;
+  final TextStyle priceStyle;
+
+  static const TextStyle _mrpStyle = TextStyle(
+    decoration: TextDecoration.lineThrough,
+    fontSize: 9,
+    color: Colors.grey,
+  );
+  static const double _gap = 4;
+  static const double _fitSlack = 2;
+
+  @override
+  Widget build(BuildContext context) {
+    final priceText = formatTaka(price);
+    final showMrp = mrp > price;
+    final mrpText = showMrp ? formatTaka(mrp) : '';
+
+    // On web the "৳" glyph comes from a fallback font that loads after the
+    // first layout; re-measure when fonts arrive, or the decision made with
+    // the narrower pre-load metrics would let the MRP overlap the button.
+    return ListenableBuilder(
+      listenable: PaintingBinding.instance.systemFonts,
+      builder: (context, _) => LayoutBuilder(
+      builder: (context, constraints) {
+        final scaler = MediaQuery.textScalerOf(context);
+        double widthOf(String text, TextStyle style) {
+          final painter = TextPainter(
+            text: TextSpan(text: text, style: style),
+            maxLines: 1,
+            textDirection: TextDirection.ltr,
+            textScaler: scaler,
+          )..layout();
+          final width = painter.width;
+          painter.dispose();
+          return width;
+        }
+
+        final priceWidget = Text(priceText, maxLines: 1, softWrap: false, style: priceStyle);
+        // A couple of px of slack absorbs sub-pixel rounding differences.
+        final fitsWithMrp = showMrp &&
+            widthOf(priceText, priceStyle) + _gap + widthOf(mrpText, _mrpStyle) + _fitSlack <=
+                constraints.maxWidth;
+
+        if (fitsWithMrp) {
+          return Row(
+            children: [
+              priceWidget,
+              const SizedBox(width: _gap),
+              Text(mrpText, maxLines: 1, softWrap: false, style: _mrpStyle),
+            ],
+          );
+        }
+
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: priceWidget,
+          ),
+        );
+      },
+      ),
+    );
+  }
 }

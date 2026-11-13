@@ -55,7 +55,9 @@ class CategorySection extends StatelessWidget {
         ),
 
         SizedBox(
-          height: 205,
+          // Exactly one card (computed from its content and text scale) plus
+          // its margin, so there is no empty space under the price row.
+          height: ProductCard.rowHeight(context),
           child: StreamBuilder(
             stream: FirebaseService.getProducts(title, limit: limit),
             builder: (context, snapshot) {
