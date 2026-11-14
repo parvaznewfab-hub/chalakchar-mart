@@ -69,6 +69,34 @@ class CategoryService {
     });
   }
 
+  static Future<Map<String, int>>? _liveCountCache;
+
+  /// Live product count (isActive + approved, as customers see them) per
+  /// active subcategory id. One count() aggregation per subcategory, once
+  /// per app session; a failed load is not cached.
+  static Future<Map<String, int>> liveProductCountsBySubcategory() {
+    return _liveCountCache ??= _loadLiveCounts().catchError((Object e) {
+      _liveCountCache = null;
+      throw e;
+    });
+  }
+
+  static Future<Map<String, int>> _loadLiveCounts() async {
+    final grouped = await activeSubcategoriesByCategory();
+    final subs = grouped.values.expand((list) => list).toList();
+    final counts = await Future.wait(subs.map((sub) async {
+      final agg = await _db
+          .collection('products')
+          .where('subcategoryId', isEqualTo: sub.id)
+          .where('isActive', isEqualTo: true)
+          .where('approvalStatus', isEqualTo: 'approved')
+          .count()
+          .get();
+      return MapEntry(sub.id, agg.count ?? 0);
+    }));
+    return Map.fromEntries(counts);
+  }
+
   static Future<Map<String, List<SubcategoryModel>>> _loadSubcategories() async {
     final snapshot = await _db.collection('subcategories').get();
     final grouped = <String, List<SubcategoryModel>>{};

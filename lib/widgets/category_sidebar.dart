@@ -35,7 +35,24 @@ class _CategorySidebarState extends State<CategorySidebar> {
   late final Stream<List<CategoryModel>> _categories =
       CategoryService.watchHomeCategories();
   final Future<Map<String, List<SubcategoryModel>>> _subcategories =
-      CategoryService.activeSubcategoriesByCategory();
+      _subcategoriesWithProducts();
+
+  /// Same rule as the category page's chip row: a subcategory with no live
+  /// products is not listed. If the counts can't be loaded, every active
+  /// subcategory is listed rather than none.
+  static Future<Map<String, List<SubcategoryModel>>> _subcategoriesWithProducts() async {
+    final grouped = await CategoryService.activeSubcategoriesByCategory();
+    final Map<String, int> counts;
+    try {
+      counts = await CategoryService.liveProductCountsBySubcategory();
+    } catch (_) {
+      return grouped;
+    }
+    return {
+      for (final entry in grouped.entries)
+        entry.key: entry.value.where((sub) => (counts[sub.id] ?? 0) > 0).toList(),
+    };
+  }
 
   late final Set<String> _expanded = {
     if (widget.activeCategoryId != null) widget.activeCategoryId!,
