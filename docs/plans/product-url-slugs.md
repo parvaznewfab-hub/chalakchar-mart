@@ -13,15 +13,17 @@ ID রিনেম করলে এগুলো সব একসাথে migrat
 
 ## URL-এর গঠন
 `/product/{slug}-{code}`, যেমন `/product/netac-sata-ssd-128gb-2-5-inch-k7f3qa`
-- `slug`: নাম থেকে বানানো, ছোট হাতের অক্ষর আর `-`, সর্বোচ্চ ~৬০ অক্ষর। "aliexpress"/"china" শব্দ বাদ যাবে।
+- `slug`: শুধু প্রোডাক্টের নাম থেকে বানানো, ছোট হাতের অক্ষর আর `-`, সর্বোচ্চ ~৬০ অক্ষর। **স্লাগে উৎস বা সাপ্লায়ারের কোনো চিহ্ন থাকবে না:** "aliexpress", "imp", "china" বা doc ID-র কোনো অংশ নয় (নামের মধ্যে থাকলেও বাদ যাবে)। স্লাগে থাকবে শুধু নাম আর শেষে স্থির কোড।
 - `code`: doc ID-র ৬ অক্ষরের স্থির hash (base36)। এতে দুটো প্রোডাক্টের নাম এক হলেও URL আলাদা থাকে, আর নাম বদলালেও কোড একই থাকে।
-- `products.urlSlug`-এ পুরো স্ট্রিং রাখা হবে, সাথে single-field index (`where urlSlug ==`)। নাম বদলালেও `urlSlug` বদলাবে না, এতে লিংক স্থির থাকে। বদলাতে চাইলে অ্যাডমিন নিজে বদলাবে, আর পুরনো slug `previousUrlSlugs`-এ রেখে 301 দেওয়া হবে।
+- `products.urlSlug`-এ পুরো স্ট্রিং রাখা হবে, সাথে single-field index (`where urlSlug ==`)।
+- **প্রোডাক্টের নাম বদলালেও `urlSlug` বদলাবে না।** অ্যাডমিন সেভ, sync, AI optimize বা ইমপোর্টের কোনোটাই বিদ্যমান `urlSlug`-এ হাত দেবে না, এতে লিংক স্থির থাকে।
+- বদলাতেই হলে (শুধু অ্যাডমিন নিজে) পুরনো স্লাগ `previousSlugs` array-তে যোগ হবে আর পুরনো URL **301** দিয়ে নতুনটায় যাবে। `previousSlugs`-এর কোনো মান কখনো মোছা হবে না।
 
 ## পুরনো লিংক → 301 redirect
 - `firebase.json`-এ `/product/**` আগে থেকেই `productSeo`-তে rewrite হয়। এতে কোনো বদল লাগবে না।
 - `productSeo`-এর resolve ক্রম:
   1. `urlSlug == path` মিললে 200 দিয়ে স্বাভাবিক SEO HTML।
-  2. `previousUrlSlugs array-contains path` মিললে **301** দিয়ে বর্তমান slug-এ পাঠানো।
+  2. `previousSlugs array-contains path` মিললে **301** দিয়ে বর্তমান slug-এ পাঠানো।
   3. path যদি কোনো doc ID হয় (পুরনো `imp_aliexpress_…` বা হাতে বানানো প্রোডাক্টের ID), আর সেই প্রোডাক্টের `urlSlug` থাকে, তাহলে **301** দিয়ে `/product/{urlSlug}`-এ পাঠানো। `urlSlug` না থাকলে 200, যাতে ব্যাকফিলের আগে কিছু না ভাঙে।
   4. কিছুই না মিললে 404 পেজ।
 - 301-এ `Cache-Control: public, max-age=3600` থাকবে। query string রেখে দিতে হবে (যেমন `?ref=`)।
