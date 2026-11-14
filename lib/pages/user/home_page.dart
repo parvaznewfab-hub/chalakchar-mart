@@ -14,6 +14,7 @@ import 'my_lists_page.dart';
 import '../../widgets/global_web_header.dart';
 import '../../widgets/global_web_footer.dart';
 import '../../widgets/category_sidebar.dart';
+import '../../widgets/home_category_grid.dart';
 import '../../widgets/collection_banner_card.dart';
 import 'profile/my_address_page.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -719,36 +720,30 @@ class _ProductHomePageState extends State<ProductHomePage> {
 
                     const SizedBox(height: 20),
 
-                    SizedBox(
-                      height: 180,
-                      child: StreamBuilder<List<CategoryModel>>(
-                        stream: CategoryService.watchHomeCategories(),
-                        builder: (context, snapshot) {
-                          if (snapshot.connectionState == ConnectionState.waiting) {
-                            return const SizedBox();
-                          }
+                    StreamBuilder<List<CategoryModel>>(
+                      stream: CategoryService.watchHomeCategories(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const SizedBox();
+                        }
 
-                          if (snapshot.hasError) {
-                            return Center(
-                              child: Text(
-                                'Category error: ${snapshot.error}',
-                                style: const TextStyle(fontSize: 12, color: Colors.red),
-                              ),
-                            );
-                          }
-
-                          final categories = snapshot.data ?? const <CategoryModel>[];
-                          if (categories.isEmpty) return const SizedBox();
-
-                          return ListView.builder(
-                            scrollDirection: Axis.horizontal,
-                            itemCount: categories.length,
-                            itemBuilder: (context, index) {
-                              return _buildCategoryIconCard(categories[index]);
-                            },
+                        if (snapshot.hasError) {
+                          return Center(
+                            child: Text(
+                              'Category error: ${snapshot.error}',
+                              style: const TextStyle(fontSize: 12, color: Colors.red),
+                            ),
                           );
-                        },
-                      ),
+                        }
+
+                        final categories = snapshot.data ?? const <CategoryModel>[];
+                        if (categories.isEmpty) return const SizedBox();
+
+                        return HomeCategoryGrid(
+                          categories: categories,
+                          onTap: (category) => _openCategorySeo(category.name),
+                        );
+                      },
                     ),
 
                     const SizedBox(height: 40),
@@ -980,56 +975,6 @@ class _ProductHomePageState extends State<ProductHomePage> {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-
-  Widget _buildCategoryIconCard(CategoryModel category) {
-    return GestureDetector(
-      onTap: () {
-        _openCategorySeo(category.name);
-      },
-      child: Container(
-        width: 160,
-        margin: const EdgeInsets.only(right: 20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(15),
-          border: Border.all(color: Colors.grey[100]!),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.02),
-              blurRadius: 10,
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (category.imageUrl.isNotEmpty)
-              Image.network(
-                category.imageUrl,
-                height: 80,
-                width: 80,
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) =>
-                const Icon(Icons.category, size: 60, color: Colors.grey),
-              )
-            else
-              const Icon(Icons.category, size: 60, color: Colors.grey),
-            const SizedBox(height: 15),
-            Text(
-              category.name,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 14,
-                color: Colors.black87,
-              ),
-            ),
-          ],
         ),
       ),
     );
