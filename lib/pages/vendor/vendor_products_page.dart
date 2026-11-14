@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../services/image_upload_service.dart';
 import '../../services/category_service.dart';
 import '../../services/category_resolver_service.dart';
+import '../../services/product_service.dart';
 import '../../utils/variant_merge.dart';
 
 class VendorProductsPage extends StatefulWidget {
@@ -336,7 +337,10 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
                 ),
             ];
 
-            final firstVariant = variantList.first;
+            // Top-level price/mrp/unit = the "from" variant (cheapest in
+            // stock), never simply the first one (ProductService.displayVariantOf).
+            final firstVariant =
+                ProductService.displayVariantOf(variantList) ?? variantList.first;
             final totalStock = variants.fold<int>(
               0,
                   (currentTotal, v) => currentTotal + _toInt(v['stock']),

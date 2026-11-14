@@ -31,38 +31,24 @@
 const fs = require("fs");
 const path = require("path");
 const admin = require("firebase-admin");
-const { displayPriceFields } = require("../catalog/displayPrice");
+const { displayPriceCorrection } = require("../catalog/displayPrice");
 const { SYNC_MARKETING_SUPPRESSED_FIELD } = require("../aliexpress/variantRefresh");
 const { PRICE_BACKFILL_FIELD, PRICE_BACKFILL_SOURCE } = require("../marketing/priceChange");
 
 const OUT_DIR = path.join(__dirname, "..", "..", "tools", "backfill");
-const FIELDS = ["price", "piecePrice", "oldPrice", "mrp", "unit"];
 
 function num(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
 }
 
-function sameValue(field, a, b) {
-  if (field === "unit") return String(a ?? "").trim() === String(b ?? "").trim();
-  return Math.abs(num(a) - num(b)) < 0.005;
-}
 
 /**
  * The fields of [product] that differ from its display variant, as
  * { field: { from, to } }; null when nothing differs or no variant is priced.
  */
 function plannedChanges(product) {
-  const target = displayPriceFields(product?.variants);
-  if (!target) return null;
-  const changes = {};
-  for (const field of FIELDS) {
-    if (!(field in target)) continue;
-    if (!sameValue(field, product[field], target[field])) {
-      changes[field] = { from: product[field] ?? null, to: target[field] };
-    }
-  }
-  return Object.keys(changes).length ? changes : null;
+  return displayPriceCorrection(product);
 }
 
 function parseArgs(argv) {

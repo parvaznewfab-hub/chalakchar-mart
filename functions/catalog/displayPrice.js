@@ -103,7 +103,34 @@ function productDisplayMrp(product) {
   return num(product?.oldPrice || product?.mrp);
 }
 
+const DISPLAY_FIELDS = ["price", "piecePrice", "oldPrice", "mrp", "unit"];
+
+function sameDisplayValue(field, a, b) {
+  if (field === "unit") return String(a ?? "").trim() === String(b ?? "").trim();
+  return Math.abs(num(a) - num(b)) < 0.005;
+}
+
+/**
+ * The top-level fields of [product] that don't match its display variant,
+ * as { field: { from, to } }; null when all match or no variant is priced.
+ * Used by the price backfill and by the products trigger's price guard.
+ */
+function displayPriceCorrection(product) {
+  const target = displayPriceFields(product?.variants);
+  if (!target) return null;
+  const changes = {};
+  for (const field of DISPLAY_FIELDS) {
+    if (!(field in target)) continue;
+    if (!sameDisplayValue(field, product[field], target[field])) {
+      changes[field] = { from: product[field] ?? null, to: target[field] };
+    }
+  }
+  return Object.keys(changes).length ? changes : null;
+}
+
 module.exports = {
+  DISPLAY_FIELDS,
+  displayPriceCorrection,
   pickDisplayVariantIndex,
   pickDisplayVariant,
   hasPriceRange,

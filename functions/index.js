@@ -85,7 +85,7 @@ const { marketingBlockReason, autoMarketingBlockReason } = require("./marketing/
 const { isRelevantTitle } = require("./messaging/productMatch");
 const { searchImportPublishOptions } = require("./aliexpress/searchImportPublish");
 const { searchImportLogDocId } = require("./aliexpress/searchImportLogId");
-const { isPriceBackfillWrite, wishlistDiscountDecision } = require("./marketing/priceChange");
+const { isSystemPriceWrite, priceGuardUpdate, wishlistDiscountDecision } = require("./marketing/priceChange");
 const { loadActiveTaxonomy, taxonomyPromptBlock, matchAiTaxonomy } = require("./category/aiTaxonomy");
 const { matchCategoryByKeyword } = require("./category/aliExpressCategoryKeywords");
 const {
@@ -4619,9 +4619,33 @@ exports.onOrderStatusUpdated = onDocumentUpdated("orders/{orderId}", async (even
 });
 
 
+// See onProductStockUpdated: corrects a top-level price/mrp/unit that
+// doesn't match the display variant. Stamped price_guard, so the write it
+// causes sends nothing; never fails the caller's trigger.
+async function applyProductPriceGuard(ref, product, productId) {
+  const update = priceGuardUpdate(product, admin.firestore.FieldValue.serverTimestamp());
+  if (!update) return false;
+  try {
+    await ref.update(update);
+    logger.info("Price guard: top-level price re-derived from variants", {
+      productId,
+      from: { price: product.price ?? null, unit: product.unit ?? null },
+      to: { price: update.price ?? product.price ?? null, unit: update.unit ?? product.unit ?? null },
+    });
+    return true;
+  } catch (error) {
+    logger.warn("Price guard: correction failed", { productId, message: error.message });
+    return false;
+  }
+}
+
 exports.onProductCreated = onDocumentCreated("products/{productId}", async (event) => {
   const productId = event.params.productId;
   const product = event.data?.data() || {};
+
+  // Same price guard as onProductStockUpdated (new products from older
+  // app builds / vendor saves carry variants[0] as their price).
+  if (event.data) await applyProductPriceGuard(event.data.ref, product, productId);
 
   if (!shouldMarketProduct(product)) {
     logger.info("Product marketing skipped", {
@@ -4661,12 +4685,20 @@ exports.onProductStockUpdated = onDocumentUpdated("products/{productId}", async 
   const before = event.data.before.data() || {};
   const after = event.data.after.data() || {};
 
-  // A price backfill (scripts/backfillDisplayPrice.js) only corrects which
-  // variant the top-level price describes; it sends nothing at all.
-  if (isPriceBackfillWrite(before, after)) {
-    logger.info("Product update marketing skipped: price backfill write", { productId });
+  // A price backfill (scripts/backfillDisplayPrice.js) or this trigger's own
+  // price-guard correction only fixes which variant the top-level price
+  // describes; it sends nothing at all (and needs no further correction).
+  if (isSystemPriceWrite(before, after)) {
+    logger.info("Product update marketing skipped: price backfill/guard write", { productId, source: after.lastWriteSource || null });
     return;
   }
+
+  // Price guard: older app builds (admin save, stock updates) and vendor
+  // saves still write variants[0] as the top-level price, and a sold-out
+  // cheapest variant changes the display variant. Re-derive it; the rest of
+  // this handler continues with this event (its decisions already use the
+  // display-price helper on the variants).
+  await applyProductPriceGuard(event.data.after.ref, after, productId);
 
   if (!shouldMarketProduct(after)) {
     logger.info("Product update marketing skipped", { productId });

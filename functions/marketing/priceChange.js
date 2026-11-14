@@ -13,10 +13,14 @@
 // Pure: no Firestore.
 // -----------------------------------------------------------------------------
 
-const { productDisplayPrice, productDisplayMrp } = require("../catalog/displayPrice");
+const { productDisplayPrice, productDisplayMrp, displayPriceCorrection } = require("../catalog/displayPrice");
 
 const PRICE_BACKFILL_FIELD = "priceBackfillAt";
 const PRICE_BACKFILL_SOURCE = "price_backfill";
+// The products trigger's own correction (older app builds and vendor saves
+// still write variants[0] as the top-level price).
+const PRICE_GUARD_FIELD = "priceGuardAt";
+const PRICE_GUARD_SOURCE = "price_guard";
 const MIN_DISCOUNT_TO_ANNOUNCE = 5;
 
 function timestampMs(value) {
@@ -45,12 +49,44 @@ function isPriceBackfillWrite(before, after) {
   return afterMs > 0 && afterMs !== timestampMs(before?.[PRICE_BACKFILL_FIELD]);
 }
 
+/** True when THIS write is the price guard's own correction (new priceGuardAt). */
+function isPriceGuardWrite(before, after) {
+  const afterMs = timestampMs(after?.[PRICE_GUARD_FIELD]);
+  return afterMs > 0 && afterMs !== timestampMs(before?.[PRICE_GUARD_FIELD]);
+}
+
+/** A backfill or guard write: it only fixes the top-level price and sends nothing. */
+function isSystemPriceWrite(before, after) {
+  return isPriceBackfillWrite(before, after) || isPriceGuardWrite(before, after);
+}
+
+/**
+ * The guard's correction for a product whose top-level price/mrp/unit don't
+ * match its display variant (an older app or vendor save wrote variants[0],
+ * or the cheapest variant sold out): the fields to write, stamped
+ * price_guard; null when nothing is wrong. Applying it makes the product
+ * consistent, so the trigger event it causes computes null — no loop.
+ * [stamp] is the timestamp value to store (FieldValue.serverTimestamp()).
+ */
+function priceGuardUpdate(product, stamp) {
+  const changes = displayPriceCorrection(product);
+  if (!changes) return null;
+  return {
+    ...Object.fromEntries(Object.entries(changes).map(([field, change]) => [field, change.to])),
+    [PRICE_GUARD_FIELD]: stamp,
+    lastWriteSource: PRICE_GUARD_SOURCE,
+  };
+}
+
 /**
  * @returns {{ notify: boolean, beforeDiscount: number, afterDiscount: number, reason: string }}
  */
 function wishlistDiscountDecision(before, after) {
   if (isPriceBackfillWrite(before, after)) {
     return { notify: false, beforeDiscount: 0, afterDiscount: 0, reason: "price_backfill" };
+  }
+  if (isPriceGuardWrite(before, after)) {
+    return { notify: false, beforeDiscount: 0, afterDiscount: 0, reason: "price_guard" };
   }
   const beforeDiscount = displayDiscountPercent(before);
   const afterDiscount = displayDiscountPercent(after);
@@ -61,7 +97,12 @@ function wishlistDiscountDecision(before, after) {
 module.exports = {
   PRICE_BACKFILL_FIELD,
   PRICE_BACKFILL_SOURCE,
+  PRICE_GUARD_FIELD,
+  PRICE_GUARD_SOURCE,
   displayDiscountPercent,
   isPriceBackfillWrite,
+  isPriceGuardWrite,
+  isSystemPriceWrite,
+  priceGuardUpdate,
   wishlistDiscountDecision,
 };
