@@ -285,6 +285,7 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
     final name = TextEditingController(text: _text(data['name']));
     final priority = TextEditingController(text: _toInt(data['priority']).toString());
     final description = TextEditingController(text: _text(data['description']));
+    final variantLabel = TextEditingController(text: _text(data['variantLabel']));
 
     bool active = data['isActive'] != false;
     bool featured = data['isFeatured'] == true;
@@ -372,6 +373,10 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
               if (!isMergedCategory(data)) 'normalizedName': normalizeCategoryKey(newName),
               'priority': _toInt(priority.text),
               'description': description.text.trim(),
+              // Empty = automatic: remove the field rather than store "".
+              'variantLabel': variantLabel.text.trim().isEmpty
+                  ? FieldValue.delete()
+                  : variantLabel.text.trim(),
               'image': imageUrl,
               'imageUrl': imageUrl,
               'isActive': active,
@@ -421,6 +426,18 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
                       maxLines: 3,
                       decoration: const InputDecoration(
                         labelText: 'Description',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      key: const Key('category-variant-label'),
+                      controller: variantLabel,
+                      decoration: const InputDecoration(
+                        labelText: 'Variant label',
+                        hintText: 'e.g. Model, Type, Capacity',
+                        helperText: 'Default label before product variants ("Model: 12 Pro"). Empty = automatic.',
+                        helperMaxLines: 2,
                         border: OutlineInputBorder(),
                       ),
                     ),
@@ -717,6 +734,7 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
     final name = TextEditingController(text: _text(original['name']));
     final priority = TextEditingController(text: _toInt(original['priority']).toString());
     final description = TextEditingController(text: _text(original['description']));
+    final variantLabel = TextEditingController(text: _text(original['variantLabel']));
     final existingImage = _text(original['imageUrl'] ?? original['image']);
 
     var selectedParentId = originalParentId;
@@ -819,6 +837,14 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
                     : (previousStatus == 'pending' ? 'pending' : 'inactive'),
                 'updatedAt': FieldValue.serverTimestamp(),
               };
+
+              // Empty = automatic: removed on edit, omitted on create.
+              final label = variantLabel.text.trim();
+              if (label.isNotEmpty) {
+                payload['variantLabel'] = label;
+              } else if (editing) {
+                payload['variantLabel'] = FieldValue.delete();
+              }
 
               if (editing) {
                 await db.collection('subcategories').doc(subId).update(payload);
@@ -941,6 +967,18 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
                       maxLines: 3,
                       decoration: const InputDecoration(
                         labelText: 'Description',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      key: const Key('subcategory-variant-label'),
+                      controller: variantLabel,
+                      decoration: const InputDecoration(
+                        labelText: 'Variant label',
+                        hintText: 'e.g. Model, Type, Capacity',
+                        helperText: 'Default label before product variants ("Model: 12 Pro"). Empty = automatic.',
+                        helperMaxLines: 2,
                         border: OutlineInputBorder(),
                       ),
                     ),

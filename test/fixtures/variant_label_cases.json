@@ -1,0 +1,241 @@
+{
+  "about": "Shared by test/variant_label_parity_test.dart and functions/test/variantLabel.test.js. 'names' are raw stored variant names; both sides clean them (cleanVariantDisplayName) and resolve the storefront label from productAttributeName, subcategoryLabel, categoryLabel and the values. Real-data cases are from the 2026-11-14 backfill dry run.",
+  "cases": [
+    {
+      "label": "manual product label wins",
+      "productAttributeName": "Storage",
+      "names": [
+        "Red",
+        "Blue"
+      ],
+      "expect": "Storage"
+    },
+    {
+      "label": "real colours",
+      "names": [
+        "Black",
+        "White",
+        "Rose Gold",
+        "Sky Blue"
+      ],
+      "expect": "Color"
+    },
+    {
+      "label": "colours with ships-from suffix",
+      "names": [
+        "Black / China Mainland",
+        "Red / China Mainland"
+      ],
+      "expect": "Color"
+    },
+    {
+      "label": "colours with pipe suffix",
+      "names": [
+        "Dark Green | Spain",
+        "Light Blue | Spain"
+      ],
+      "expect": "Color"
+    },
+    {
+      "label": "most values colours",
+      "names": [
+        "Black",
+        "White",
+        "Blue",
+        "Gift Box"
+      ],
+      "expect": "Color"
+    },
+    {
+      "label": "half colours is not most",
+      "names": [
+        "Black",
+        "White",
+        "Gift Box",
+        "With Charger"
+      ],
+      "expect": "Option"
+    },
+    {
+      "label": "real data: models under AliExpress Color",
+      "names": [
+        "Nova 3i / China Mainland",
+        "Nova 3E / China Mainland",
+        "Nova 3 / China Mainland"
+      ],
+      "expect": "Option"
+    },
+    {
+      "label": "real data: frame options under Color",
+      "names": [
+        "OEM No Frame",
+        "OEM With Frame"
+      ],
+      "expect": "Option"
+    },
+    {
+      "label": "real data: colour word inside a non-colour value",
+      "names": [
+        "TFT Black Frame",
+        "TFT No Frame",
+        "6.5 AMOLED BlackFram"
+      ],
+      "expect": "Option"
+    },
+    {
+      "label": "real data: phone storage variants",
+      "names": [
+        "12mini 256g Face ID",
+        "12mini 128g Face ID"
+      ],
+      "expect": "Option"
+    },
+    {
+      "label": "storage sizes",
+      "names": [
+        "128GB",
+        "256 GB",
+        "1TB",
+        "4TB"
+      ],
+      "expect": "Capacity"
+    },
+    {
+      "label": "storage with suffix",
+      "names": [
+        "512GB / China Mainland",
+        "1TB / China Mainland"
+      ],
+      "expect": "Capacity"
+    },
+    {
+      "label": "mixed storage and other",
+      "names": [
+        "128GB",
+        "Bundle"
+      ],
+      "expect": "Option"
+    },
+    {
+      "label": "clothing sizes",
+      "names": [
+        "S",
+        "M",
+        "XL",
+        "3XL"
+      ],
+      "expect": "Size"
+    },
+    {
+      "label": "duplicates counted once",
+      "names": [
+        "Black",
+        "Black",
+        "Black",
+        "Gift Box",
+        "Card"
+      ],
+      "expect": "Option"
+    },
+    {
+      "label": "empty",
+      "names": [],
+      "expect": "Option"
+    },
+    {
+      "label": "blank manual label ignored",
+      "productAttributeName": "  ",
+      "names": [
+        "S",
+        "M"
+      ],
+      "expect": "Size"
+    },
+    {
+      "label": "subcategory default beats category default",
+      "subcategoryLabel": "Type",
+      "categoryLabel": "Model",
+      "names": [
+        "TFT With Frame",
+        "TFT No Frame"
+      ],
+      "expect": "Type"
+    },
+    {
+      "label": "category default when subcategory has none",
+      "subcategoryLabel": "",
+      "categoryLabel": "Model",
+      "names": [
+        "12mini 256g Face ID",
+        "12mini 128g Face ID"
+      ],
+      "expect": "Model"
+    },
+    {
+      "label": "product label beats subcategory and category",
+      "productAttributeName": "Board",
+      "subcategoryLabel": "Type",
+      "categoryLabel": "Model",
+      "names": [
+        "A",
+        "B"
+      ],
+      "expect": "Board"
+    },
+    {
+      "label": "category default beats value inference",
+      "categoryLabel": "Model",
+      "names": [
+        "Black",
+        "White"
+      ],
+      "expect": "Model"
+    },
+    {
+      "label": "blank defaults fall through to inference",
+      "subcategoryLabel": " ",
+      "categoryLabel": "",
+      "names": [
+        "128GB",
+        "256GB"
+      ],
+      "expect": "Capacity"
+    },
+    {
+      "label": "real data: storage plus colour (most start with a size)",
+      "names": [
+        "4TB Black / China Mainland",
+        "512GB Black / China Mainland",
+        "256GB Black / China Mainland",
+        "2TB Black / China Mainland"
+      ],
+      "expect": "Capacity"
+    },
+    {
+      "label": "most values start with a size",
+      "names": [
+        "128GB",
+        "256GB Black",
+        "1TB",
+        "Bundle"
+      ],
+      "expect": "Capacity"
+    },
+    {
+      "label": "phone storage written as 'g' is not a size prefix",
+      "names": [
+        "256g Face ID",
+        "128g No Face"
+      ],
+      "expect": "Option"
+    },
+    {
+      "label": "size prefix must end at a word boundary",
+      "names": [
+        "4TBX Pro",
+        "8TBX Max"
+      ],
+      "expect": "Option"
+    }
+  ]
+}

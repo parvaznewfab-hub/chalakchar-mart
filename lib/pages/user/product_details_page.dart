@@ -11,6 +11,10 @@ import '../../services/product_service.dart';
 import '../../utils/product_delivery_resolver.dart';
 import '../../utils/variant_image_selector.dart';
 import '../../utils/variant_display_name.dart';
+import '../../utils/variant_selector_model.dart';
+import '../../widgets/variant_selector.dart';
+import '../../widgets/gallery_thumbnail_strip.dart';
+import '../../services/category_service.dart';
 import '../../services/guest_cart_service.dart';
 import '../../services/web_seo_service.dart';
 import 'package:vector_math/vector_math_64.dart' show Vector3;
@@ -69,10 +73,12 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
 
     final normalized = ProductService.normalizeProductData(widget.data);
     final units = ProductService.getUnits(normalized);
-    _selectedUnit = units.isNotEmpty ? units.first : 'piece';
+    _selectedUnit = _defaultUnit(normalized, units);
     if (kIsWeb) {
       _updateProductSeo(normalized);
     }
+
+    _loadVariantLabelDefaults(normalized);
 
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
@@ -92,6 +98,42 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
     _scrollController.dispose();
     _tabController.dispose();
     super.dispose();
+  }
+
+  /// Variant selected when the page opens. With the variant selector shown:
+  /// the first in-stock variant in the selector's display order (storage
+  /// sizes ascending — Netac opens on 128GB, not its stored first 4TB).
+  /// Otherwise the stored first unit, as before.
+  String _defaultUnit(Map<String, dynamic> product, List<String> units) {
+    if (units.isEmpty) return 'piece';
+    if (!VariantSelector.isShownFor(product)) return units.first;
+    final names = [
+      for (final v in VariantSelector.rawVariants(product)) _text(v['name'], 'Option')
+    ];
+    final index = defaultVariantIndex(
+      names.map(cleanVariantDisplayName).toList(),
+      [for (final n in names) ProductService.getStock(product, unit: n)],
+    );
+    return index >= 0 && units.contains(names[index]) ? names[index] : units.first;
+  }
+
+  /// Subcategory/category `variantLabel` defaults for the variant selector
+  /// (admin-set, e.g. "Model"). Until loaded — or if unset/unreadable — the
+  /// selector falls back to inferring the label from the values.
+  ({String subcategory, String category}) _variantLabelDefaults =
+      (subcategory: '', category: '');
+
+  Future<void> _loadVariantLabelDefaults(Map<String, dynamic> product) async {
+    final categoryId = _text(product['categoryId']);
+    final subcategoryId = _text(product['subcategoryId']);
+    if (categoryId.isEmpty && subcategoryId.isEmpty) return;
+    final labels = await CategoryService.variantLabelsFor(
+      categoryId: categoryId,
+      subcategoryId: subcategoryId,
+    );
+    if (!mounted) return;
+    if (labels.subcategory.isEmpty && labels.category.isEmpty) return;
+    setState(() => _variantLabelDefaults = labels);
   }
 
   void _updateProductSeo(Map<String, dynamic> rawData) {
@@ -118,8 +160,15 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
       final units = ProductService.getUnits(normalized);
 
       if (units.isNotEmpty && !units.contains(_selectedUnit)) {
-        _selectedUnit = units.first;
+        _selectedUnit = _defaultUnit(normalized, units);
         _quantity = 1;
+      }
+
+      final oldProduct = ProductService.normalizeProductData(oldWidget.data);
+      if (_text(oldProduct['categoryId']) != _text(normalized['categoryId']) ||
+          _text(oldProduct['subcategoryId']) != _text(normalized['subcategoryId'])) {
+        _variantLabelDefaults = (subcategory: '', category: '');
+        _loadVariantLabelDefaults(normalized);
       }
 
       _updateProductSeo(normalized);
@@ -984,6 +1033,10 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
                                       totalOldPrice,
                                       selectedStock,
                                     ),
+                                    if (_hasVariantSelector(data)) ...[
+                                      const SizedBox(height: 16),
+                                      _buildVariantSwatchGrid(data),
+                                    ],
                                   ],
                                 ),
                               ),
@@ -1514,20 +1567,33 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
         ? _variantImageOverride!
         : (images.isNotEmpty ? images[_selectedImageIndex] : '');
 
+    // Counter total must equal the thumbnails the strip below renders.
+    final counterLabel = galleryCounterLabel(
+      selectedIndex: _selectedImageIndex,
+      imageCount: images.length,
+      hasVideo: hasVideo,
+      showingOverride: (_variantImageOverride ?? '').isNotEmpty,
+    );
+    final isDesktop = MediaQuery.of(context).size.width >= 800;
+    final verb = isDesktop ? 'Click' : 'Tap';
+    final galleryInset = EdgeInsets.symmetric(horizontal: isDesktop ? 0 : 14);
+
     Widget mainMedia() {
       if (selectedImage.isNotEmpty) {
         return _HoverMagnifierImage(imageUrl: selectedImage);
       }
 
       if (hasVideo) {
-        return Image.network(
-          videoThumbnail,
-          fit: BoxFit.contain,
-          errorBuilder: (_, __, ___) => const Icon(
-            Icons.play_circle_fill_rounded,
-            size: 100,
-            color: Color(0xFF32A8C7),
-          ),
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.network(
+              videoThumbnail,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+            ),
+            Center(child: _playOverlay(64)),
+          ],
         );
       }
 
@@ -1568,12 +1634,11 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
                 alignment: Alignment.center,
                 children: [
                   Positioned.fill(child: mainMedia()),
-                  if (images.isNotEmpty)
+                  if (counterLabel != null)
                     Positioned(
                       left: 12,
                       top: 12,
-                      child: _heroBadge(
-                          'Item ${_selectedImageIndex + 1}/${images.length}'),
+                      child: _heroBadge(counterLabel),
                     ),
                   Positioned(
                     right: 12,
@@ -1622,112 +1687,127 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
             ),
           ),
         ),
-        if (images.length > 1 || hasVideo) ...[
+        if (galleryThumbnailCount(
+                imageCount: images.length, hasVideo: hasVideo) >
+            0) ...[
           const SizedBox(height: 12),
-          SizedBox(
-            height: 86,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: images.length + (hasVideo ? 1 : 0),
-              itemBuilder: (context, index) {
-                if (hasVideo && index == images.length) {
-                  return GestureDetector(
-                    onTap: () => _openVideo(videoUrl),
-                    child: Container(
-                      width: 110,
-                      height: 86,
-                      margin: const EdgeInsets.only(right: 10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF32A8C7).withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: const Color(0xFF32A8C7),
-                          width: 1.5,
-                        ),
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          Image.network(
-                            videoThumbnail,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Container(
-                              color: const Color(0xFF32A8C7)
-                                  .withValues(alpha: 0.10),
-                            ),
-                          ),
-                          Container(
-                              color: Colors.black.withValues(alpha: 0.25)),
-                          const Center(
-                            child: Icon(
-                              Icons.play_circle_fill_rounded,
-                              color: Colors.white,
-                              size: 42,
-                            ),
-                          ),
-                          const Positioned(
-                            left: 6,
-                            right: 6,
-                            bottom: 6,
-                            child: Text(
-                              'VIDEO',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-
-                final url = images[index];
-                final selected = index == _selectedImageIndex;
-
+          GalleryThumbnailStrip(
+            itemCount: images.length + (hasVideo ? 1 : 0),
+            // Keeps the active thumbnail in view (e.g. after a variant tap).
+            selectedIndex: (_variantImageOverride ?? '').isEmpty
+                ? _selectedImageIndex
+                : null,
+            padding: galleryInset,
+            itemBuilder: (context, index, size) {
+              if (hasVideo && index == images.length) {
                 return GestureDetector(
-                  onTap: () => setState(() {
-                    _selectedImageIndex = index;
-                    _variantImageOverride = null;
-                  }),
+                  onTap: () => _openVideo(videoUrl),
                   child: Container(
-                    width: 86,
-                    height: 86,
-                    margin: const EdgeInsets.only(right: 10),
-                    padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
+                      color: const Color(0xFF32A8C7).withValues(alpha: 0.10),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: selected
-                            ? const Color(0xFF32A8C7)
-                            : Colors.grey.shade300,
-                        width: selected ? 2 : 1,
+                        color: const Color(0xFF32A8C7),
+                        width: 1.5,
                       ),
                     ),
-                    child: Image.network(
-                      url,
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) =>
-                          const Icon(Icons.broken_image, color: Colors.grey),
+                    clipBehavior: Clip.antiAlias,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Image.network(
+                          videoThumbnail,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            color: const Color(0xFF32A8C7)
+                                .withValues(alpha: 0.10),
+                          ),
+                        ),
+                        Container(
+                            color: Colors.black.withValues(alpha: 0.25)),
+                        Center(child: _playOverlay(size * 0.42)),
+                        const Positioned(
+                          left: 4,
+                          right: 4,
+                          bottom: 5,
+                          child: Text(
+                            'VIDEO',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 );
-              },
-            ),
+              }
+
+              final url = images[index];
+              final selected = index == _selectedImageIndex &&
+                  (_variantImageOverride ?? '').isEmpty;
+
+              return GestureDetector(
+                onTap: () => setState(() {
+                  _selectedImageIndex = index;
+                  _variantImageOverride = null;
+                }),
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: selected
+                          ? const Color(0xFF32A8C7)
+                          : Colors.grey.shade300,
+                      width: selected ? 2 : 1,
+                    ),
+                  ),
+                  child: Image.network(
+                    url,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) =>
+                        const Icon(Icons.broken_image, color: Colors.grey),
+                  ),
+                ),
+              );
+            },
           ),
-          const SizedBox(height: 6),
-          Text(
-            hasVideo
-                ? 'Tap image for zoom preview • Tap video to watch'
-                : 'Tap image for zoom preview',
-            style: const TextStyle(fontSize: 12, color: Colors.grey),
+          Padding(
+            // Clear the thumbnails' borders and, on mobile, the screen edge.
+            padding: galleryInset + const EdgeInsets.only(top: 10, bottom: 4),
+            child: Text(
+              hasVideo
+                  ? '$verb image for zoom preview • $verb video to watch'
+                  : '$verb image for zoom preview',
+              style: const TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                color: Color(0xFF6B7280), // ≥4.5:1 on white
+              ),
+            ),
           ),
         ],
       ],
+    );
+  }
+
+  /// ▶ badge marking a video thumbnail / video poster.
+  Widget _playOverlay(double size) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.6),
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 2),
+      ),
+      child: Icon(Icons.play_arrow_rounded,
+          color: Colors.white, size: size * 0.62),
     );
   }
 
@@ -1944,6 +2024,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
               runSpacing: 14,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
+                // The chip/swatch selector replaces this dropdown when shown.
+                if (!_hasVariantSelector(data))
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10),
                   height: 42,
@@ -2011,73 +2093,16 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
     );
   }
 
+  bool _hasVariantSelector(Map<String, dynamic> data) =>
+      VariantSelector.isShownFor(data);
+
   Widget _buildVariantSwatchGrid(Map<String, dynamic> data) {
-    final variantsRaw = data['variants'];
-    final variants =
-        variantsRaw is List ? variantsRaw.whereType<Map>().toList() : <Map>[];
-    if (variants.length <= 1) return const SizedBox.shrink();
-
-    final fallbackImage = _text(data['imageUrl'] ?? data['image']);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Color: ${cleanVariantDisplayName(_selectedUnit)}',
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-        ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: variants.map((v) {
-            final name = _text(v['name'], 'Option');
-            final image = _text(v['imageUrl'] ?? v['image'], fallbackImage);
-            final selected = name == _selectedUnit;
-
-            return Tooltip(
-              message: cleanVariantDisplayName(name),
-              child: GestureDetector(
-                onTap: () => _selectVariantUnit(name, data),
-                child: Container(
-                  width: 64,
-                  height: 64,
-                  padding: const EdgeInsets.all(3),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: selected ? _primaryColor : Colors.grey.shade300,
-                      width: selected ? 2 : 1,
-                    ),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(7),
-                    child: image.isNotEmpty
-                        ? Image.network(
-                            image,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => _swatchFallback(name),
-                          )
-                        : _swatchFallback(name),
-                  ),
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-      ],
-    );
-  }
-
-  Widget _swatchFallback(String name) {
-    return Container(
-      color: Colors.grey.shade100,
-      alignment: Alignment.center,
-      child: Text(
-        name.isNotEmpty ? name[0].toUpperCase() : '?',
-        style:
-            TextStyle(fontWeight: FontWeight.w900, color: Colors.grey.shade600),
-      ),
+    return VariantSelector(
+      data: data,
+      selectedUnit: _selectedUnit,
+      onSelect: (name) => _selectVariantUnit(name, data),
+      subcategoryLabel: _variantLabelDefaults.subcategory,
+      categoryLabel: _variantLabelDefaults.category,
     );
   }
 
@@ -2834,3 +2859,4 @@ class _FullscreenImageViewerState extends State<_FullscreenImageViewer> {
     );
   }
 }
+

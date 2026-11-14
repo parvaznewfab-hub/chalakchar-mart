@@ -58,5 +58,22 @@ void main() {
       expect(result.single['name'], 'Default');
       expect(result.single.containsKey('image'), false);
     });
+
+    test('label metadata survives normalization', () {
+      final result = ProductService.normalizeVariants([
+        {
+          'name': 'Nova 3i',
+          'price': 10,
+          'stock': 1,
+          'sourceAttributeName': 'Color',
+          'attributeName': 'Model',
+        },
+        {'name': 'Nova 3', 'price': 10, 'stock': 1},
+      ]);
+      expect(result[0]['sourceAttributeName'], 'Color');
+      expect(result[0]['attributeName'], 'Model');
+      expect(result[1].containsKey('sourceAttributeName'), false);
+      expect(result[1].containsKey('attributeName'), false);
+    });
   });
 }

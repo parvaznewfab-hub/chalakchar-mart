@@ -87,7 +87,36 @@ function resolveAliExpressVariantName(sku) {
     cleanAliExpressSkuFallbackText(item.sku_code);
 }
 
+/**
+ * Resolves the human-readable attribute NAME (e.g. "Capacity", "Color",
+ * "Size") for one AliExpress SKU — the label for the value that
+ * resolveAliExpressVariantName() puts first. The storefront only displays
+ * the head of a multi-attribute name (see cleanVariantDisplayName on the
+ * client), so the label must describe the first readable attribute.
+ * Returns "" when AliExpress didn't send a readable name — callers must not
+ * invent one (no "Color" default).
+ */
+function resolveAliExpressVariantAttributeName(sku) {
+  const item = sku && typeof sku === "object" ? sku : {};
+  const attributes = item.ae_sku_property_dtos || item.sku_property_dtos || item.properties;
+  if (!attributes) return "";
+
+  for (const a of aliExpressArray(attributes)) {
+    const attr = a && typeof a === "object" ? a : {};
+    const value = textValue(
+      attr.property_value_definition_name ||
+      attr.property_value_name ||
+      attr.sku_property_value ||
+      attr.property_value_display_name
+    );
+    if (!value) continue; // name must belong to the value actually shown
+    return textValue(attr.sku_property_name || attr.property_name || attr.attr_name);
+  }
+  return "";
+}
+
 module.exports = {
   cleanAliExpressSkuFallbackText,
   resolveAliExpressVariantName,
+  resolveAliExpressVariantAttributeName,
 };

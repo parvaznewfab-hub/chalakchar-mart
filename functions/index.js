@@ -38,6 +38,10 @@ const {
   buildAliExpressFreightFirestoreFields,
 } = require("./aliexpress/freightDeliveryEstimate");
 const { resolveAliExpressVariantName } = require("./aliexpress/variantName");
+const {
+  sourceLabelFieldsFromSku,
+  carryVariantLabelFields,
+} = require("./aliexpress/variantLabelFields");
 const { resolveAliExpressVariantImage } = require("./aliexpress/variantImage");
 const {
   computeVariantImagePatches,
@@ -1991,6 +1995,7 @@ function importVariants(rawVariants, fallback = {}) {
       oldPrice: mrp,
       stock,
       ...(textValue(item.skuId) ? { sourceSkuId: textValue(item.skuId) } : {}),
+      ...carryVariantLabelFields(item),
       ...(textValue(item.image) ? { image: textValue(item.image) } : {}),
       ...(textValue(item.imageUrl) ? { imageUrl: textValue(item.imageUrl) } : {}),
     });
@@ -2662,6 +2667,7 @@ function normalizeAliExpressProduct(raw, requestedProductId) {
       id: textValue(item.sku_id || item.id, `sku_${index + 1}`),
       skuId: textValue(item.sku_id || item.id),
       name: variantName || `Option ${index + 1}`,
+      ...sourceLabelFieldsFromSku(item),
       price,
       mrp: Math.max(price, mrp),
       stock,
@@ -3309,6 +3315,11 @@ exports.aliexpressSyncAllProducts = onRequest(
 // sync code. Only exported when that script sets the env var (never during
 // `firebase deploy`, which loads this file without it), and hard-wired to
 // dryRun:true so it cannot write.
+// Local-only hook for unit tests of the import path (same env-gating idea).
+if (process.env.CHALAKCHAR_LOCAL_TEST === "1") {
+  exports.__localImportInternals = { normalizeAliExpressProduct, importVariants };
+}
+
 if (process.env.CHALAKCHAR_LOCAL_SYNC_DRY_RUN === "1") {
   exports.__localAliExpressSyncDryRun = (onlySourceProductIds = null) =>
     runAliExpressSync({ requireSyncEnabled: true, dryRun: true, onlySourceProductIds });

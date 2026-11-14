@@ -103,3 +103,42 @@ describe("resolveAliExpressVariantName", () => {
     assert.equal(resolveAliExpressVariantName(sku), "");
   });
 });
+
+describe("resolveAliExpressVariantAttributeName", () => {
+  const { resolveAliExpressVariantAttributeName } = require("../aliexpress/variantName");
+
+  test("returns the first readable attribute's name", () => {
+    assert.equal(
+      resolveAliExpressVariantAttributeName({
+        ae_sku_property_dtos: {
+          ae_sku_property_d_t_o: [
+            { sku_property_name: "Capacity", sku_property_value: "4TB" },
+            { sku_property_name: "Ships From", sku_property_value: "China" },
+          ],
+        },
+      }),
+      "Capacity"
+    );
+  });
+
+  test("skips attributes with no readable value so the label matches the shown value", () => {
+    assert.equal(
+      resolveAliExpressVariantAttributeName({
+        ae_sku_property_dtos: [
+          { sku_property_name: "Ghost" },
+          { sku_property_name: "Size", property_value_definition_name: "XL" },
+        ],
+      }),
+      "Size"
+    );
+  });
+
+  test("never invents a name when none is provided", () => {
+    assert.equal(resolveAliExpressVariantAttributeName({ sku_attr: "14:1#Black" }), "");
+    assert.equal(
+      resolveAliExpressVariantAttributeName({ ae_sku_property_dtos: [{ sku_property_value: "Red" }] }),
+      ""
+    );
+    assert.equal(resolveAliExpressVariantAttributeName(null), "");
+  });
+});

@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 class CategoryService {
   CategoryService._();
@@ -97,6 +98,49 @@ class CategoryService {
     return Map.fromEntries(counts);
   }
 
+  // ---------------------------------------------------------------------------
+  // Variant label defaults (product page)
+  // ---------------------------------------------------------------------------
+
+  static final Map<String, Future<String>> _variantLabelCache = {};
+
+  /// Test hook: replaces the Firestore read of one doc's `variantLabel`.
+  @visibleForTesting
+  static Future<String> Function(String collection, String id)?
+      debugVariantLabelReader;
+
+  @visibleForTesting
+  static void debugClearVariantLabelCache() => _variantLabelCache.clear();
+
+  /// The subcategory's and category's default `variantLabel` ('' when
+  /// unset, missing, or unreadable — the page then falls back to value
+  /// inference). Cached per doc for the session.
+  static Future<({String subcategory, String category})> variantLabelsFor({
+    required String categoryId,
+    required String subcategoryId,
+  }) async {
+    final results = await Future.wait([
+      _variantLabelOf('subcategories', subcategoryId.trim()),
+      _variantLabelOf('categories', categoryId.trim()),
+    ]);
+    return (subcategory: results[0], category: results[1]);
+  }
+
+  static Future<String> _variantLabelOf(String collection, String id) {
+    if (id.isEmpty) return Future.value('');
+    return _variantLabelCache.putIfAbsent('$collection/$id', () async {
+      try {
+        final reader = debugVariantLabelReader;
+        if (reader != null) return (await reader(collection, id)).trim();
+        final snap = await _db.collection(collection).doc(id).get();
+        return (snap.data()?['variantLabel'] ?? '').toString().trim();
+      } catch (_) {
+        _variantLabelCache.remove('$collection/$id'); // retry next time
+        return '';
+      }
+    });
+  }
+
   static Future<Map<String, List<SubcategoryModel>>> _loadSubcategories() async {
     final snapshot = await _db.collection('subcategories').get();
     final grouped = <String, List<SubcategoryModel>>{};
@@ -125,6 +169,9 @@ class SubcategoryModel {
   final int priority;
   final bool isActive;
 
+  /// Default variant label for its products ("Model"); '' = automatic.
+  final String variantLabel;
+
   const SubcategoryModel({
     required this.id,
     required this.categoryId,
@@ -133,6 +180,7 @@ class SubcategoryModel {
     required this.imageUrl,
     required this.priority,
     required this.isActive,
+    this.variantLabel = '',
   });
 
   factory SubcategoryModel.fromDoc(String id, Map<String, dynamic> data) {
@@ -149,6 +197,7 @@ class SubcategoryModel {
       priority: priority is num ? priority.toInt() : int.tryParse(text(priority)) ?? 0,
       // Merged/retired subcategories (mergedInto set) are never shown.
       isActive: data['isActive'] == true && text(data['mergedInto']).isEmpty,
+      variantLabel: text(data['variantLabel']),
     );
   }
 }
@@ -163,6 +212,9 @@ class CategoryModel {
   final bool isFeatured;
   final bool showOnHome;
 
+  /// Default variant label for its products ("Model"); '' = automatic.
+  final String variantLabel;
+
   const CategoryModel({
     required this.id,
     required this.name,
@@ -172,6 +224,7 @@ class CategoryModel {
     required this.isActive,
     required this.isFeatured,
     required this.showOnHome,
+    this.variantLabel = '',
   });
 
   factory CategoryModel.fromDoc(String id, Map<String, dynamic> data) {
@@ -195,6 +248,7 @@ class CategoryModel {
       isActive: data['isActive'] == true,
       isFeatured: data['isFeatured'] == true,
       showOnHome: data['showOnHome'] != false,
+      variantLabel: text(data['variantLabel']),
     );
   }
 }

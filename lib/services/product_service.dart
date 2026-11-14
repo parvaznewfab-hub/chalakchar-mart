@@ -229,6 +229,10 @@ class ProductService {
         final sourceSkuId = text(item['sourceSkuId']);
         final image = text(item['image']);
         final imageUrl = text(item['imageUrl']);
+        // Label metadata: manual per-variant name, and AliExpress's own
+        // attribute name (stored for reference, not displayed).
+        final attributeName = text(item['attributeName']);
+        final sourceAttributeName = text(item['sourceAttributeName']);
 
         result.add({
           'id': id,
@@ -245,6 +249,9 @@ class ProductService {
           if (sourceSkuId.isNotEmpty) 'sourceSkuId': sourceSkuId,
           if (image.isNotEmpty) 'image': image,
           if (imageUrl.isNotEmpty) 'imageUrl': imageUrl,
+          if (attributeName.isNotEmpty) 'attributeName': attributeName,
+          if (sourceAttributeName.isNotEmpty)
+            'sourceAttributeName': sourceAttributeName,
         });
       }
     }

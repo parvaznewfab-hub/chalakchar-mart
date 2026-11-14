@@ -17,6 +17,10 @@
 //                                         never saved with a guessed SKU)
 //   - no SKU id sent                   -> can't verify; kept and listed
 //
+// Matched variants (kept or repaired) also get AliExpress's
+// sourceAttributeName for that SKU when n8n didn't send one — n8n bodies
+// don't carry it, and it's only stored for reference (never displayed).
+//
 // Pure: the caller fetches the fresh AliExpress variants.
 // -----------------------------------------------------------------------------
 
@@ -44,6 +48,12 @@ function incomingName(variant) {
 // came from the wrongly-paired n8n data, so a repair removes them.
 const SUPERSEDED_ON_REPAIR = ["sku_id", "sourceSkuId", "salePrice", "piecePrice", "oldPrice", "originalPrice", "quantity", "availableStock"];
 
+function withSourceAttributeName(variant, freshVariant) {
+  const name = textValue(freshVariant && freshVariant.sourceAttributeName);
+  if (!name || textValue(variant.sourceAttributeName)) return variant;
+  return { ...variant, sourceAttributeName: name };
+}
+
 /**
  * @param {object[]} incomingVariants product.variants from the n8n body
  * @param {object[]} freshVariants normalizeAliExpressProduct(...).variants
@@ -69,20 +79,20 @@ function verifyIncomingVariants(incomingVariants, freshVariants) {
     const pick = pickFreshVariantForSaved({ sourceSkuId: skuId, name }, fresh);
     if (pick.how === "sku") {
       verified += 1;
-      return raw;
+      return withSourceAttributeName(raw, pick.fresh);
     }
     if (pick.fresh) {
       const owner = fresh.find((f) => textValue(f.skuId) === skuId);
       repaired.push({ index, name, fromSkuId: skuId, toSkuId: textValue(pick.fresh.skuId), skuBelongsTo: owner ? textValue(owner.name) : null });
       const next = { ...raw };
       for (const key of SUPERSEDED_ON_REPAIR) delete next[key];
-      return {
+      return withSourceAttributeName({
         ...next,
         skuId: textValue(pick.fresh.skuId),
         price: pick.fresh.price,
         mrp: pick.fresh.mrp ?? pick.fresh.price,
         stock: pick.fresh.stock,
-      };
+      }, pick.fresh);
     }
     rejected.push({ index, name, skuId, reason: pick.how });
     return raw;

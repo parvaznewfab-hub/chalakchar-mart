@@ -88,3 +88,14 @@ flutter:
   assets:
     - assets/images/
     - assets/icons/
+
+  # Bundled so the Taka sign (U+09F3) renders on first paint instead of a
+  # blank box while Flutter web downloads its on-demand fallback font.
+  # Subset of Noto Sans Bengali (SIL OFL 1.1, see
+  # assets/fonts/NotoSansBengali-OFL.txt) containing only that glyph.
+  fonts:
+    - family: TakaFallback
+      fonts:
+        - asset: assets/fonts/NotoSansBengaliTaka-Regular.ttf
+        - asset: assets/fonts/NotoSansBengaliTaka-Bold.ttf
+          weight: 700

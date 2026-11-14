@@ -308,9 +308,14 @@ class MyApp extends StatelessWidget {
     );
   }
 
+  /// Bundled fallback holding the Taka sign (see pubspec `fonts:`), so
+  /// prices never show a blank box while web fallback fonts download.
+  static const List<String> _fontFallback = ['TakaFallback'];
+
   ThemeData _lightTheme() {
     return ThemeData(
       useMaterial3: true,
+      fontFamilyFallback: _fontFallback,
       colorSchemeSeed: const Color(0xFF32A8C7),
       brightness: Brightness.light,
       scaffoldBackgroundColor: const Color(0xFFF5F7FB),
@@ -350,6 +355,7 @@ class MyApp extends StatelessWidget {
   ThemeData _darkTheme() {
     return ThemeData(
       useMaterial3: true,
+      fontFamilyFallback: _fontFallback,
       colorSchemeSeed: const Color(0xFF32A8C7),
       brightness: Brightness.dark,
       scaffoldBackgroundColor: const Color(0xFF0F172A),

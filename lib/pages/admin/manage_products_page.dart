@@ -584,6 +584,9 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
     final manufacturer = TextEditingController(text: _text(data?['manufacturer']));
     final type = TextEditingController(text: _text(data?['type']));
     final strength = TextEditingController(text: _text(data?['strength']));
+    // Label before the variant value on the product page ("Model: 12 Pro").
+    // Empty = automatic (subcategory/category default, then the values).
+    final variantLabel = TextEditingController(text: _text(data?['variantAttributeName']));
     final overview = TextEditingController(text: _text(data?['overview']));
     final videoUrl = TextEditingController(
       text: _text(
@@ -1307,6 +1310,10 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                 if (categoryResolution.categoryId != null)
                   'categoryId': categoryResolution.categoryId,
                 if (subcategoryField != null) 'subcategoryId': subcategoryField,
+                if (variantLabel.text.trim().isNotEmpty)
+                  'variantAttributeName': variantLabel.text.trim()
+                else if (id != null)
+                  'variantAttributeName': FieldValue.delete(),
                 'productType': productType,
                 'youtubeUrl': videoUrl.text.trim(),
                 'youtubeVideoId': preparedYoutubeVideoId,
@@ -2561,6 +2568,14 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                   const SizedBox(height: 12),
                   socialMarketingBox(),
                   const SizedBox(height: 18),
+                  TextField(
+                    key: const Key('product-variant-label'),
+                    controller: variantLabel,
+                    decoration: deco('Variant label', hint: 'e.g. Model, Type, Capacity').copyWith(
+                      helperText: 'Shown before the selected variant, e.g. "Model: 12 Pro". Empty = automatic.',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       const Expanded(
