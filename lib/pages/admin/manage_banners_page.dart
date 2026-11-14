@@ -38,7 +38,7 @@ class _ManageBannersProPageState extends State<ManageBannersProPage> {
   final TextEditingController searchController = TextEditingController();
 
   final List<TextEditingController> itemTitleControllers =
-  List.generate(4, (index) => TextEditingController(text: 'Item ${index + 1}'));
+  List.generate(4, (_) => TextEditingController());
   final List<TextEditingController> itemClickValueControllers =
   List.generate(4, (_) => TextEditingController());
 
@@ -397,9 +397,8 @@ class _ManageBannersProPageState extends State<ManageBannersProPage> {
 
           items.add({
             'imageUrl': imageUrl,
-            'title': itemTitleControllers[i].text.trim().isEmpty
-                ? 'Item ${i + 1}'
-                : itemTitleControllers[i].text.trim(),
+            // Empty when not given: home hides the label instead of "Item N".
+            'title': itemTitleControllers[i].text.trim(),
             'clickActionType': clickActionType,
             'clickValue': itemClickValueControllers[i].text.trim().isEmpty
                 ? (clickActionType == 'category'
@@ -469,7 +468,7 @@ class _ManageBannersProPageState extends State<ManageBannersProPage> {
         itemImages[i] = null;
         itemWebImages[i] = null;
         itemFileImages[i] = null;
-        itemTitleControllers[i].text = 'Item ${i + 1}';
+        itemTitleControllers[i].clear();
         itemClickValueControllers[i].clear();
       }
     });
@@ -512,10 +511,12 @@ class _ManageBannersProPageState extends State<ManageBannersProPage> {
         itemFileImages[i] = null;
         if (i < items.length && items[i] is Map) {
           final item = items[i] as Map;
-          itemTitleControllers[i].text = _safeString(item['title'], 'Item ${i + 1}');
+          final title = _safeString(item['title']);
+          itemTitleControllers[i].text =
+              RegExp(r'^Item \d+$').hasMatch(title) ? '' : title;
           itemClickValueControllers[i].text = _safeString(item['clickValue']);
         } else {
-          itemTitleControllers[i].text = 'Item ${i + 1}';
+          itemTitleControllers[i].clear();
           itemClickValueControllers[i].clear();
         }
       }
@@ -1093,7 +1094,7 @@ class _ManageBannersProPageState extends State<ManageBannersProPage> {
                 ),
                 child: Text(
                   itemTitleControllers[index].text.trim().isEmpty
-                      ? 'Item ${index + 1}'
+                      ? '(no name)'
                       : itemTitleControllers[index].text.trim(),
                   style: const TextStyle(fontWeight: FontWeight.w700),
                 ),

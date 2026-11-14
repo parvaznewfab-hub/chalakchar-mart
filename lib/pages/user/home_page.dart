@@ -14,6 +14,7 @@ import 'my_lists_page.dart';
 import '../../widgets/global_web_header.dart';
 import '../../widgets/global_web_footer.dart';
 import '../../widgets/category_sidebar.dart';
+import '../../widgets/collection_banner_card.dart';
 import 'profile/my_address_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'doctor_departments_page.dart';
@@ -40,8 +41,11 @@ class _ProductHomePageState extends State<ProductHomePage> {
   bool _isUploading = false;
   String? userName;
 
-  final PageController _pageController = PageController();
-  final PageController _mobileBannerController = PageController(viewportFraction: 0.84);
+  /// Horizontal scroll of the home banner row (when there is more than one).
+  final ScrollController _bannerScrollController = ScrollController();
+
+  /// Distance between the starts of two banner cards; set during build.
+  double _bannerStep = 0;
   final ScrollController _mobileScrollController = ScrollController();
   double _mobileScrollOffset = 0;
   Timer? _timer;
@@ -69,8 +73,7 @@ class _ProductHomePageState extends State<ProductHomePage> {
   @override
   void dispose() {
     _timer?.cancel();
-    _pageController.dispose();
-    _mobileBannerController.dispose();
+    _bannerScrollController.dispose();
     _mobileScrollController.dispose();
     super.dispose();
   }
@@ -184,17 +187,12 @@ class _ProductHomePageState extends State<ProductHomePage> {
         _currentPage = 0;
       }
 
-      if (_pageController.hasClients) {
-        _pageController.animateToPage(
-          _currentPage,
-          duration: const Duration(milliseconds: 800),
-          curve: Curves.easeInOut,
-        );
-      }
-
-      if (_mobileBannerController.hasClients) {
-        _mobileBannerController.animateToPage(
-          _currentPage,
+      final controller = _bannerScrollController;
+      if (controller.hasClients && _bannerStep > 0) {
+        final target = (_currentPage * _bannerStep)
+            .clamp(0.0, controller.position.maxScrollExtent);
+        controller.animateTo(
+          target,
           duration: const Duration(milliseconds: 800),
           curve: Curves.easeInOut,
         );
@@ -1672,8 +1670,11 @@ class _ProductHomePageState extends State<ProductHomePage> {
 
           final layoutType = data['layoutType']?.toString() ?? 'normal';
 
-          if (layoutType == 'amazon_grid' ||
-              layoutType == 'category_tiles' ||
+          if (layoutType == 'amazon_grid') {
+            return CollectionBannerItem.listFrom(data['items']).isNotEmpty;
+          }
+
+          if (layoutType == 'category_tiles' ||
               layoutType == 'vendor_spotlight') {
             final items = data['items'];
             return items is List && items.isNotEmpty;
@@ -1701,59 +1702,130 @@ class _ProductHomePageState extends State<ProductHomePage> {
           _startTimer(banners.length);
         }
 
-        if (isDesktop) {
-          return SizedBox(
-            height: bannerHeight,
-            width: double.infinity,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(18),
-              child: PageView.builder(
-                controller: _pageController,
-                itemCount: banners.length,
-                itemBuilder: (context, index) {
-                  final data = banners[index].data() as Map<String, dynamic>;
-                  return _clickableBanner(
-                    data: data,
-                    child: _buildBannerByType(
-                      data: data,
-                      height: bannerHeight,
-                      isDesktop: true,
-                    ),
-                  );
-                },
-              ),
-            ),
-          );
-        }
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final double available = constraints.maxWidth;
+            // One card: full width. Several: each card is a share of the
+            // width so the next card peeks in from the right.
+            final bool single = banners.length == 1;
+            final double cardWidth =
+                single ? available : available * _multiBannerWidthFraction;
+            final double gap = isDesktop ? 12 : 8;
+            _bannerStep = cardWidth + gap;
 
-        return SizedBox(
-          height: bannerHeight,
-          width: double.infinity,
-          child: PageView.builder(
-            controller: _mobileBannerController,
-            padEnds: false,
-            itemCount: banners.length,
-            itemBuilder: (context, index) {
-              final data = banners[index].data() as Map<String, dynamic>;
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(13),
-                  child: _clickableBanner(
-                    data: data,
-                    child: _buildBannerByType(
-                      data: data,
-                      height: bannerHeight,
-                      isDesktop: false,
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
+            Widget card(Map<String, dynamic> data) => _buildBannerCard(
+                  data: data,
+                  width: cardWidth,
+                  height: bannerHeight,
+                  isDesktop: isDesktop,
+                );
+
+            if (single) {
+              return card(banners.first.data() as Map<String, dynamic>);
+            }
+
+            return SingleChildScrollView(
+              controller: _bannerScrollController,
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (int i = 0; i < banners.length; i++) ...[
+                    if (i > 0) SizedBox(width: gap),
+                    card(banners[i].data() as Map<String, dynamic>),
+                  ],
+                ],
+              ),
+            );
+          },
         );
       },
     );
+  }
+
+  /// Share of the available width one banner card takes when there are
+  /// several, leaving part of the next card visible.
+  static const double _multiBannerWidthFraction = 0.85;
+
+  /// One banner card at [width]. The collection (amazon_grid) card sizes its
+  /// own height from its content; the other types keep [height].
+  Widget _buildBannerCard({
+    required Map<String, dynamic> data,
+    required double width,
+    required double height,
+    required bool isDesktop,
+  }) {
+    final layoutType = data['layoutType']?.toString() ?? 'normal';
+    if (layoutType == 'amazon_grid') {
+      return CollectionBannerCard(
+        title: data['title']?.toString().trim() ?? '',
+        subtitle: data['subtitle']?.toString().trim() ?? '',
+        items: CollectionBannerItem.listFrom(data['items']),
+        width: width,
+        isDesktop: isDesktop,
+        onHeaderTap: () => _handleBannerTap(data),
+        onItemTap: (item) => _handleCollectionItemTap(item, data),
+      );
+    }
+
+    return SizedBox(
+      width: width,
+      height: height,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(isDesktop ? 18 : 13),
+        child: _clickableBanner(
+          data: data,
+          child: _buildBannerByType(
+            data: data,
+            height: height,
+            isDesktop: isDesktop,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Opens a collection banner item's own page (product, subcategory, ...);
+  /// items without their own target fall back to the banner's action.
+  Future<void> _handleCollectionItemTap(
+    CollectionBannerItem item,
+    Map<String, dynamic> banner,
+  ) async {
+    final value = item.actionValue;
+    switch (item.actionType) {
+      case 'product':
+        if (value.isNotEmpty) return _openProductById(value);
+        break;
+      case 'subcategory':
+        final categoryName = item.categoryName.isNotEmpty
+            ? item.categoryName
+            : banner['categoryName']?.toString().trim() ?? '';
+        if (value.isNotEmpty && categoryName.isNotEmpty) {
+          final path = '/category/${_categorySlug(categoryName)}'
+              '?sub=${Uri.encodeQueryComponent(value)}';
+          WebUrlService.push(path);
+          Navigator.of(context, rootNavigator: true).pushNamed(path);
+          return;
+        }
+        break;
+      case 'category':
+        // Older items store a category id here; only a name is navigable.
+        if (item.categoryName.isNotEmpty) {
+          return _openCategorySeo(item.categoryName);
+        }
+        break;
+      case 'url':
+        if (value.startsWith('http://') || value.startsWith('https://')) {
+          return _openUrl(value);
+        }
+        break;
+      case 'search':
+        if (value.isNotEmpty) return _openSearch(value);
+        break;
+      case 'none':
+        return;
+    }
+    return _handleBannerTap(banner);
   }
 
   Widget _clickableBanner({
@@ -1767,8 +1839,18 @@ class _ProductHomePageState extends State<ProductHomePage> {
   }
 
   Future<void> _handleBannerTap(Map<String, dynamic> data) async {
-    final actionType = data['actionType']?.toString().trim().toLowerCase() ?? '';
-    final actionValue = data['actionValue']?.toString().trim() ?? '';
+    // The admin form writes clickActionType/clickValue; older docs used
+    // actionType/actionValue. The new fields win, the old ones are fallback.
+    final clickType =
+        data['clickActionType']?.toString().trim().toLowerCase() ?? '';
+    final usesClickFields = clickType.isNotEmpty;
+    final actionType = usesClickFields
+        ? clickType
+        : data['actionType']?.toString().trim().toLowerCase() ?? '';
+    final actionValue = usesClickFields
+        ? data['clickValue']?.toString().trim() ?? ''
+        : data['actionValue']?.toString().trim() ?? '';
+    if (actionType == 'none') return;
     final categoryName = data['categoryName']?.toString().trim() ?? '';
     final productId = data['productId']?.toString().trim() ?? '';
     final searchQuery = data['searchQuery']?.toString().trim() ?? '';
@@ -1819,8 +1901,10 @@ class _ProductHomePageState extends State<ProductHomePage> {
 
     if ((actionType == 'category' && actionValue.isNotEmpty) ||
         categoryName.isNotEmpty) {
+      // clickValue holds a category id (not routable), so the admin form's
+      // banners open by categoryName; old actionValue was already a name.
       _openCategorySeo(
-        actionValue.isNotEmpty ? actionValue : categoryName,
+        usesClickFields || actionValue.isEmpty ? categoryName : actionValue,
       );
       return;
     }
@@ -1832,14 +1916,6 @@ class _ProductHomePageState extends State<ProductHomePage> {
     required bool isDesktop,
   }) {
     final layoutType = data['layoutType']?.toString() ?? 'normal';
-
-    if (layoutType == 'amazon_grid') {
-      return _buildAmazonGridBanner(
-        data: data,
-        height: height,
-        isDesktop: isDesktop,
-      );
-    }
 
     if (layoutType == 'hero_deal') {
       return _buildHeroDealBanner(
@@ -2061,94 +2137,6 @@ class _ProductHomePageState extends State<ProductHomePage> {
               ),
             )
                 : const Icon(Icons.local_offer, color: Colors.white, size: 90),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAmazonGridBanner({
-    required Map<String, dynamic> data,
-    required double height,
-    required bool isDesktop,
-  }) {
-    final title = data['title']?.toString().trim() ?? 'Featured';
-    final subtitle = data['subtitle']?.toString().trim() ?? '';
-    final rawItems = data['items'];
-
-    final List<Map<String, dynamic>> items = rawItems is List
-        ? rawItems
-        .whereType<Map>()
-        .map((e) => Map<String, dynamic>.from(e))
-        .where((e) => (e['imageUrl']?.toString().trim() ?? '').isNotEmpty)
-        .take(4)
-        .toList()
-        : <Map<String, dynamic>>[];
-
-    if (items.isEmpty) return _buildBannerError(height);
-
-    return Container(
-      height: height,
-      width: double.infinity,
-      padding: EdgeInsets.all(isDesktop ? 18 : 12),
-      decoration: const BoxDecoration(color: Colors.white),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: isDesktop ? 24 : 20,
-                    fontWeight: FontWeight.w900,
-                    color: Colors.black87,
-                  ),
-                ),
-              ),
-              const Icon(Icons.chevron_right, color: Color(0xFF32A8C7)),
-            ],
-          ),
-          if (subtitle.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: isDesktop ? 14 : 12,
-                fontWeight: FontWeight.w700,
-                color: const Color(0xFF32A8C7),
-              ),
-            ),
-          ],
-          const SizedBox(height: 12),
-          Expanded(
-            child: GridView.builder(
-              physics: const NeverScrollableScrollPhysics(),
-              padding: EdgeInsets.zero,
-              itemCount: items.length,
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                mainAxisSpacing: isDesktop ? 12 : 8,
-                crossAxisSpacing: isDesktop ? 12 : 8,
-                childAspectRatio: isDesktop ? 1.72 : 1.02,
-              ),
-              itemBuilder: (context, index) {
-                final item = items[index];
-                final imageUrl = item['imageUrl']?.toString().trim() ?? '';
-                final itemTitle = item['title']?.toString().trim() ?? '';
-
-                return _promoTile(
-                  imageUrl: imageUrl,
-                  title: itemTitle.isEmpty ? 'Featured item' : itemTitle,
-                  dense: !isDesktop,
-                );
-              },
-            ),
           ),
         ],
       ),
