@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../services/product_service.dart';
 import '../../widgets/product_card.dart';
 import '../../widgets/global_web_header.dart';
 import '../../widgets/global_web_footer.dart';
@@ -58,25 +59,9 @@ class _WishlistPageState extends State<WishlistPage> {
   bool onlyPharmacy = false;
   bool onlyInStock = false;
 
-  double _priceOf(Map<String, dynamic> data) {
-    final variants = data['variants'];
-
-    if (variants is List && variants.isNotEmpty) {
-      final first = variants.first;
-
-      if (first is Map) {
-        return double.tryParse(
-          (first['price'] ?? 0).toString(),
-        ) ??
-            0;
-      }
-    }
-
-    return double.tryParse(
-      (data['price'] ?? data['piecePrice'] ?? 0).toString(),
-    ) ??
-        0;
-  }
+  // Same "from" price as the cards (cheapest in-stock variant).
+  double _priceOf(Map<String, dynamic> data) =>
+      ProductService.getDisplayPrice(data);
 
   int _stockOf(Map<String, dynamic> data) {
     final variants = data['variants'];

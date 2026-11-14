@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../services/category_service.dart';
-import '../services/web_url_service.dart';
 
 /// Desktop-web "Categories" box shared by the home page and the category
 /// page. A category with active subcategories gets a ">" that expands its
@@ -59,7 +58,6 @@ class _CategorySidebarState extends State<CategorySidebar> {
   };
 
   void _open(String path) {
-    WebUrlService.push(path);
     Navigator.of(context, rootNavigator: true).pushNamed(path);
   }
 

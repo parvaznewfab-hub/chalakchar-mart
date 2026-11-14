@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../services/category_service.dart';
 import '../../services/notification_service.dart';
+import '../../services/product_service.dart';
 import '../../utils/search_import_guard.dart';
 import '../../widgets/product_card.dart';
 import '../../widgets/global_web_header.dart';
@@ -155,18 +156,9 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
-  double _priceOf(Map<String, dynamic> data) {
-    final variants = data['variants'];
-
-    if (variants is List && variants.isNotEmpty) {
-      final first = variants.first;
-      if (first is Map) {
-        return double.tryParse((first['price'] ?? 0).toString()) ?? 0;
-      }
-    }
-
-    return double.tryParse((data['price'] ?? data['piecePrice'] ?? 0).toString()) ?? 0;
-  }
+  // Same "from" price as the cards (cheapest in-stock variant).
+  double _priceOf(Map<String, dynamic> data) =>
+      ProductService.getDisplayPrice(data);
 
   int _stockOf(Map<String, dynamic> data) {
     final variants = data['variants'];

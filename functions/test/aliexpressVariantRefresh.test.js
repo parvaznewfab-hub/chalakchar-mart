@@ -84,12 +84,27 @@ describe("refreshSavedVariants", () => {
 });
 
 describe("deriveProductFromVariants", () => {
-  test("stock = sum of saved variants, price/oldPrice = first saved variant (not cheapest)", () => {
+  test("stock = sum of saved variants, price/oldPrice = cheapest in-stock variant (not the first)", () => {
     const fields = deriveProductFromVariants([
       { price: 7033, mrp: 8000, stock: 10 },
       { price: 5214, mrp: 6000, stock: 20 },
     ]);
-    assert.deepEqual(fields, { stock: 30, inStock: true, price: 7033, oldPrice: 8000 });
+    assert.deepEqual(fields, { stock: 30, inStock: true, price: 5214, piecePrice: 5214, oldPrice: 6000, mrp: 6000 });
+  });
+
+  test("an out-of-stock cheaper variant doesn't set the price", () => {
+    const fields = deriveProductFromVariants([
+      { name: "4TB", price: 47546, mrp: 68907, stock: 3 },
+      { name: "1TB", price: 13583, mrp: 19686, stock: 0 },
+      { name: "128GB", price: 2851, mrp: 4132, stock: 1337 },
+    ]);
+    assert.equal(fields.price, 2851);
+    assert.equal(fields.unit, "128GB");
+    const sold = deriveProductFromVariants([
+      { name: "4TB", price: 47546, stock: 3 },
+      { name: "128GB", price: 2851, stock: 0 },
+    ]);
+    assert.equal(sold.price, 47546);
   });
 
   test("zero stock -> inStock false; no variants -> null", () => {
@@ -109,22 +124,29 @@ describe("buildVariantRefreshUpdate", () => {
   };
   const freshVariants = [fresh("999", "Expensive one we don't sell", 218.56, 121), fresh("111", "Black", 70, 12), fresh("222", "White", 52, 25)];
 
-  test("product price comes from the first SAVED variant and stock from saved variants only", () => {
+  test("product price comes from the cheapest in-stock SAVED variant and stock from saved variants only", () => {
     const result = buildVariantRefreshUpdate(product, freshVariants, priceFor);
-    assert.equal(result.update.price, 7050);
+    assert.equal(result.update.price, 5250);
+    assert.equal(result.update.unit, "White");
     assert.equal(result.update.stock, 37);
     assert.equal(result.update.inStock, true);
-    assert.equal(result.update.originalPrice, 70);
+    assert.equal(result.update.originalPrice, 52);
     assert.deepEqual(result.omit, []);
     assert.equal(result.update.variants.length, 2);
   });
 
-  test("first saved variant gone from AliExpress: keep old originalPrice/originalMrp", () => {
-    const result = buildVariantRefreshUpdate(product, [fresh("222", "White", 52, 25)], priceFor);
+  test("display variant gone from AliExpress: keep old originalPrice/originalMrp", () => {
+    const result = buildVariantRefreshUpdate(product, [fresh("333", "Other", 52, 25)], priceFor);
     assert.deepEqual(result.omit, ["originalPrice", "originalMrp"]);
     assert.equal("originalPrice" in result.update, false);
     assert.equal(result.update.variants[0].stock, 0);
-    assert.equal(result.update.stock, 25);
+    assert.equal(result.update.stock, 0);
+  });
+
+  test("cheaper variant sells out: price and originalPrice move to the in-stock one", () => {
+    const result = buildVariantRefreshUpdate(product, [fresh("111", "Black", 70, 12), fresh("222", "White", 52, 0)], priceFor);
+    assert.equal(result.update.price, 7050);
+    assert.equal(result.update.originalPrice, 70);
   });
 
   test("opted-out or variant-less products are left to the old behaviour (null)", () => {

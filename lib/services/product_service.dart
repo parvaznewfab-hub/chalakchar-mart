@@ -103,8 +103,10 @@ class ProductService {
       fallbackStock: product['stock'],
     );
 
+    // Top-level price/mrp/unit describe the display variant (cheapest in
+    // stock), never simply variants.first — see [displayVariantOf].
     final first = variants.isNotEmpty
-        ? variants.first
+        ? (displayVariantOf(variants) ?? variants.first)
         : {
       'id': 'default',
       'name': text(product['unit'] ?? product['variantName'], 'Default'),
@@ -294,11 +296,57 @@ class ProductService {
   // Display helpers
   // ---------------------------------------------------------------------------
 
-  /// New preferred method.
+  /// The variant a product's "from" price describes: the cheapest variant
+  /// in stock, else the cheapest priced one; null when none has a price.
+  /// variants[] keeps AliExpress's arbitrary SKU order, so variants.first
+  /// can be the most expensive SKU. Mirrors functions/catalog/displayPrice.js.
+  static Map<String, dynamic>? displayVariantOf(List<dynamic>? variants) {
+    if (variants == null) return null;
+    Map<String, dynamic>? best;
+    var bestInStock = false;
+    for (final raw in variants) {
+      if (raw is! Map) continue;
+      final price = toDouble(raw['price'] ?? raw['piecePrice']);
+      if (price <= 0) continue;
+      final inStock = toInt(raw['stock']) > 0;
+      final bestPrice =
+          best == null ? 0.0 : toDouble(best['price'] ?? best['piecePrice']);
+      if (best == null ||
+          (inStock && !bestInStock) ||
+          (inStock == bestInStock && price < bestPrice)) {
+        best = Map<String, dynamic>.from(raw);
+        bestInStock = inStock;
+      }
+    }
+    return best;
+  }
+
+  /// [displayVariantOf] for a product, falling back to [firstVariant].
+  static Map<String, dynamic> displayVariant(Map<String, dynamic> product) {
+    final normalized = normalizeProductData(product);
+    final variants = normalized['variants'];
+    return displayVariantOf(variants is List ? variants : null) ??
+        firstVariant(normalized);
+  }
+
+  /// True when the product's variants don't all cost the same, so a card
+  /// shows its price as "৳X থেকে".
+  static bool hasPriceRange(Map<String, dynamic> product) {
+    final variants = normalizeProductData(product)['variants'];
+    if (variants is! List) return false;
+    final prices = <double>{
+      for (final v in variants)
+        if (v is Map && toDouble(v['price'] ?? v['piecePrice']) > 0)
+          toDouble(v['price'] ?? v['piecePrice']),
+    };
+    return prices.length > 1;
+  }
+
+  /// Price of [unit], or the "from" price ([displayVariant]) when no unit.
   static double getDisplayPrice(Map<String, dynamic> product, {String? unit}) {
     final normalized = normalizeProductData(product);
     final variant = unit == null || unit.trim().isEmpty
-        ? firstVariant(normalized)
+        ? displayVariant(normalized)
         : selectedVariant(normalized, unit);
     return toDouble(variant['price'] ?? normalized['price']);
   }
@@ -306,7 +354,7 @@ class ProductService {
   static double getDisplayMrp(Map<String, dynamic> product, {String? unit}) {
     final normalized = normalizeProductData(product);
     final variant = unit == null || unit.trim().isEmpty
-        ? firstVariant(normalized)
+        ? displayVariant(normalized)
         : selectedVariant(normalized, unit);
     return toDouble(variant['mrp'] ?? variant['oldPrice'] ?? normalized['oldPrice'] ?? getDisplayPrice(product, unit: unit));
   }
@@ -481,7 +529,7 @@ class ProductService {
     final error = validateVariants(cleanVariants);
     if (error != null) throw Exception(error);
 
-    final first = cleanVariants.first;
+    final first = displayVariantOf(cleanVariants) ?? cleanVariants.first;
     final totalStock = cleanVariants.fold<int>(0, (total, v) => total + toInt(v['stock']));
     final cleanImages = normalizeImages(images, image);
 
@@ -727,7 +775,7 @@ class ProductService {
       }
 
       final totalStock = variants.fold<int>(0, (total, v) => total + toInt(v['stock']));
-      final first = variants.first;
+      final first = displayVariantOf(variants) ?? variants.first;
 
       transaction.set(productRef, {
         'variants': variants,
@@ -784,7 +832,7 @@ class ProductService {
     }
 
     final totalStock = variants.fold<int>(0, (total, v) => total + toInt(v['stock']));
-    final first = variants.first;
+    final first = displayVariantOf(variants) ?? variants.first;
 
     batch.set(productRef, {
       'variants': variants,

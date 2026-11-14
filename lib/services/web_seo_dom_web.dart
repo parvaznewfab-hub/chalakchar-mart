@@ -40,3 +40,7 @@ void setJsonLd(String id, String json) {
     ..text = json;
   html.document.head?.append(script);
 }
+
+void removeElementById(String id) {
+  html.document.getElementById(id)?.remove();
+}

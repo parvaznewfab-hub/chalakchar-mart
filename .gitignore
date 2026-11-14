@@ -54,5 +54,8 @@ functions/.env
 # Claude Code local-only overrides (settings.json itself is shared/tracked)
 .claude/settings.local.json
 
+# Local review screenshots from test/home_category_grid_test.dart
+/test/screenshots/
+
 # Local backfill dry-run reports, backups and review patches
 /tools/backfill/

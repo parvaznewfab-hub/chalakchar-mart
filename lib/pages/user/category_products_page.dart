@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../../services/category_service.dart';
+import '../../services/product_service.dart';
 import '../../widgets/product_card.dart';
 import '../../widgets/global_web_header.dart';
 import '../../widgets/global_web_footer.dart';
@@ -34,7 +35,6 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
   String? _sub;
   final Future<Map<String, List<SubcategoryModel>>> _subcategories =
       CategoryService.activeSubcategoriesByCategory();
-  void Function()? _cancelPopState;
 
   // Streams are created once, not in build(): a new stream per setState
   // (chip, filter or sort tap) re-subscribed both queries, flashed the
@@ -62,17 +62,6 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
     super.initState();
     final fromUrl = kIsWeb ? WebUrlService.currentQuery()['sub'] : null;
     _sub = _cleanSub(widget.initialSub ?? fromUrl);
-    // Back/forward between ?sub= entries of this page.
-    _cancelPopState = WebUrlService.onPopState((query) {
-      if (!mounted) return;
-      setState(() => _sub = _cleanSub(query['sub']));
-    });
-  }
-
-  @override
-  void dispose() {
-    _cancelPopState?.call();
-    super.dispose();
   }
 
   String? _cleanSub(String? value) {
@@ -84,8 +73,11 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
     if (slug == _sub) return;
     setState(() => _sub = slug);
     if (kIsWeb) {
+      // Address bar only, in place. Navigator 1.0 keeps a single browser
+      // history entry on web, so an extra pushState here would confuse the
+      // browser back button once pages open without reloading.
       final path = Uri.base.path;
-      WebUrlService.pushInPage(
+      WebUrlService.replaceInPage(
         slug == null ? path : '$path?sub=${Uri.encodeQueryComponent(slug)}',
       );
     }
@@ -107,18 +99,9 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
     // when this page rebuilds behind the product page.
   }
 
-  double _priceOf(Map<String, dynamic> data) {
-    final variants = data['variants'];
-    if (variants is List && variants.isNotEmpty) {
-      final first = variants.first;
-      if (first is Map) {
-        return double.tryParse((first['price'] ?? 0).toString()) ?? 0;
-      }
-    }
-    return double.tryParse(
-            (data['price'] ?? data['piecePrice'] ?? 0).toString()) ??
-        0;
-  }
+  // Same "from" price as the cards (cheapest in-stock variant).
+  double _priceOf(Map<String, dynamic> data) =>
+      ProductService.getDisplayPrice(data);
 
   int _stockOf(Map<String, dynamic> data) {
     final variants = data['variants'];

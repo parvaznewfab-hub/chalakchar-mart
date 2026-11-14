@@ -98,6 +98,11 @@ class CategoryService {
     return Map.fromEntries(counts);
   }
 
+  /// Uncached read of [activeSubcategoriesByCategory]'s data, for admin
+  /// screens that must see a subcategory added a moment ago.
+  static Future<Map<String, List<SubcategoryModel>>> fetchActiveSubcategoriesByCategory() =>
+      _loadSubcategories();
+
   // ---------------------------------------------------------------------------
   // Variant label defaults (product page)
   // ---------------------------------------------------------------------------

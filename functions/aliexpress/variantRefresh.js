@@ -22,13 +22,14 @@
 //     different AliExpress variants, or ambiguous) is left exactly as is and
 //     reported as "unresolved";
 //   - every other variant field (name, image, order, ...) is preserved;
-//   - product stock = sum of saved variants, product price/oldPrice = the
-//     first saved variant's.
+//   - product stock = sum of saved variants, product price/oldPrice/unit =
+//     the display variant's (cheapest in stock — catalog/displayPrice.js).
 //
 // Pure: no Firestore, no AliExpress calls.
 // -----------------------------------------------------------------------------
 
 const { pickFreshVariantForSaved, withSourceSkuIds } = require("./variantMatch");
+const { pickDisplayVariantIndex, displayPriceFields } = require("../catalog/displayPrice");
 
 function textValue(value, fallback = "") {
   const text = String(value ?? "").trim();
@@ -64,7 +65,9 @@ function variantMrp(variant) {
  * @param {(fresh: object) => { price: number, mrp: number }} priceFor BDT prices
  *   for one fresh variant, using the import's price rule
  * @returns {{ variants: object[], changes: object[], matched: number,
- *             unmatched: number, missing: object[], firstFresh: object|null }}
+ *             unmatched: number, missing: object[], displayFresh: object|null }}
+ *   displayFresh: the AliExpress SKU behind the display variant (cheapest in
+ *   stock after the refresh), or null when that variant wasn't matched.
  */
 function refreshSavedVariants(savedVariants, freshVariants, priceFor) {
   const fresh = withSourceSkuIds(freshVariants);
@@ -74,7 +77,7 @@ function refreshSavedVariants(savedVariants, freshVariants, priceFor) {
   const matchedBy = {};
   let matched = 0;
   let unmatched = 0;
-  let firstFresh = null;
+  const freshByIndex = new Map();
 
   const variants = (Array.isArray(savedVariants) ? savedVariants : []).map((variant, index) => {
     if (!isObject(variant)) return variant;
@@ -88,7 +91,7 @@ function refreshSavedVariants(savedVariants, freshVariants, priceFor) {
     if (isMatched) {
       matched += 1;
       matchedBy[pick.how] = (matchedBy[pick.how] || 0) + 1;
-      if (index === 0) firstFresh = pick.fresh;
+      freshByIndex.set(index, pick.fresh);
       const priced = priceFor(pick.fresh) || {};
       const price = num(priced.price);
       next = { ...variant, stock: toStock(pick.fresh.stock) };
@@ -122,24 +125,20 @@ function refreshSavedVariants(savedVariants, freshVariants, priceFor) {
     return next;
   });
 
-  return { variants, changes, matched, unmatched, missing, unresolved, matchedBy, firstFresh };
+  const displayFresh = freshByIndex.get(pickDisplayVariantIndex(variants)) || null;
+  return { variants, changes, matched, unmatched, missing, unresolved, matchedBy, displayFresh };
 }
 
 /**
  * Product-level fields from the (refreshed) saved variants: stock = sum,
- * price/oldPrice = first saved variant.
+ * price/piecePrice/oldPrice/mrp/unit = the display variant (cheapest in
+ * stock, see catalog/displayPrice.js), left out when no variant is priced.
  */
 function deriveProductFromVariants(variants) {
   const list = (Array.isArray(variants) ? variants : []).filter(isObject);
   if (!list.length) return null;
   const stock = list.reduce((sum, v) => sum + toStock(v.stock), 0);
-  const fields = { stock, inStock: stock > 0 };
-  const price = num(list[0].price);
-  if (price > 0) {
-    fields.price = price;
-    fields.oldPrice = Math.max(price, variantMrp(list[0]));
-  }
-  return fields;
+  return { stock, inStock: stock > 0, ...(displayPriceFields(list) || {}) };
 }
 
 /**
@@ -148,7 +147,7 @@ function deriveProductFromVariants(variants) {
  * (the sync then behaves exactly as before for that product).
  *
  * originalPrice/originalMrp (the USD inputs) follow the AliExpress SKU behind
- * the first saved variant; if that SKU is gone they are omitted so the old
+ * the display variant; if that SKU is gone they are omitted so the old
  * values are kept rather than replaced by an unrelated SKU's price.
  */
 function buildVariantRefreshUpdate(productData, freshVariants, priceFor) {
@@ -159,9 +158,9 @@ function buildVariantRefreshUpdate(productData, freshVariants, priceFor) {
   const refreshed = refreshSavedVariants(data.variants, freshVariants, priceFor);
   const update = { variants: refreshed.variants, ...deriveProductFromVariants(refreshed.variants) };
   const omit = [];
-  if (refreshed.firstFresh) {
-    update.originalPrice = num(refreshed.firstFresh.price);
-    update.originalMrp = num(refreshed.firstFresh.mrp ?? refreshed.firstFresh.price);
+  if (refreshed.displayFresh) {
+    update.originalPrice = num(refreshed.displayFresh.price);
+    update.originalMrp = num(refreshed.displayFresh.mrp ?? refreshed.displayFresh.price);
   } else {
     omit.push("originalPrice", "originalMrp");
   }

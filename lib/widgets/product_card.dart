@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../services/guest_cart_service.dart';
 import '../services/product_service.dart';
-import '../services/web_url_service.dart';
 import '../utils/price_format.dart';
 
 class ProductCard extends StatelessWidget {
@@ -182,27 +181,32 @@ class ProductCard extends StatelessWidget {
     final manufacturer = _text(product['manufacturer'] ?? product['brand']);
     final image = _text(product['image'] ?? product['imageUrl']);
 
+    // "From" price: the cheapest in-stock variant, never simply the first.
     final price = ProductService.getDisplayPrice(product);
     final oldPrice = ProductService.getDisplayMrp(product);
+    final hasPriceRange = ProductService.hasPriceRange(product);
     final stock = ProductService.getStock(product);
     final isOutOfStock = stock <= 0;
     final discount = discountPercent(price, oldPrice);
 
+    void openProduct() {
+      final productId = ProductService.productIdFrom(product).trim();
+      if (productId.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Invalid product link')),
+        );
+        return;
+      }
+      Navigator.of(context, rootNavigator: true)
+          .pushNamed('/product/$productId');
+    }
+
+    // With several variants the shopper must choose one, so "+" opens the
+    // product page instead of silently adding some variant to the cart.
+    final hasVariantChoice = ProductService.getUnits(product).length > 1;
+
     return GestureDetector(
-      onTap: () {
-        final productId = ProductService.productIdFrom(product).trim();
-        if (productId.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Invalid product link')),
-          );
-          return;
-        }
-
-        final path = '/product/$productId';
-        WebUrlService.push(path);
-
-        Navigator.of(context, rootNavigator: true).pushNamed(path);
-      },
+      onTap: openProduct,
       child: Container(
         width: gridMode ? double.infinity : cardWidth,
         // Grid cells size the card; the fixed-width card sizes itself to the
@@ -367,6 +371,7 @@ class ProductCard extends StatelessWidget {
                         child: _PriceWithMrp(
                           price: price,
                           mrp: oldPrice,
+                          isFromPrice: hasPriceRange,
                           priceStyle: const TextStyle(
                             fontWeight: FontWeight.bold,
                             color: primaryColor,
@@ -379,7 +384,9 @@ class ProductCard extends StatelessWidget {
                       GestureDetector(
                         onTap: isOutOfStock
                             ? null
-                            : () => _addToCart(context, product, imageKey),
+                            : hasVariantChoice
+                                ? openProduct
+                                : () => _addToCart(context, product, imageKey),
                         child: Container(
                           height: _addButtonSize,
                           width: _addButtonSize,
@@ -415,11 +422,22 @@ class _PriceWithMrp extends StatelessWidget {
     required this.price,
     required this.mrp,
     required this.priceStyle,
+    this.isFromPrice = false,
   });
 
   final double price;
   final double mrp;
   final TextStyle priceStyle;
+
+  /// Variants cost different amounts: the price is a "from" price and is
+  /// shown as "৳X থেকে".
+  final bool isFromPrice;
+
+  static const TextStyle _fromStyle = TextStyle(
+    fontSize: 9,
+    fontWeight: FontWeight.w500,
+    color: Colors.grey,
+  );
 
   static const TextStyle _mrpStyle = TextStyle(
     decoration: TextDecoration.lineThrough,
@@ -443,6 +461,25 @@ class _PriceWithMrp extends StatelessWidget {
       builder: (context, _) => LayoutBuilder(
       builder: (context, constraints) {
         final scaler = MediaQuery.textScalerOf(context);
+        final priceSpan = TextSpan(
+          text: priceText,
+          style: priceStyle,
+          children: [
+            if (isFromPrice) const TextSpan(text: ' থেকে', style: _fromStyle),
+          ],
+        );
+        double widthOfSpan(InlineSpan span) {
+          final painter = TextPainter(
+            text: span,
+            maxLines: 1,
+            textDirection: TextDirection.ltr,
+            textScaler: scaler,
+          )..layout();
+          final width = painter.width;
+          painter.dispose();
+          return width;
+        }
+
         double widthOf(String text, TextStyle style) {
           final painter = TextPainter(
             text: TextSpan(text: text, style: style),
@@ -455,10 +492,10 @@ class _PriceWithMrp extends StatelessWidget {
           return width;
         }
 
-        final priceWidget = Text(priceText, maxLines: 1, softWrap: false, style: priceStyle);
+        final priceWidget = Text.rich(priceSpan, maxLines: 1, softWrap: false);
         // A couple of px of slack absorbs sub-pixel rounding differences.
         final fitsWithMrp = showMrp &&
-            widthOf(priceText, priceStyle) + _gap + widthOf(mrpText, _mrpStyle) + _fitSlack <=
+            widthOfSpan(priceSpan) + _gap + widthOf(mrpText, _mrpStyle) + _fitSlack <=
                 constraints.maxWidth;
 
         if (fitsWithMrp) {

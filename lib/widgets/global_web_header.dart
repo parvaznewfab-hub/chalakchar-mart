@@ -19,7 +19,6 @@ import '../pages/user/user_order_page.dart';
 import '../pages/vendor/vendor_apply_page.dart';
 import '../pages/vendor/vendor_dashboard_page.dart';
 import '../services/auth_service.dart';
-import '../services/web_url_service.dart';
 import 'cart_badge.dart';
 import '../pages/user/delivery/delivery_partner_apply_page.dart';
 import '../pages/user/delivery/delivery_partner_dashboard_page.dart';
@@ -77,7 +76,6 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
   }
 
   void _goHome() {
-    WebUrlService.push('/');
     Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil(
       '/',
           (route) => false,
@@ -198,7 +196,6 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
     if (name.isEmpty) return;
 
     final path = '/category/${_categorySlug(name)}';
-    WebUrlService.push(path);
     Navigator.of(context, rootNavigator: true).pushNamed(path);
   }
 

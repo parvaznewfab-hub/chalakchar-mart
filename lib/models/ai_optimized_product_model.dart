@@ -18,6 +18,12 @@ class AIOptimizedProductModel {
   final String suggestedSubCategory;
   final String productType;
 
+  /// The model's own category/subcategory answer. Newer backends return
+  /// only taxonomy-matched names in [suggestedCategory] and keep the raw
+  /// answer here; older ones return the raw answer in [suggestedCategory].
+  final String rawSuggestedCategory;
+  final String rawSuggestedSubCategory;
+
   AIOptimizedProductModel({
     required this.title,
     required this.banglaTitle,
@@ -32,6 +38,8 @@ class AIOptimizedProductModel {
     required this.suggestedCategory,
     required this.suggestedSubCategory,
     required this.productType,
+    this.rawSuggestedCategory = '',
+    this.rawSuggestedSubCategory = '',
   });
 
   factory AIOptimizedProductModel.fromJson(Map<String, dynamic> json) {
@@ -49,6 +57,10 @@ class AIOptimizedProductModel {
       suggestedCategory: _toText(json['suggestedCategory']),
       suggestedSubCategory: _toText(json['suggestedSubCategory']),
       productType: _toText(json['productType']),
+      rawSuggestedCategory:
+          _toText(json['aiRawSuggestedCategory'] ?? json['suggestedCategory']),
+      rawSuggestedSubCategory:
+          _toText(json['aiRawSuggestedSubCategory'] ?? json['suggestedSubCategory']),
     );
   }
 

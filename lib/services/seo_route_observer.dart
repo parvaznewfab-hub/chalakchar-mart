@@ -2,19 +2,29 @@ import 'package:flutter/widgets.dart';
 
 import 'web_seo_service.dart';
 
-/// Watches the root [Navigator] and toggles the `robots` meta tag so that
-/// private/user-specific routes (currently /login and /cart) are marked
-/// noindex while the rest of the site stays indexable.
+/// Watches the root [Navigator] and keeps page-level SEO tags in step with
+/// client-side navigation:
+/// - private/user-specific routes (/login, /cart) are marked noindex while
+///   the rest of the site stays indexable;
+/// - leaving a product page resets the product's title, canonical link and
+///   JSON-LD, which the product page set for itself (pages no longer reload
+///   between routes, so nothing else would clear them).
 class SeoRouteObserver extends NavigatorObserver {
   static const Set<String> _noIndexRoutes = {'/login', '/cart'};
 
   void _applyForRoute(Route<dynamic>? route) {
-    final name = route?.settings.name;
+    // Only named (page) routes; dialogs and bottom sheets keep the page's tags.
+    if (route is! PageRoute) return;
+    final name = route.settings.name;
+    final path = name == null ? null : Uri.tryParse(name)?.path;
     WebSeoService.setRobots(
-      name != null && _noIndexRoutes.contains(name)
+      path != null && _noIndexRoutes.contains(path)
           ? 'noindex, nofollow'
           : 'index, follow',
     );
+    if (path != null && !path.startsWith('/product/')) {
+      WebSeoService.resetPageSeo(path);
+    }
   }
 
   @override

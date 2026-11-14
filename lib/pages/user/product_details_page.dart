@@ -2231,25 +2231,17 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
             constraints: const BoxConstraints(),
             padding: EdgeInsets.zero,
           ),
-        if (productId.isNotEmpty) ...[
+        // Saved-by count kept on the product by the onWishlistItem* triggers.
+        // (A collectionGroup('wishlist') count() is denied by the rules for
+        // every visitor, and allowing it would expose all users' wishlists.)
+        if (ProductService.toInt(data['wishlistCount']) > 0) ...[
           const SizedBox(width: 6),
-          FutureBuilder<AggregateQuerySnapshot>(
-            future: db
-                .collectionGroup('wishlist')
-                .where('productId', isEqualTo: productId)
-                .count()
-                .get(),
-            builder: (context, snap) {
-              final count = snap.data?.count ?? 0;
-              if (count <= 0) return const SizedBox.shrink();
-              return Text(
-                '$count',
-                style: TextStyle(
-                    color: Colors.grey.shade700,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600),
-              );
-            },
+          Text(
+            '${ProductService.toInt(data['wishlistCount'])}',
+            style: TextStyle(
+                color: Colors.grey.shade700,
+                fontSize: 13,
+                fontWeight: FontWeight.w600),
           ),
         ],
       ],

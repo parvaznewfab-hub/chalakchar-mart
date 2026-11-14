@@ -22,6 +22,7 @@ import '../../utils/variant_merge.dart';
 import '../../services/category_resolver_service.dart';
 import '../../utils/category_lookup.dart';
 import '../../utils/category_normalize.dart';
+import '../../utils/ai_taxonomy_match.dart';
 
 class ManageProductsPage extends StatefulWidget {
   const ManageProductsPage({super.key});
@@ -752,53 +753,39 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
               variantOriginals.add(null);
             });
           }
-          Future<void> applySuggestedCategory(String value) async {
-            final suggested = value.trim();
-            if (suggested.isEmpty) return;
-
-            // Category Manager is now the single source of truth: the shared
-            // resolver reuses an existing (normalized-match) category or
-            // auto-creates one — no separate confirmation step, matching the
-            // approved "automatic" behavior. Falls back to just using the
-            // typed name if resolution fails, so an admin is never blocked
-            // from picking an AI-suggested category by a transient error.
-            String resolvedCategory = suggested;
-            String resolvedCategoryId = '';
+          /// Loads the active taxonomy for an AI preview; null when it can't
+          /// be read (the preview then offers no category change).
+          Future<AiTaxonomy?> loadAiTaxonomy() async {
             try {
-              final resolution = await CategoryResolverService.resolve(suggested);
-              if (resolution != null) {
-                resolvedCategory = resolution.categoryName;
-                resolvedCategoryId = resolution.categoryId;
-              }
-            } catch (_) {
-              // ignore — fall back to the raw suggested name below (matched
-              // by name in the dropdown, or resolved on save)
+              return await AiTaxonomy.load();
+            } catch (e) {
+              debugPrint('AI taxonomy load failed: $e');
+              return null;
             }
+          }
 
-            if (!pageContext.mounted) return;
+          String currentSubcategoryLabel(AiTaxonomy? taxonomy) {
+            if (subcategoryId.isEmpty) return '';
+            final name = taxonomy?.subcategoryName(categoryId, subcategoryId) ?? '';
+            return name.isEmpty ? '(inactive or unknown subcategory)' : name;
+          }
 
-            // Same category (by id, or by name when the resolver gave no
-            // id): keep categoryId and the subcategory as they are.
-            final sameCategory = resolvedCategoryId.isNotEmpty
-                ? resolvedCategoryId == categoryId
-                : resolvedCategory == category;
-            if (sameCategory) {
-              setDialogState(() => category = resolvedCategory);
-              return;
-            }
-
-            // A subcategory belongs to one category, so it can't follow the
-            // product to another one — drop it, but say so.
-            final dropped = subcategoryId.isNotEmpty;
+          /// Moves the product to an AI suggestion that matched an active
+          /// category (only when the admin ticked "change category"). A
+          /// subcategory can't follow the product to another category, so
+          /// one that gets dropped is announced and confirmed again on save.
+          void applyMatchedCategory(AiTaxonomyMatch match) {
+            if (!match.matched) return;
+            final dropped = subcategoryId.isNotEmpty && match.subcategoryId.isEmpty;
             setDialogState(() {
-              subcategoryId = '';
+              categoryId = match.categoryId;
+              category = match.categoryName;
+              subcategoryId = match.subcategoryId;
               if (dropped) aiDroppedSubcategory = true;
-              category = resolvedCategory;
-              categoryId = resolvedCategoryId;
             });
             if (dropped) {
               _snack(
-                'AI changed the category to "$resolvedCategory" — the subcategory was cleared. Pick a new one or it will be removed on save.',
+                'Category changed to "${match.categoryName}" — the subcategory was cleared. Pick a new one or it will be removed on save.',
                 isError: true,
               );
             }
@@ -841,6 +828,13 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                 return;
               }
 
+              final taxonomy = await loadAiTaxonomy();
+              if (!pageContext.mounted) return;
+              final match = taxonomy?.match(
+                result.rawSuggestedCategory,
+                result.rawSuggestedSubCategory,
+              );
+
               await showDialog(
                 context: pageContext,
                 builder: (_) => AIProductPreviewDialog(
@@ -853,11 +847,16 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                   whatsappCaption: result.whatsappCaption,
                   metaTitle: result.metaTitle,
                   metaDescription: result.metaDescription,
-                  suggestedCategory: result.suggestedCategory,
-                  suggestedSubCategory: result.suggestedSubCategory,
+                  suggestedCategory: result.rawSuggestedCategory,
+                  suggestedSubCategory: result.rawSuggestedSubCategory,
                   productType: result.productType,
                   searchKeywords: result.searchKeywords,
-                  onApply: () {
+                  currentCategoryId: categoryId,
+                  currentCategory: category ?? '',
+                  currentSubcategoryId: subcategoryId,
+                  currentSubcategory: currentSubcategoryLabel(taxonomy),
+                  categoryMatch: match,
+                  onApply: (changeCategory) {
                     if (!mounted) return;
 
                     if (result.title.trim().isNotEmpty) name.text = result.title.trim();
@@ -874,8 +873,10 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                       metaTitle = result.metaTitle;
                       metaDescription = result.metaDescription;
                       searchKeywords = result.searchKeywords;
-                      suggestedCategory = result.suggestedCategory;
-                      suggestedSubCategory = result.suggestedSubCategory;
+                      // Only names from our taxonomy: these fields feed
+                      // the subcategory hint and the import resolver.
+                      suggestedCategory = match?.categoryName ?? '';
+                      suggestedSubCategory = match?.subcategoryName ?? '';
                       productType = result.productType;
 
                       if (type.text.trim().isEmpty &&
@@ -884,9 +885,8 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                       }
                     });
 
-                    if ((category == null || category!.trim().isEmpty) &&
-                        result.suggestedCategory.trim().isNotEmpty) {
-                      applySuggestedCategory(result.suggestedCategory);
+                    if (changeCategory && match != null) {
+                      applyMatchedCategory(match);
                     }
                   },
                 ),
@@ -1088,6 +1088,13 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                 return;
               }
 
+              final taxonomy = await loadAiTaxonomy();
+              if (!pageContext.mounted) return;
+              final match = taxonomy?.match(
+                result.rawSuggestedCategory,
+                result.rawSuggestedSubCategory,
+              );
+
               await showDialog(
                 context: pageContext,
                 builder: (_) => AIProductPreviewDialog(
@@ -1100,11 +1107,16 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                   whatsappCaption: result.whatsappCaption,
                   metaTitle: result.metaTitle,
                   metaDescription: result.metaDescription,
-                  suggestedCategory: result.suggestedCategory,
-                  suggestedSubCategory: result.suggestedSubCategory,
+                  suggestedCategory: result.rawSuggestedCategory,
+                  suggestedSubCategory: result.rawSuggestedSubCategory,
                   productType: result.productType,
                   searchKeywords: result.searchKeywords,
-                  onApply: () {
+                  currentCategoryId: categoryId,
+                  currentCategory: category ?? '',
+                  currentSubcategoryId: subcategoryId,
+                  currentSubcategory: currentSubcategoryLabel(taxonomy),
+                  categoryMatch: match,
+                  onApply: (changeCategory) {
                     if (!mounted) return;
 
                     name.text = result.title;
@@ -1122,8 +1134,10 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                       metaTitle = result.metaTitle;
                       metaDescription = result.metaDescription;
                       searchKeywords = result.searchKeywords;
-                      suggestedCategory = result.suggestedCategory;
-                      suggestedSubCategory = result.suggestedSubCategory;
+                      // Only names from our taxonomy: these fields feed
+                      // the subcategory hint and the import resolver.
+                      suggestedCategory = match?.categoryName ?? '';
+                      suggestedSubCategory = match?.subcategoryName ?? '';
                       productType = result.productType;
 
                       if (type.text.trim().isEmpty &&
@@ -1132,9 +1146,8 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                       }
                     });
 
-                    if ((category == null || category!.trim().isEmpty) &&
-                        result.suggestedCategory.trim().isNotEmpty) {
-                      applySuggestedCategory(result.suggestedCategory);
+                    if (changeCategory && match != null) {
+                      applyMatchedCategory(match);
                     }
                   },
                 ),

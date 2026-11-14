@@ -1,23 +1,66 @@
 // Product search-intent matching for the omnichannel messaging pipeline.
-// Deliberately mirrors lib/pages/user/search_page.dart's _searchScore/_matches
-// field-by-field (same weights, same field list) so a chat customer gets the
-// same relevance ranking a shopper sees on the in-app search page — this is
-// the "reuse existing product search logic" the spec calls for, ported to
-// Node since there is no server-side search endpoint to call into directly
-// (search_page.dart runs its scoring entirely client-side over a Firestore
-// snapshot).
+// Scoring weights follow lib/pages/user/search_page.dart's _searchScore so a
+// chat customer gets roughly the ranking a shopper sees on the search page.
+//
+// Unlike the search box, a chat message is a sentence ("Netac SSD 128GB
+// price?", "১২৮ জিবি এসএসডির দাম কত?"), so it is first reduced to search
+// terms by queryNormalize.js (Bangla digits/words -> English, question words
+// dropped). Every remaining term must then match the product: as the start
+// of one of its words ("128" matches "128GB"), or anywhere for terms of 4+
+// characters. Short words like "hi" must be a whole word, so chit-chat
+// doesn't match half the catalog.
+
+const { normalizeChatQuery } = require("./queryNormalize");
 
 function text(value, fallback = "") {
   const t = String(value ?? "").trim();
   return t.length ? t : fallback;
 }
 
+function listText(value) {
+  return Array.isArray(value) ? value.map((v) => text(v)).join(" ") : text(value);
+}
+
+function haystackOf(product) {
+  return [
+    product.name,
+    product.banglaTitle,
+    product.generic,
+    product.manufacturer,
+    product.brand,
+    product.category,
+    product.subcategory,
+    product.type,
+    product.strength,
+    product.vendorName,
+    product.shopName,
+    listText(product.searchKeywords),
+    listText(product.seoTags),
+    product.overview,
+  ]
+    .filter((v) => v !== null && v !== undefined)
+    .join(" ")
+    .toLowerCase();
+}
+
+function wordsOf(haystack) {
+  return haystack.split(/[^\p{L}\p{M}\p{N}.]+/u).filter(Boolean);
+}
+
+function termMatches(term, haystack, words) {
+  // 1-2 letter words ("hi", "ok") must be a whole word; numbers may prefix ("12" -> "12pro").
+  if (term.length <= 2 && !/^\d/.test(term)) return words.includes(term);
+  if (words.some((w) => w.startsWith(term))) return true;
+  return term.length >= 4 && haystack.includes(term);
+}
+
 /**
- * Same weighted scoring as SearchPage._searchScore. Returns 0 for a blank
- * query or a product with no signal in common with it.
+ * Weighted relevance (same weights as SearchPage._searchScore), computed on
+ * the normalized query. 0 for a blank query or no signal in common.
  */
 function scoreProductMatch(product, query) {
-  const q = text(query).toLowerCase();
+  const terms = normalizeChatQuery(query);
+  const q = terms.join(" ");
   if (!q) return 0;
 
   const name = text(product.name).toLowerCase();
@@ -41,48 +84,42 @@ function scoreProductMatch(product, query) {
   if (strength.includes(q)) score += 10;
   if (vendorName.includes(q)) score += 8;
 
-  const terms = q.split(/\s+/).filter(Boolean);
   const haystack = [name, generic, manufacturer, brand, category, type, strength, vendorName].join(" ");
+  const words = wordsOf(haystack);
   for (const term of terms) {
-    if (haystack.includes(term)) score += 5;
+    if (termMatches(term, haystack, words)) score += 5;
+    // A term in the product's own name counts more than one in its category.
+    if (wordsOf(name).some((w) => w.startsWith(term))) score += 5;
   }
 
   return score;
 }
 
-/** Same field list as SearchPage._matches — every query term must appear somewhere. */
+/** Every normalized query term must match the product somewhere. */
 function matchesQuery(product, query) {
-  const q = text(query).toLowerCase();
-  if (!q) return true;
+  const terms = normalizeChatQuery(query);
+  if (!terms.length) return true;
+  const haystack = haystackOf(product);
+  const words = wordsOf(haystack);
+  return terms.every((term) => termMatches(term, haystack, words));
+}
 
-  const terms = q.split(/\s+/).filter(Boolean);
-  const haystack = [
-    product.name,
-    product.generic,
-    product.manufacturer,
-    product.brand,
-    product.category,
-    product.type,
-    product.strength,
-    product.vendorName,
-    product.shopName,
-    product.overview,
-  ]
-    .filter((v) => v !== null && v !== undefined)
-    .join(" ")
-    .toLowerCase();
-
-  return terms.every((term) => haystack.includes(term));
+/** Only what a shopper could actually open and buy. */
+function isSellable(product) {
+  if (!product || product.isActive === false) return false;
+  if (product.isVisible === false || product.isPublished === false) return false;
+  const status = text(product.approvalStatus);
+  return !status || status === "approved";
 }
 
 /**
- * Ranks `products` (plain data objects, e.g. from Firestore docs already
- * mapped to { id, ...data() }) against `query`, filtering to isActive
- * products with a nonzero score, highest first, capped at `limit`.
+ * Ranks `products` (plain data objects, e.g. Firestore docs mapped to
+ * { id, ...data() }) against `query`: sellable products that match with a
+ * nonzero score, highest first, capped at `limit`.
  */
 function rankProducts(products, query, limit = 5) {
   return (products || [])
-    .filter((p) => p && p.isActive !== false && matchesQuery(p, query))
+    .filter((p) => isSellable(p) && matchesQuery(p, query))
     .map((p) => ({ product: p, score: scoreProductMatch(p, query) }))
     .filter(({ score }) => score > 0)
     .sort((a, b) => b.score - a.score)
@@ -90,4 +127,4 @@ function rankProducts(products, query, limit = 5) {
     .map(({ product }) => product);
 }
 
-module.exports = { scoreProductMatch, matchesQuery, rankProducts };
+module.exports = { scoreProductMatch, matchesQuery, rankProducts, isSellable };

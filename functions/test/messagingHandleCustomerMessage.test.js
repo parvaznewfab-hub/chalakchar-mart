@@ -60,7 +60,7 @@ describe("handleCustomerMessage", () => {
     assert.equal(deps.writtenMessages.length, 0);
   });
 
-  test("a product match replies with the caption template and does not call AI", async () => {
+  test("a product match replies with the product (price + link) and does not call AI", async () => {
     let aiCalled = false;
     const deps = makeDeps({
       searchProducts: async () => [{ id: "p1", name: "Napa", price: 15, isActive: true }],
@@ -77,7 +77,7 @@ describe("handleCustomerMessage", () => {
     });
 
     assert.equal(aiCalled, false);
-    assert.equal(result.replyText, "🛒 Napa\nPrice: ৳15\nOrder now: https://chalakcharmart.com/product/p1");
+    assert.equal(result.replyText, "এই প্রোডাক্টটি পাওয়া যাচ্ছে:\n\nNapa\n💰 দাম: ৳15\n🔗 https://chalakcharmart.com/product/p1");
     assert.deepEqual(result.productLinks, ["https://chalakcharmart.com/product/p1"]);
     assert.equal(result.needsHuman, false);
   });
@@ -259,6 +259,19 @@ describe("handleCustomerMessage", () => {
     });
 
     assert.deepEqual(triggeredQueries, []);
+  });
+
+  test("relays only the product words of a Bangla question", async () => {
+    const triggeredQueries = [];
+    const deps = makeDeps({
+      searchProducts: async () => [],
+      triggerSearchImportFallback: (query) => triggeredQueries.push(query),
+    });
+
+    await handleCustomerMessage(deps, { channel: "app", externalUserId: "uid1", text: "১২৮ জিবি এসএসডির দাম কত?" });
+    await handleCustomerMessage(deps, { channel: "app", externalUserId: "uid2", text: "দাম কত?" });
+
+    assert.deepEqual(triggeredQueries, ["128gb ssd"]);
   });
 
   test("works without deps.triggerSearchImportFallback (optional dep)", async () => {

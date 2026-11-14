@@ -51,6 +51,16 @@ class WebSeoService {
     dom.setMetaByName('robots', content);
   }
 
+  /// Clears what [setProductSeo] set when the visitor moves to a non-product
+  /// page in-app: generic title, canonical for [path], no product JSON-LD.
+  static void resetPageSeo(String path) {
+    if (!kIsWeb) return;
+    dom.setDocumentTitle(siteName);
+    dom.setMetaByProperty('og:type', 'website');
+    dom.setCanonical('$baseUrl${path.isEmpty ? '/' : path}');
+    dom.removeElementById('product-json-ld');
+  }
+
   static void setProductSeo({
     required Map<String, dynamic> product,
     required String productId,

@@ -21,7 +21,6 @@ import 'package:url_launcher/url_launcher.dart';
 import 'doctor_departments_page.dart';
 import 'search_page.dart';
 import '../../services/category_service.dart';
-import '../../services/web_url_service.dart';
 import '../../services/image_search_service.dart';
 
 
@@ -471,7 +470,6 @@ class _ProductHomePageState extends State<ProductHomePage> {
     if (name.isEmpty) return;
 
     final path = '/category/${_categorySlug(name)}';
-    WebUrlService.push(path);
     Navigator.of(context, rootNavigator: true).pushNamed(path);
   }
 
@@ -549,7 +547,6 @@ class _ProductHomePageState extends State<ProductHomePage> {
     if (id.isEmpty) return;
 
     final path = '/product/$id';
-    WebUrlService.push(path);
     Navigator.of(context, rootNavigator: true).pushNamed(path);
   }
 
@@ -1748,7 +1745,6 @@ class _ProductHomePageState extends State<ProductHomePage> {
         if (value.isNotEmpty && categoryName.isNotEmpty) {
           final path = '/category/${_categorySlug(categoryName)}'
               '?sub=${Uri.encodeQueryComponent(value)}';
-          WebUrlService.push(path);
           Navigator.of(context, rootNavigator: true).pushNamed(path);
           return;
         }

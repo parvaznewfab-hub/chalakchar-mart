@@ -1,11 +1,19 @@
 const { setGlobalOptions } = require("firebase-functions/v2");
 const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
-const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentUpdated, onDocumentDeleted } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
-const OpenAI = require("openai");
-const { toFile } = require("openai");
+// The openai SDK is loaded on first use, not at startup: every one of the
+// functions in this file pays the module load on a cold start, and most
+// never call OpenAI (chat product answers don't either).
+function OpenAI(options) {
+  const OpenAIClient = require("openai");
+  return new OpenAIClient(options);
+}
+function toFile(...args) {
+  return require("openai").toFile(...args);
+}
 const admin = require("firebase-admin");
 const cors = require("cors")({ origin: true });
 const crypto = require("crypto");
@@ -72,6 +80,8 @@ const {
   isSyncDiscountMarketingSuppressed,
 } = require("./aliexpress/variantRefresh");
 const { resolveProductTaxonomy } = require("./category/resolveProductTaxonomy");
+const { displayPriceFields, productDisplayPrice, productDisplayMrp } = require("./catalog/displayPrice");
+const { loadActiveTaxonomy, taxonomyPromptBlock, matchAiTaxonomy } = require("./category/aiTaxonomy");
 const { matchCategoryByKeyword } = require("./category/aliExpressCategoryKeywords");
 const {
   buildCategorySuggestionPrompt,
@@ -916,15 +926,10 @@ function firstImageFromProduct(product) {
   return image.startsWith("http") ? image : "";
 }
 
+// The "from" price: cheapest in-stock variant (catalog/displayPrice.js), so a
+// stale top-level price (old imports copied variants[0]) is never shown.
 function firstPriceFromProduct(product) {
-  const direct = toNumber(product?.price || product?.piecePrice || 0);
-  if (direct > 0) return direct;
-
-  if (Array.isArray(product?.variants) && product.variants.length > 0) {
-    return toNumber(product.variants[0]?.price || product.variants[0]?.piecePrice || 0);
-  }
-
-  return 0;
+  return productDisplayPrice(product);
 }
 
 function cleanPushText(value, max = 130) {
@@ -1182,14 +1187,7 @@ function stockFromProduct(product) {
 }
 
 function mrpFromProduct(product) {
-  const direct = toNumber(product?.oldPrice || product?.mrp || 0);
-  if (direct > 0) return direct;
-
-  if (Array.isArray(product?.variants) && product.variants.length > 0) {
-    return toNumber(product.variants[0]?.mrp || product.variants[0]?.oldPrice || 0);
-  }
-
-  return 0;
+  return productDisplayMrp(product);
 }
 
 function discountPercentFromProduct(product) {
@@ -2273,7 +2271,10 @@ async function buildMarketplaceProductPayload(body, options = {}) {
     stock: sourceData.stock ?? sourceData.quantity,
   });
 
+  // Top-level price/mrp/unit = the cheapest in-stock variant, never simply
+  // variants[0] (AliExpress SKU order is arbitrary) — catalog/displayPrice.js.
   const first = variants[0];
+  const display = displayPriceFields(variants) || { price: first.price, mrp: first.mrp, unit: first.name };
   const stock = variants.reduce((total, variant) => total + importInteger(variant.stock), 0);
   const units = variants.map((variant) => variant.name);
   const slug = importSafeId(sourceData.slug || name, "product");
@@ -2374,11 +2375,11 @@ async function buildMarketplaceProductPayload(body, options = {}) {
     vendorName: "ChalakChar Mart",
     shopName: "ChalakChar Mart",
     approvalStatus: publish ? "approved" : "draft",
-    price: first.price,
-    piecePrice: first.price,
-    oldPrice: first.mrp,
-    mrp: first.mrp,
-    unit: first.name,
+    price: display.price,
+    piecePrice: display.price,
+    oldPrice: display.mrp,
+    mrp: display.mrp,
+    unit: display.unit || first.name,
     units,
     stock,
     variants,
@@ -2717,8 +2718,8 @@ function normalizeAliExpressProduct(raw, requestedProductId) {
     deliveryDays,
     deliveryEstimate,
     stock: variants.reduce((sum, v) => sum + importInteger(v.stock, 0), 0),
-    price: variants[0]?.price || fallbackPrice,
-    mrp: variants[0]?.mrp || fallbackPrice,
+    price: displayPriceFields(variants)?.price || fallbackPrice,
+    mrp: displayPriceFields(variants)?.mrp || fallbackPrice,
     variants,
     rawAliExpress: raw,
   };
@@ -4691,11 +4692,27 @@ exports.onProductStockUpdated = onDocumentUpdated("products/{productId}", async 
   }
 });
 
+// products/{id}.wishlistCount: how many shoppers saved the product, shown on
+// the product page. Kept here because the page can't count other users'
+// wishlists itself (the rules rightly deny collectionGroup('wishlist')).
+// A missing product (deleted) is skipped, never recreated.
+async function bumpProductWishlistCount(productId, delta) {
+  if (!productId) return;
+  try {
+    await db.collection("products").doc(productId).update({
+      wishlistCount: admin.firestore.FieldValue.increment(delta),
+    });
+  } catch (error) {
+    if (error.code !== 5) throw error; // 5 = NOT_FOUND
+  }
+}
+
 exports.onWishlistItemCreated = onDocumentCreated("users/{userId}/wishlist/{productId}", async (event) => {
   const productId = String(event.params.productId || "").trim();
   const userId = String(event.params.userId || "").trim();
   const item = event.data?.data() || {};
 
+  await bumpProductWishlistCount(productId, 1);
   await bumpProductMarketingScore(productId, "wishlist", 5, { userId });
 
   const category = cleanPushText(item.category || "", 50);
@@ -4707,6 +4724,10 @@ exports.onWishlistItemCreated = onDocumentCreated("users/{userId}/wishlist/{prod
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
   }
+});
+
+exports.onWishlistItemDeleted = onDocumentDeleted("users/{userId}/wishlist/{productId}", async (event) => {
+  await bumpProductWishlistCount(String(event.params.productId || "").trim(), -1);
 });
 
 // Cart item trigger temporarily disabled because Eventarc trigger creation failed for
@@ -5061,6 +5082,7 @@ Suggest the most likely ecommerce category, subcategory, and product type.
       }
 
       const openai = new OpenAI({ apiKey });
+      const taxonomy = await loadActiveTaxonomy(db);
 
       const prompt = `
 Optimize this product for ChalakChar Mart.
@@ -5095,8 +5117,7 @@ Rules:
 - Return 5 to 10 search keywords.
 - Facebook caption should be attractive but not fake.
 - WhatsApp caption should be short and direct.
-- suggestedCategory must be short, like Grocery, Vegetables, Fish, Meat, Electronics, Fashion, Pharmacy, Home, Beauty, or Other.
-- suggestedSubCategory must be short and practical.
+${taxonomyPromptBlock(taxonomy)}
 - productType must be specific but not invented beyond given product info.
 - If the existing Category is provided, use it as a hint but still suggest the best category.
 
@@ -5141,8 +5162,19 @@ Current Category: ${cleanCategory}
           ? parsed.searchKeywords.map((t) => String(t).trim()).filter(Boolean).slice(0, 10)
           : [],
 
-        suggestedCategory: String(parsed.suggestedCategory || "").trim(),
-        suggestedSubCategory: String(parsed.suggestedSubCategory || "").trim(),
+        // Only names from the store's active taxonomy; "" when the model's
+        // answer matched nothing (raw answer kept for display only).
+        ...(() => {
+          const match = matchAiTaxonomy(taxonomy, parsed.suggestedCategory, parsed.suggestedSubCategory);
+          return {
+            suggestedCategory: match.categoryName,
+            suggestedSubCategory: match.subcategoryName,
+            suggestedCategoryId: match.categoryId,
+            suggestedSubcategoryId: match.subcategoryId,
+            aiRawSuggestedCategory: String(parsed.suggestedCategory || "").trim(),
+            aiRawSuggestedSubCategory: String(parsed.suggestedSubCategory || "").trim(),
+          };
+        })(),
         productType: String(parsed.productType || "").trim(),
       });
     } catch (e) {
@@ -5349,6 +5381,7 @@ exports.aiProductFromImage = onRequest(
       }
 
       const openai = new OpenAI({ apiKey });
+      const taxonomy = await loadActiveTaxonomy(db);
 
       const prompt = `
 Analyze this product image for ChalakChar Mart and create an ecommerce product draft.
@@ -5382,8 +5415,7 @@ Rules:
 - SEO tags and search keywords must be lowercase English.
 - Return 3 to 6 SEO tags.
 - Return 5 to 10 search keywords.
-- suggestedCategory must be short, like Grocery, Vegetables, Fish, Meat, Electronics, Fashion, Pharmacy, Home, Beauty, or Other.
-- suggestedSubCategory must be short and practical.
+${taxonomyPromptBlock(taxonomy)}
 - productType must be specific but not invented beyond the visible image.
 - Use hintTitle and hintCategory only as hints, not as guaranteed facts.
 
@@ -5436,8 +5468,19 @@ Hint Category: ${cleanHintCategory}
           ? parsed.searchKeywords.map((t) => String(t).trim()).filter(Boolean).slice(0, 10)
           : [],
 
-        suggestedCategory: String(parsed.suggestedCategory || "").trim(),
-        suggestedSubCategory: String(parsed.suggestedSubCategory || "").trim(),
+        // Only names from the store's active taxonomy; "" when the model's
+        // answer matched nothing (raw answer kept for display only).
+        ...(() => {
+          const match = matchAiTaxonomy(taxonomy, parsed.suggestedCategory, parsed.suggestedSubCategory);
+          return {
+            suggestedCategory: match.categoryName,
+            suggestedSubCategory: match.subcategoryName,
+            suggestedCategoryId: match.categoryId,
+            suggestedSubcategoryId: match.subcategoryId,
+            aiRawSuggestedCategory: String(parsed.suggestedCategory || "").trim(),
+            aiRawSuggestedSubCategory: String(parsed.suggestedSubCategory || "").trim(),
+          };
+        })(),
         productType: String(parsed.productType || "").trim(),
       });
     } catch (e) {
@@ -5643,9 +5686,30 @@ async function upsertConversation(conversationId, patch) {
 // messaging/productMatch.js), since there is no dedicated search index to
 // query against instead. Ordered by createdAt so newer catalog additions are
 // represented in the pool rather than only ever seeing the oldest 300 docs.
+// Every active product (not just the newest 300), only the fields chat
+// matching/replies read, cached per instance for a minute so a conversation's
+// follow-up messages don't re-read the catalog. rankProducts() still checks
+// approval/visibility on each product.
+const CHAT_PRODUCT_FIELDS = [
+  "name", "banglaTitle", "generic", "manufacturer", "brand", "category", "subcategory", "type", "strength",
+  "vendorName", "shopName", "searchKeywords", "seoTags", "overview", "variants", "price", "piecePrice",
+  "isActive", "isVisible", "isPublished", "approvalStatus", "source",
+  "deliveryMinDays", "deliveryMaxDays", "deliveryDays",
+];
+const CHAT_PRODUCT_CACHE_MS = 60 * 1000;
+let chatProductCache = { at: 0, products: null };
+
 async function fetchCandidateProductsForChat() {
-  const snapshot = await db.collection("products").orderBy("createdAt", "desc").limit(300).get();
-  return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  if (chatProductCache.products && Date.now() - chatProductCache.at < CHAT_PRODUCT_CACHE_MS) {
+    return chatProductCache.products;
+  }
+  const snapshot = await db.collection("products")
+    .where("isActive", "==", true)
+    .select(...CHAT_PRODUCT_FIELDS)
+    .get();
+  const products = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  chatProductCache = { at: Date.now(), products };
+  return products;
 }
 
 async function callCustomerAssistantAI({ history, message }) {
@@ -5747,8 +5811,11 @@ exports.chatWithAssistant = onRequest(
         return res.status(400).json({ error: "message is required" });
       }
 
-      const { externalUserId, customerName } = await resolveAppChannelIdentity(req);
-      const deps = await customerMessageDeps();
+      // Independent: token check and settings read run together.
+      const [{ externalUserId, customerName }, deps] = await Promise.all([
+        resolveAppChannelIdentity(req),
+        customerMessageDeps(),
+      ]);
 
       const result = await handleCustomerMessage(deps, {
         channel: "app",
@@ -6184,14 +6251,7 @@ function productKeywords(product) {
 }
 
 function productPrice(product) {
-  const direct = toNumber(product.price || product.piecePrice || 0);
-  if (direct > 0) return direct;
-
-  if (Array.isArray(product.variants) && product.variants.length > 0) {
-    return toNumber(product.variants[0]?.price || product.variants[0]?.piecePrice || 0);
-  }
-
-  return 0;
+  return productDisplayPrice(product);
 }
 
 function productStock(product) {

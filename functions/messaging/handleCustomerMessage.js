@@ -22,6 +22,7 @@ const {
   isLowConfidenceReply,
 } = require("./handoffDetection");
 const { shouldTriggerSearchImportFallback } = require("./searchImportGuard");
+const { normalizeChatQuery } = require("./queryNormalize");
 
 const HANDOFF_HOLDING_MESSAGE =
   "আপনার সাথে আমাদের টিমের একজন শীঘ্রই যোগাযোগ করবে। একটু অপেক্ষা করুন। 🙏";
@@ -68,6 +69,16 @@ async function handleCustomerMessage(deps, input) {
     }
   }
 
+  // The catalog read doesn't depend on the history, so it starts now and
+  // overlaps the history read and the customer-message write (latency of
+  // the first reply). Not started for an explicit handoff; ignored, with its
+  // error swallowed, if the history turns out to need a handoff.
+  const wantsHuman = containsHandoffKeyword(text);
+  const productsPromise = wantsHuman
+    ? null
+    : Promise.resolve().then(() => deps.searchProducts(text, 5));
+  productsPromise?.catch(() => {});
+
   const recentMessages = await deps.getRecentMessages(conversationId, 20);
 
   await deps.writeMessage(conversationId, {
@@ -83,20 +94,23 @@ async function handleCustomerMessage(deps, input) {
   let productLinks = null;
   let needsHuman = false;
 
-  if (containsHandoffKeyword(text) || hasRepeatedUnresolvedQuestion(recentMessages, text, REPEAT_THRESHOLD)) {
+  if (wantsHuman || hasRepeatedUnresolvedQuestion(recentMessages, text, REPEAT_THRESHOLD)) {
     replyText = HANDOFF_HOLDING_MESSAGE;
     needsHuman = true;
   } else {
-    const products = await deps.searchProducts(text, 5);
+    const products = await productsPromise;
     const ranked = rankProducts(products, text, 5);
 
     if (ranked.length > 0) {
-      const formatted = formatProductReply(ranked, deps.captionTemplate);
+      const formatted = formatProductReply(ranked, deps.captionTemplate, text);
       replyText = formatted.replyText;
       productLinks = formatted.productLinks;
     } else {
-      if (deps.triggerSearchImportFallback && shouldTriggerSearchImportFallback(text)) {
-        deps.triggerSearchImportFallback(text);
+      // Relay the product words only ("১২৮ জিবি এসএসডির দাম কত?" -> "128gb ssd");
+      // a pure question with no product words ("দাম কত?") is never relayed.
+      const searchTerms = normalizeChatQuery(text).join(" ");
+      if (deps.triggerSearchImportFallback && searchTerms && shouldTriggerSearchImportFallback(text)) {
+        deps.triggerSearchImportFallback(searchTerms);
       }
 
       const history = (recentMessages || [])
@@ -115,24 +129,25 @@ async function handleCustomerMessage(deps, input) {
     }
   }
 
-  await deps.writeMessage(conversationId, {
-    sender: "bot",
-    text: replyText,
-    mediaUrl: null,
-    productLinks,
-    providerMessageId: null,
-    timestamp: now(),
-  });
-
-  await deps.upsertConversation(conversationId, {
-    channel,
-    externalUserId,
-    customerName,
-    needsHuman,
-    lastMessageAt: now(),
-    lastMessagePreview: truncatePreview(replyText, 120),
-    unreadByAdmin: true,
-  });
+  await Promise.all([
+    deps.writeMessage(conversationId, {
+      sender: "bot",
+      text: replyText,
+      mediaUrl: null,
+      productLinks,
+      providerMessageId: null,
+      timestamp: now(),
+    }),
+    deps.upsertConversation(conversationId, {
+      channel,
+      externalUserId,
+      customerName,
+      needsHuman,
+      lastMessageAt: now(),
+      lastMessagePreview: truncatePreview(replyText, 120),
+      unreadByAdmin: true,
+    }),
+  ]);
 
   if (needsHuman && deps.notifyAdmins) {
     await deps.notifyAdmins(

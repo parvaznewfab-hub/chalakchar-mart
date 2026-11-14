@@ -404,7 +404,10 @@ class MyApp extends StatelessWidget {
 
           final productId = uri.pathSegments[1];
 
+          // settings carries the name, so Flutter puts /product/{id} in the
+          // address bar itself (no full page navigation needed).
           return MaterialPageRoute(
+            settings: settings,
             builder: (_) => ProductSeoLoaderPage(
               productId: productId,
             ),
@@ -416,6 +419,7 @@ class MyApp extends StatelessWidget {
           final categorySlug = Uri.decodeComponent(uri.pathSegments[1]);
 
           return MaterialPageRoute(
+            settings: settings,
             builder: (_) => CategoryProductsPage(
               category: categorySlug,
               initialSub: uri.queryParameters['sub'],
