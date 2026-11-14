@@ -31,8 +31,18 @@ class GlobalWebHeader extends StatefulWidget implements PreferredSizeWidget {
   @override
   State<GlobalWebHeader> createState() => _GlobalWebHeaderState();
 
+  // Row heights laid out in build(): promo strip + main bar + category nav.
+  static const double promoStripHeight = 24;
+  static const double mainBarHeight = 86;
+  static const double categoryNavHeight = 46;
+
+  /// Total header height (was declared as 136, 20px short of the real 156,
+  /// so the category nav overlapped page content on desktop).
+  static const double height =
+      promoStripHeight + mainBarHeight + categoryNavHeight;
+
   @override
-  Size get preferredSize => const Size.fromHeight(136);
+  Size get preferredSize => const Size.fromHeight(height);
 }
 
 class _GlobalWebHeaderState extends State<GlobalWebHeader> {
@@ -337,7 +347,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
             children: [
               _promoStrip(settings),
               SizedBox(
-                height: 86,
+                height: GlobalWebHeader.mainBarHeight,
                 child: Row(
                   children: [
                     const SizedBox(width: 22),
@@ -429,7 +439,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
   Widget _promoStrip(AppSettings? settings) {
     if (settings == null) {
       return const SizedBox(
-        height: 24,
+        height: GlobalWebHeader.promoStripHeight,
         child: Center(
           child: Text(
             'ChalakChar Mart',
@@ -444,7 +454,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
     }
 
     return Container(
-      height: 24,
+      height: GlobalWebHeader.promoStripHeight,
       width: double.infinity,
       color: settings.maintenanceMode
           ? Colors.red.shade700
@@ -1076,7 +1086,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
 
   Widget _categoryNav() {
     return Container(
-      height: 46,
+      height: GlobalWebHeader.categoryNavHeight,
       color: dark2,
       child: StreamBuilder<List<Map<String, dynamic>>>(
         stream: _categoryStream(),

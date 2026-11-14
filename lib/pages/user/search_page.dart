@@ -320,7 +320,7 @@ class _SearchPageState extends State<SearchPage> {
 
     final PreferredSizeWidget pageAppBar = isDesktop
         ? const PreferredSize(
-      preferredSize: Size.fromHeight(136),
+      preferredSize: Size.fromHeight(GlobalWebHeader.height),
       child: GlobalWebHeader(),
     )
         : AppBar(
