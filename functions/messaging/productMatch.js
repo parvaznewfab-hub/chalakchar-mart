@@ -127,4 +127,56 @@ function rankProducts(products, query, limit = 5) {
     .map(({ product }) => product);
 }
 
-module.exports = { scoreProductMatch, matchesQuery, rankProducts, isSellable };
+/** How many of [terms] match [text], and whether a word (not just a number) did. */
+function termCoverage(terms, text) {
+  const haystack = String(text ?? "").toLowerCase();
+  const words = wordsOf(haystack);
+  let matched = 0;
+  let wordMatched = false;
+  for (const term of terms) {
+    if (termMatches(term, haystack, words)) {
+      matched += 1;
+      if (!/^\d+(?:\.\d+)?$/.test(term)) wordMatched = true;
+    }
+  }
+  return { matched, total: terms.length, wordMatched };
+}
+
+const RELEVANT_SHARE = 0.6;
+const PARTIAL_SHARE = 0.5;
+
+/**
+ * Is an AliExpress search result titled [title] about [query]? At least 60%
+ * of the query's product terms must match the title, one of them a word.
+ * ("Netac SSD 128GB" vs "Medieval PU Leather Belt..." -> 0/3 -> no.)
+ */
+function isRelevantTitle(query, title) {
+  const terms = normalizeChatQuery(query);
+  if (!terms.length) return false;
+  const { matched, total, wordMatched } = termCoverage(terms, title);
+  return wordMatched && matched / total >= RELEVANT_SHARE;
+}
+
+/**
+ * True when the catalog already has something close to [query] (half its
+ * terms, one of them a word) even if nothing matched fully. The AliExpress
+ * search-miss import must not run then: the shop sells that kind of thing.
+ */
+function hasPartialCatalogMatch(products, query) {
+  const terms = normalizeChatQuery(query);
+  if (!terms.length) return false;
+  return (products || []).some((p) => {
+    if (!isSellable(p)) return false;
+    const { matched, total, wordMatched } = termCoverage(terms, haystackOf(p));
+    return wordMatched && matched / total >= PARTIAL_SHARE;
+  });
+}
+
+module.exports = {
+  scoreProductMatch,
+  matchesQuery,
+  rankProducts,
+  isSellable,
+  isRelevantTitle,
+  hasPartialCatalogMatch,
+};

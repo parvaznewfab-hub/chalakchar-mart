@@ -16,9 +16,10 @@
 // tools/backfill/ (git-ignored). --apply first saves a backup of every touched
 // product's old values next to the report, then updates each product in a
 // transaction that re-reads it and recomputes from its CURRENT variants (a
-// sync or order in between is respected). Each write also stamps
-// syncDiscountMarketingSuppressedAt so onProductStockUpdated never sends a
-// "wishlist discount" push because of this correction.
+// sync or order in between is respected). Each write stamps a new
+// priceBackfillAt (+ lastWriteSource "price_backfill"), on which
+// onProductStockUpdated sends nothing at all (marketing/priceChange.js), and
+// also syncDiscountMarketingSuppressedAt for the older deployed trigger.
 //
 // Credentials: application-default credentials (gcloud auth
 // application-default login), or FIRESTORE_EMULATOR_HOST.
@@ -32,6 +33,7 @@ const path = require("path");
 const admin = require("firebase-admin");
 const { displayPriceFields } = require("../catalog/displayPrice");
 const { SYNC_MARKETING_SUPPRESSED_FIELD } = require("../aliexpress/variantRefresh");
+const { PRICE_BACKFILL_FIELD, PRICE_BACKFILL_SOURCE } = require("../marketing/priceChange");
 
 const OUT_DIR = path.join(__dirname, "..", "..", "tools", "backfill");
 const FIELDS = ["price", "piecePrice", "oldPrice", "mrp", "unit"];
@@ -148,6 +150,8 @@ async function main() {
       if (!changes) return false;
       const update = Object.fromEntries(Object.entries(changes).map(([f, c]) => [f, c.to]));
       update[SYNC_MARKETING_SUPPRESSED_FIELD] = admin.firestore.FieldValue.serverTimestamp();
+      update[PRICE_BACKFILL_FIELD] = admin.firestore.FieldValue.serverTimestamp();
+      update.lastWriteSource = PRICE_BACKFILL_SOURCE;
       tx.update(ref, update);
       return true;
     });

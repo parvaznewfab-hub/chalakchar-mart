@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../utils/marketing_eligibility.dart';
 import 'marketing_settings_service.dart';
 
 /// Central marketing queue service.
@@ -177,6 +178,13 @@ class MarketingQueueService {
     final resolvedProduct = Map<String, dynamic>.from(productData ?? product ?? {});
     if (resolvedProduct.isEmpty) {
       throw Exception('productData/product is required for marketing queue');
+    }
+
+    // Same rule as functions/marketing/eligibility.js (the dispatcher re-checks
+    // it server-side before anything is sent).
+    final blockReason = marketingBlockReason(resolvedProduct);
+    if (blockReason != null) {
+      throw Exception('Marketing not queued: $blockReason');
     }
 
     final resolvedSettings = settings ?? await MarketingSettingsService.load();

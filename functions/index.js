@@ -80,7 +80,11 @@ const {
   isSyncDiscountMarketingSuppressed,
 } = require("./aliexpress/variantRefresh");
 const { resolveProductTaxonomy } = require("./category/resolveProductTaxonomy");
-const { displayPriceFields, productDisplayPrice, productDisplayMrp } = require("./catalog/displayPrice");
+const { displayPriceFields, productDisplayPrice } = require("./catalog/displayPrice");
+const { marketingBlockReason, autoMarketingBlockReason } = require("./marketing/eligibility");
+const { isRelevantTitle } = require("./messaging/productMatch");
+const { searchImportPublishOptions } = require("./aliexpress/searchImportPublish");
+const { isPriceBackfillWrite, wishlistDiscountDecision } = require("./marketing/priceChange");
 const { loadActiveTaxonomy, taxonomyPromptBlock, matchAiTaxonomy } = require("./category/aiTaxonomy");
 const { matchCategoryByKeyword } = require("./category/aliExpressCategoryKeywords");
 const {
@@ -692,6 +696,25 @@ async function processMarketingQueueItem(queueId, outbox) {
     }
   }
 
+  // Last line of defence, whoever queued the item (Cloud Function, admin
+  // app, older code): the product is re-read now and nothing is sent for one
+  // that needsReview or isn't approved/live (marketing/eligibility.js).
+  const queuedProductId = textValue(outbox.productId);
+  if (queuedProductId) {
+    const productSnap = await db.collection("products").doc(queuedProductId).get();
+    const blockReason = marketingBlockReason(productSnap.exists ? productSnap.data() : null);
+    if (blockReason) {
+      await db.collection("marketing_outbox").doc(queueId).set({
+        status: "blocked",
+        socialStatus: "blocked_" + blockReason,
+        note: "Not sent: product " + blockReason.replace(/_/g, " ") + ". Review/publish it, then queue again.",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      logger.warn("Marketing outbox blocked: product not eligible", { queueId, productId: queuedProductId, blockReason });
+      return;
+    }
+  }
+
   if (!settings.enabled) {
     await db.collection("marketing_outbox").doc(queueId).set({
       status: "skipped",
@@ -938,13 +961,11 @@ function cleanPushText(value, max = 130) {
   return `${text.slice(0, Math.max(0, max - 3)).trim()}...`;
 }
 
+// Automatic marketing (create/update triggers). Never for a product that
+// needsReview, isn't approved/live, or has autoMarketingDisabled (every
+// import) — see marketing/eligibility.js.
 function shouldMarketProduct(product) {
-  const approvalStatus = String(product?.approvalStatus || "approved").trim().toLowerCase();
-  return product?.autoMarketingDisabled !== true
-    && product?.isActive !== false
-    && product?.isVisible !== false
-    && product?.isPublished !== false
-    && approvalStatus === "approved";
+  return autoMarketingBlockReason(product) === null;
 }
 
 function productMarketingPayload(productId, product) {
@@ -1184,17 +1205,6 @@ function stockFromProduct(product) {
   }
 
   return direct;
-}
-
-function mrpFromProduct(product) {
-  return productDisplayMrp(product);
-}
-
-function discountPercentFromProduct(product) {
-  const price = firstPriceFromProduct(product);
-  const mrp = mrpFromProduct(product);
-  if (price <= 0 || mrp <= price) return 0;
-  return Math.round(((mrp - price) / mrp) * 100);
 }
 
 async function bumpProductMarketingScore(productId, reason, points, extra = {}) {
@@ -2045,9 +2055,14 @@ async function marketplaceImportSettings(source) {
     minimumProfit: Math.max(0, importNumber(settings.minimumProfit, 0)),
     roundingMode: textValue(settings.roundingMode, "none").toLowerCase(),
     autoPublish: boolValue(settings.autoPublish, false),
+    // Search-miss imports (search box / chat) go live only when BOTH this and
+    // autoPublish are on; default off — see aliexpressSearchImport.
+    searchImportAutoPublish: boolValue(settings.searchImportAutoPublish, false),
     enableAi: boolValue(settings.enableAi, true),
     enableSeo: boolValue(settings.enableSeo, true),
-    enableMarketing: boolValue(settings.enableMarketing, true),
+    // "Enable Marketing after Publish": recorded on the product as
+    // importMarketingEnabled for the admin's publish step. Never automatic.
+    enableMarketing: boolValue(settings.enableMarketing, false),
     targetCurrency: textValue(settings.currency, "BDT").toUpperCase(),
   };
 }
@@ -2391,7 +2406,10 @@ async function buildMarketplaceProductPayload(body, options = {}) {
     whatsappCaption: textValue(sourceData.whatsappCaption, `${name} এখনই অর্ডার করুন।`),
     banglaTitle: textValue(sourceData.banglaTitle),
     banglaDescription: textValue(sourceData.banglaDescription),
-    autoMarketingDisabled: !publish || !importSettings.enableMarketing || boolValue(sourceData.autoMarketingDisabled, false),
+    // Imports are never marketed automatically (not even when published):
+    // only an admin's own publish/queue sends anything. See
+    // marketing/eligibility.js and the 2026-11-14 incident.
+    autoMarketingDisabled: true,
     aiOptimized: boolValue(sourceData.aiOptimized, false),
     importAiEnabled: importSettings.enableAi,
     importSeoEnabled: importSettings.enableSeo,
@@ -4106,30 +4124,46 @@ exports.aliexpressSearchImport = onRequest(
 
       const items = extractAliExpressAffiliateProducts(result).slice(0, 5);
       const productIds = [];
+      const skippedIrrelevant = [];
+
+      // Live only if the admin allows it twice: importSettings.autoPublish AND
+      // importSettings.searchImportAutoPublish (default off). Otherwise the
+      // products wait unpublished for review. Marketing is never automatic
+      // for imports either way (autoMarketingDisabled + needsReview).
+      const { publish: publishSearchImports, options: publishOptions } =
+        searchImportPublishOptions(await marketplaceImportSettings("aliexpress"));
 
       for (const item of items) {
         const sourceProductId = aliExpressAffiliateProductId(item);
         if (!sourceProductId) continue;
 
+        // AliExpress keyword search returns loosely related listings (a
+        // "Netac SSD 128GB" search came back with medieval costume belts);
+        // only results whose title is about the query are imported.
+        const itemTitle = textValue(item.product_title || item.subject || item.title);
+        if (!isRelevantTitle(query, itemTitle)) {
+          skippedIrrelevant.push({ sourceProductId, title: itemTitle.slice(0, 120) });
+          continue;
+        }
+
         try {
           const product = await fetchAliExpressProduct(sourceProductId);
-          // forcePublish: true — search-miss imports must be live immediately;
-          // a real shopper is waiting on the exact product they just searched
-          // for. Passed as the second (options) argument, never as a `body`
-          // field, so it can't be confused with (or spoofed via) any
-          // request-body-driven publish flag — see buildMarketplaceProductPayload.
-          // needsReview: true — still flagged for admin follow-up even though
-          // it's live immediately, since nobody at ChalakChar Mart vetted this
-          // specific listing before it went live; only the shopper's search
-          // query picked it.
+          // publishOptions (see above) is passed as the second (options)
+          // argument, never as a `body` field, so it can't be spoofed via the
+          // request body — see buildMarketplaceProductPayload. needsReview is
+          // always set: nobody at ChalakChar Mart vetted this listing.
+          // mode "create": a product already in the catalog is never touched
+          // (an upsert would overwrite its publish state, review flag,
+          // category and prices — e.g. re-publish one an admin hid).
           const saved = await saveImportedMarketplaceProduct(
             {
               source: "aliexpress",
               sourceProductId,
               product,
               importedBy: "search_trigger",
+              mode: "create",
             },
-            { forcePublish: true, needsReview: true }
+            publishOptions
           );
           productIds.push(saved.productId);
         } catch (itemError) {
@@ -4145,6 +4179,8 @@ exports.aliexpressSearchImport = onRequest(
         status: "done",
         completedAt: admin.firestore.FieldValue.serverTimestamp(),
         productIds,
+        published: publishSearchImports,
+        skippedIrrelevant,
       });
 
       logger.info("AliExpress search-import completed", {
@@ -4152,7 +4188,24 @@ exports.aliexpressSearchImport = onRequest(
         trackingIdConfigured: Boolean(trackingId),
         resultCount: items.length,
         importedCount: productIds.length,
+        skippedIrrelevantCount: skippedIrrelevant.length,
+        published: publishSearchImports,
       });
+
+      if (!publishSearchImports) {
+        // Nothing is live yet, so shoppers aren't told "now available";
+        // admins get a review prompt instead.
+        if (productIds.length) {
+          await notifyAdmins(
+            "Search import needs review",
+            productIds.length + " product(s) imported for \"" + query + "\" are waiting for review (unpublished).",
+            { type: "search_import_review", query, productIds }
+          ).catch((notifyError) => {
+            logger.warn("AliExpress search-import: notifyAdmins failed", { query, message: notifyError.message });
+          });
+        }
+        return res.status(200).json({ ok: true, status: "done", productIds, published: false });
+      }
 
       const finalSnap = await logRef.get();
       const waitingUserIds = Array.isArray(finalSnap.data()?.waitingUserIds) ? finalSnap.data().waitingUserIds : [];
@@ -4610,6 +4663,13 @@ exports.onProductStockUpdated = onDocumentUpdated("products/{productId}", async 
   const before = event.data.before.data() || {};
   const after = event.data.after.data() || {};
 
+  // A price backfill (scripts/backfillDisplayPrice.js) only corrects which
+  // variant the top-level price describes; it sends nothing at all.
+  if (isPriceBackfillWrite(before, after)) {
+    logger.info("Product update marketing skipped: price backfill write", { productId });
+    return;
+  }
+
   if (!shouldMarketProduct(after)) {
     logger.info("Product update marketing skipped", { productId });
     return;
@@ -4658,18 +4718,19 @@ exports.onProductStockUpdated = onDocumentUpdated("products/{productId}", async 
     }, { merge: true });
   }
 
-  const beforeDiscount = discountPercentFromProduct(before);
-  const afterDiscount = discountPercentFromProduct(after);
+  // Both sides use the same display-price helper on their own variants, so
+  // the move from variants[0] to the cheapest variant is never a "drop".
+  const { notify: discountIncreased, beforeDiscount, afterDiscount } = wishlistDiscountDecision(before, after);
 
   // A sync write stamped for one-shot suppression (see
   // aliexpressSyncSuppressDiscountMarketingOnce) never sends discount
   // notifications; later admin edits are unaffected.
   const discountMarketingSuppressed = isSyncDiscountMarketingSuppressed(before, after);
-  if (discountMarketingSuppressed && afterDiscount >= 5 && afterDiscount > beforeDiscount) {
+  if (discountMarketingSuppressed && discountIncreased) {
     logger.info("Wishlist discount marketing suppressed for sync write", { productId, afterDiscount, beforeDiscount });
   }
 
-  if (!discountMarketingSuppressed && afterDiscount >= 5 && afterDiscount > beforeDiscount) {
+  if (!discountMarketingSuppressed && discountIncreased) {
     const discountKey = `discount_${afterDiscount}`;
 
     if (after.lastDiscountMarketingKey !== discountKey) {

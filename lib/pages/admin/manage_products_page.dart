@@ -1358,6 +1358,12 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                     ? FieldValue.serverTimestamp()
                     : null,
                 'autoMarketingDisabled': !marketingEnabled,
+                // An admin publishing the product (new, or inactive -> active)
+                // is its review: needsReview clears and marketing may follow.
+                // Any other save keeps the flag as it was.
+                'needsReview': isActive && data?['isActive'] != true
+                    ? false
+                    : data?['needsReview'] == true,
                 'marketingQueue': marketingQueue,
                 'marketingAudience': marketingAudience,
                 'marketingPublishMode': marketingPublishMode,
@@ -2730,6 +2736,8 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
       'isVisible': active,
       'isPublished': active,
       'showOnHome': active,
+      // Publishing from the list is the admin's review (see the edit dialog).
+      if (active) 'needsReview': false,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }

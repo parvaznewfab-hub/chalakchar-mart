@@ -14,7 +14,7 @@
 // this function's job *is* the Firestore/AI orchestration.
 
 const { buildConversationId, truncatePreview } = require("./conversationId");
-const { rankProducts } = require("./productMatch");
+const { rankProducts, hasPartialCatalogMatch } = require("./productMatch");
 const { formatProductReply } = require("./replyFormatting");
 const {
   containsHandoffKeyword,
@@ -107,9 +107,16 @@ async function handleCustomerMessage(deps, input) {
       productLinks = formatted.productLinks;
     } else {
       // Relay the product words only ("১২৮ জিবি এসএসডির দাম কত?" -> "128gb ssd");
-      // a pure question with no product words ("দাম কত?") is never relayed.
+      // a pure question with no product words ("দাম কত?") is never relayed,
+      // and neither is a query the catalog already partly covers (the shop
+      // sells that kind of thing; importing look-alikes is not wanted).
       const searchTerms = normalizeChatQuery(text).join(" ");
-      if (deps.triggerSearchImportFallback && searchTerms && shouldTriggerSearchImportFallback(text)) {
+      if (
+        deps.triggerSearchImportFallback &&
+        searchTerms &&
+        shouldTriggerSearchImportFallback(text) &&
+        !hasPartialCatalogMatch(products, text)
+      ) {
         deps.triggerSearchImportFallback(searchTerms);
       }
 
