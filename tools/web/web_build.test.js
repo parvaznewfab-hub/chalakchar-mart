@@ -12,6 +12,10 @@ function fakeBuild(bootstrap) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "webbuild-"));
   fs.writeFileSync(path.join(dir, "flutter_bootstrap.js"), bootstrap);
   fs.writeFileSync(path.join(dir, "main.dart.js"), "// app");
+  fs.mkdirSync(path.join(dir, "assets"));
+  for (const f of ["AssetManifest.bin", "AssetManifest.bin.json", "FontManifest.json"]) {
+    fs.writeFileSync(path.join(dir, "assets", f), "{}");
+  }
   fs.writeFileSync(path.join(dir, "flutter_service_worker.js"), "const RESOURCES = {}; // generated");
   return dir;
 }
@@ -38,6 +42,28 @@ test("accepts a real build: the inlined loader library names serviceWorkerSettin
       "_flutter.loader.load();\n"
   );
   assert.doesNotThrow(() => finalizeWebBuild(dir));
+});
+
+test("restores web/ files the build left out, never overwrites built ones", () => {
+  const dir = fakeBuild("_flutter.loader.load();");
+  fs.writeFileSync(path.join(dir, "index.html"), "BUILT");
+  const web = fs.mkdtempSync(path.join(os.tmpdir(), "websrc-"));
+  fs.writeFileSync(path.join(web, "index.html"), "TEMPLATE");
+  fs.writeFileSync(path.join(web, "manifest.json"), "{}");
+  fs.mkdirSync(path.join(web, "icons"));
+  fs.writeFileSync(path.join(web, "icons", "Icon-192.png"), "png");
+
+  const { restored } = finalizeWebBuild(dir, web);
+
+  assert.deepEqual(restored.sort(), ["icons/Icon-192.png", "manifest.json"]);
+  assert.equal(fs.readFileSync(path.join(dir, "index.html"), "utf8"), "BUILT");
+  assert.equal(fs.readFileSync(path.join(dir, "icons", "Icon-192.png"), "utf8"), "png");
+});
+
+test("refuses a build without Flutter's asset manifests (white-screen build)", () => {
+  const dir = fakeBuild("_flutter.loader.load();");
+  fs.rmSync(path.join(dir, "assets", "FontManifest.json"));
+  assert.throws(() => finalizeWebBuild(dir), /missing assets\/FontManifest\.json/);
 });
 
 test("refuses a missing build", () => {
