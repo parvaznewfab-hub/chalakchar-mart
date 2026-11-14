@@ -45,7 +45,7 @@ const STOPWORDS = new Set([
   // "Netac SSD delivery time?" still searches "netac ssd".
   "delivery", "deliver", "shipping", "ship", "time", "days", "day", "order", "payment", "pay", "cash", "cod",
   "return", "refund", "warranty", "guarantee", "kobe", "kokhon", "kotodin", "lagbe", "address", "location",
-  "ডেলিভারি", "ডেলিভারী", "সময়", "দিনে", "কবে", "কখন", "কতদিন", "অর্ডার", "পেমেন্ট", "রিটার্ন", "ওয়ারেন্টি", "ঠিকানা",
+  "ডেলিভারি", "ডেলিভারী", "সময়", "দিনে", "কবে", "কখন", "কতদিন", "কতদিনে", "পাব", "পাবো", "অর্ডার", "পেমেন্ট", "রিটার্ন", "ওয়ারেন্টি", "ঠিকানা",
   // Banglish
   "dam", "daam", "koto", "kot", "ache", "ase", "achhe", "ki", "er", "bhai", "vai", "apu", "den", "din",
   "chai", "lagbe", "jante", "janan", "janaben", "ekta", "kemon", "hobe",

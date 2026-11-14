@@ -84,6 +84,7 @@ const { displayPriceFields, productDisplayPrice } = require("./catalog/displayPr
 const { marketingBlockReason, autoMarketingBlockReason } = require("./marketing/eligibility");
 const { isRelevantTitle } = require("./messaging/productMatch");
 const { searchImportPublishOptions } = require("./aliexpress/searchImportPublish");
+const { searchImportLogDocId } = require("./aliexpress/searchImportLogId");
 const { isPriceBackfillWrite, wishlistDiscountDecision } = require("./marketing/priceChange");
 const { loadActiveTaxonomy, taxonomyPromptBlock, matchAiTaxonomy } = require("./category/aiTaxonomy");
 const { matchCategoryByKeyword } = require("./category/aliExpressCategoryKeywords");
@@ -3962,9 +3963,6 @@ exports.aliexpressScheduledDiscover = onSchedule(
 // -----------------------------------------------------------------------------
 const SEARCH_IMPORT_STALE_MS = 24 * 60 * 60 * 1000;
 
-function searchImportLogDocId(query) {
-  return importSafeId(query, "query");
-}
 
 // Firestore-only (no external network calls) so this is safe to run inside
 // a transaction — Firestore may retry a transaction on contention, and an

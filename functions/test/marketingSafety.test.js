@@ -88,6 +88,12 @@ describe("search result relevance (A3)", () => {
     assert.equal(isRelevantTitle("১২৮ জিবি এসএসডি", title), true);
   });
 
+  test("the actual incident query (Bangla, with a delivery question)", () => {
+    const q = "১২৮ জিবি এসএসডি এর দাম কত? ডেলিভারি কতদিনে পাব?";
+    for (const title of costumeTitles) assert.equal(isRelevantTitle(q, title), false, title);
+    assert.equal(isRelevantTitle(q, "Netac SSD 128GB SATA3 2.5 Inch Internal Solid State Drive"), true);
+  });
+
   test("a number alone is not enough", () => {
     assert.equal(isRelevantTitle("128gb ssd", "128GB Micro SD memory card"), false);
   });

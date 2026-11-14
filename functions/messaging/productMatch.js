@@ -143,6 +143,7 @@ function termCoverage(terms, text) {
 }
 
 const RELEVANT_SHARE = 0.6;
+const BANGLA_SCRIPT = /[\u0980-\u09FF]/;
 const PARTIAL_SHARE = 0.5;
 
 /**
@@ -151,7 +152,11 @@ const PARTIAL_SHARE = 0.5;
  * ("Netac SSD 128GB" vs "Medieval PU Leather Belt..." -> 0/3 -> no.)
  */
 function isRelevantTitle(query, title) {
-  const terms = normalizeChatQuery(query);
+  // AliExpress titles are English: a Bangla word with no English mapping
+  // can't match one, so it doesn't count against the title.
+  const all = normalizeChatQuery(query);
+  const latin = all.filter((t) => !BANGLA_SCRIPT.test(t));
+  const terms = latin.length ? latin : all;
   if (!terms.length) return false;
   const { matched, total, wordMatched } = termCoverage(terms, title);
   return wordMatched && matched / total >= RELEVANT_SHARE;
