@@ -117,7 +117,7 @@ String? galleryCounterLabel({
       galleryThumbnailCount(imageCount: imageCount, hasVideo: hasVideo);
   if (total == 0 || showingOverride) return null;
   if (selectedIndex < 0 || selectedIndex >= imageCount) return null;
-  return 'Item ${selectedIndex + 1}/$total';
+  return '${selectedIndex + 1}/$total';
 }
 
 /// Columns that fit in [availableWidth] for items of [itemWidth] separated

@@ -81,7 +81,7 @@ void main() {
       // In stock to begin with.
       expect(button(tester, 'Buy Now').onPressed, isNotNull);
       expect(button(tester, 'Add To Cart').onPressed, isNotNull);
-      expect(find.text('In Stock: 5'), findsOneWidget);
+      expect(find.text('Only 5 left'), findsWidgets);
 
       // Select the out-of-stock variant via the chip.
       await tester.ensureVisible(find.text('512GB').first);
@@ -90,7 +90,7 @@ void main() {
 
       expect(button(tester, 'Buy Now').onPressed, isNull);
       expect(button(tester, 'Add To Cart').onPressed, isNull);
-      expect(find.text('Out of Stock'), findsOneWidget);
+      expect(find.text('Out of stock'), findsOneWidget);
       expect(find.textContaining('(Out of stock)'), findsOneWidget);
 
       // Picking an in-stock variant re-enables both.
@@ -99,7 +99,7 @@ void main() {
       await tester.pump();
       expect(button(tester, 'Buy Now').onPressed, isNotNull);
       expect(button(tester, 'Add To Cart').onPressed, isNotNull);
-      expect(find.text('In Stock: 3'), findsOneWidget);
+      expect(find.text('Only 3 left'), findsWidgets);
 
       // Manual label survives normalization; AliExpress's name isn't shown.
       expect(find.textContaining('Storage: '), findsOneWidget);
@@ -132,7 +132,7 @@ void main() {
 
     testWidgets('opens on the smallest in-stock size (128GB), not stored 4TB', (t) async {
       expect(await openAndReadLabel(t, netac()), 'Capacity: 128GB Black');
-      expect(find.text('In Stock: 4'), findsOneWidget); // price box follows it
+      expect(find.text('Only 4 left'), findsWidgets); // price box follows it
     });
 
     testWidgets('skips an out-of-stock smallest size', (t) async {

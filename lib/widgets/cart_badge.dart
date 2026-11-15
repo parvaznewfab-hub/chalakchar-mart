@@ -9,9 +9,14 @@ import '../services/product_service.dart';
 class CartBadge extends StatelessWidget {
   final Color iconColor;
 
+  /// Bottom-nav use: a plain 24px icon (the nav handles the tap), so it
+  /// lines up with the other nav icons and labels.
+  final bool compact;
+
   const CartBadge({
     super.key,
     this.iconColor = Colors.white,
+    this.compact = false,
   });
 
   @override
@@ -20,6 +25,32 @@ class CartBadge extends StatelessWidget {
     final userId = user?.uid ?? '';
 
     Widget iconWithBadge(int cartItemCount) {
+      if (compact) {
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Icon(Icons.shopping_cart, color: iconColor),
+            if (cartItemCount > 0)
+              Positioned(
+                right: -8,
+                top: -6,
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    cartItemCount > 99 ? '99+' : '$cartItemCount',
+                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+          ],
+        );
+      }
       return Stack(
         alignment: Alignment.center,
         children: [

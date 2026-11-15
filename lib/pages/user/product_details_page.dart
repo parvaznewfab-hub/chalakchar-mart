@@ -25,6 +25,7 @@ import 'cart_page.dart';
 import '../../utils/price_format.dart';
 import '../../utils/image_url.dart';
 import '../../utils/customer_text.dart';
+import 'search_page.dart';
 
 class ProductDetailsPage extends StatefulWidget {
   final Map<String, dynamic> data;
@@ -293,14 +294,6 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
 
   String _youtubeThumbnail(String videoId) {
     return 'https://img.youtube.com/vi/$videoId/hqdefault.jpg';
-  }
-
-  /// Labels a day-range estimate clearly as an estimate; other tiers (exact
-  /// date, plain deliveryDays fallback) keep their existing wording.
-  String _deliveryLabel(ProductDeliveryEstimate delivery, String prefix) {
-    return delivery.isEstimateRange
-        ? 'Estimated delivery: ${delivery.displayText}'
-        : '$prefix ${delivery.displayText}';
   }
 
   Future<void> _contactVendorViaWhatsApp(Map<String, dynamic> data) async {
@@ -1301,7 +1294,14 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: Container(
+                // Opens the search page (it used to be a picture of a box).
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const SearchPage(initialQuery: '')),
+                  ),
+                  child: Container(
                   height: 38,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   decoration: BoxDecoration(
@@ -1324,6 +1324,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
                       ),
                     ],
                   ),
+                ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -1431,7 +1432,9 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
     final subtext = selectedStock > 0 && selectedStock <= 5
         ? 'Only $selectedStock left'
         : delivery.hasEstimate
-            ? _deliveryLabel(delivery, 'Arrives')
+            // Short: it sits under "Buy Now" ("Estimated delivery: ..."
+            // broke mid-word there).
+            ? 'Delivery ${delivery.displayText}'
             : '';
 
     return Material(
@@ -1517,10 +1520,15 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
                                 style: TextStyle(
                                     fontWeight: FontWeight.w900, fontSize: 14)),
                             if (subtext.isNotEmpty)
-                              Text(subtext,
-                                  style: const TextStyle(
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w500)),
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(subtext,
+                                    maxLines: 1,
+                                    softWrap: false,
+                                    style: const TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w500)),
+                              ),
                           ],
                         ),
                 ),
@@ -1994,11 +2002,6 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
                   decoration: TextDecoration.lineThrough, color: Colors.grey),
             ),
           ],
-          const SizedBox(height: 4),
-          Text(
-            'Price excludes applicable taxes',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
-          ),
           const SizedBox(height: 12),
           Wrap(
             spacing: 8,
@@ -2006,7 +2009,12 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Text(
-                selectedStock > 0 ? 'In Stock: $selectedStock' : 'Out of Stock',
+                // No raw counts ("In Stock: 1337"); a low stock is worth saying.
+                selectedStock <= 0
+                    ? 'Out of stock'
+                    : selectedStock <= 5
+                        ? 'Only $selectedStock left'
+                        : 'In stock',
                 style: TextStyle(
                   color: selectedStock > 0 ? Colors.green : Colors.red,
                   fontWeight: FontWeight.bold,

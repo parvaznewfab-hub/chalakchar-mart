@@ -29,7 +29,7 @@ void main() {
               imageCount: 5,
               hasVideo: true,
               showingOverride: false),
-          'Item 1/6');
+          '1/6');
     });
     test('hidden when no thumbnail strip is rendered', () {
       expect(galleryThumbnailCount(imageCount: 1, hasVideo: false), 0);

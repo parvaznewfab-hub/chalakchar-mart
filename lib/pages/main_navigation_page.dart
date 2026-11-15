@@ -669,8 +669,9 @@ class _MainNavigationState extends State<MainNavigation> {
               label: 'Profile',
             ),
             BottomNavigationBarItem(
-              icon: CartBadge(iconColor: Colors.grey),
-              activeIcon: CartBadge(iconColor: Color(0xFFFF9900)),
+              // compact: same 24px box as the other icons, so "Cart" lines up.
+              icon: CartBadge(iconColor: Colors.grey, compact: true),
+              activeIcon: CartBadge(iconColor: Color(0xFFFF9900), compact: true),
               label: 'Cart',
             ),
             BottomNavigationBarItem(
@@ -678,7 +679,7 @@ class _MainNavigationState extends State<MainNavigation> {
                 _chatOpen ? Icons.keyboard_arrow_down_rounded : Icons.chat_bubble_outline_rounded,
                 color: const Color(0xFF32A8C7),
               ),
-              label: _chatOpen ? 'বন্ধ করুন' : 'চ্যাট',
+              label: _chatOpen ? 'Close' : 'Chat',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.menu_outlined),
