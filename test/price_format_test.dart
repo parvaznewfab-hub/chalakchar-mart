@@ -13,20 +13,22 @@ void main() {
       expect(formatTaka(1000000), '৳1,000,000');
     });
 
-    test('real fractions keep two decimals', () {
-      expect(formatTaka(1850.5), '৳1,850.50');
-      expect(formatTaka(0.75), '৳0.75');
-      expect(formatTaka(12345.67), '৳12,345.67');
+    test('prices show in whole taka, nearest (.5 up)', () {
+      expect(formatTaka(2851.49), '৳2,851');
+      expect(formatTaka(1850.5), '৳1,851');
+      expect(formatTaka(0.75), '৳1');
+      expect(formatTaka(12345.67), '৳12,346');
     });
 
-    test('float noise rounds to the paisa first', () {
+    test('float noise never shows', () {
       expect(formatTaka(16602.999999), '৳16,603');
-      expect(formatTaka(0.1 + 0.2), '৳0.30');
+      expect(formatTaka(0.1 + 0.2), '৳0');
     });
 
-    test('negative amounts put the sign before the symbol', () {
+    test('negative amounts put the sign before the symbol; no "-৳0"', () {
       expect(formatTaka(-40), '-৳40');
-      expect(formatTaka(-1850.5), '-৳1,850.50');
+      expect(formatTaka(-1850.5), '-৳1,851');
+      expect(formatTaka(-0.004), '৳0');
     });
   });
 

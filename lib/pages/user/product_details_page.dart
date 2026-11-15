@@ -24,6 +24,7 @@ import 'wishlist_page.dart';
 import 'cart_page.dart';
 import '../../utils/price_format.dart';
 import '../../utils/image_url.dart';
+import '../../utils/customer_text.dart';
 
 class ProductDetailsPage extends StatefulWidget {
   final Map<String, dynamic> data;
@@ -1166,7 +1167,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
   Widget _buildDescriptionHtml(Map<String, dynamic> data) {
     final html = _text(data['overviewHtml']);
     if (html.isEmpty) {
-      final overviewText = _text(data['overview']);
+      final overviewText = stripSupplierSentences(_text(data['overview']));
       final hasContent = overviewText.isNotEmpty;
       return Text(
         hasContent
@@ -1181,7 +1182,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
       );
     }
     return Html(
-      data: _sanitizeOverviewHtmlForRender(html),
+      data: stripSupplierSentencesHtml(_sanitizeOverviewHtmlForRender(html)),
       extensions: const [TableHtmlExtension()],
       style: {
         'body': Style(
@@ -1212,6 +1213,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
       final name = _text(spec['name']);
       final value = _text(spec['value']);
       if (name.isEmpty || value.isEmpty) continue;
+      if (isHiddenSpecification(name, value)) continue;
       entries.add(MapEntry(name, value));
     }
 
@@ -1356,7 +1358,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
   }
 
   Widget _buildOverviewTabContent(Map<String, dynamic> data) {
-    final aiOverview = _text(data['overview']);
+    final aiOverview = stripSupplierSentences(_text(data['overview']));
     final hasOverview = aiOverview.isNotEmpty;
 
     // Always rendered — regardless of product source (AliExpress-imported

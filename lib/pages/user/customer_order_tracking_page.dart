@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../utils/price_format.dart';
+import '../../utils/variant_display_name.dart';
 
 class CustomerOrderTrackingPage extends StatefulWidget {
   final String orderId;
@@ -380,7 +381,7 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    '${_text(item['name'], 'Product')} ${_text(item['unit']).isNotEmpty ? '(${_text(item['unit'])})' : ''}\nQty: $qty',
+                    '${_text(item['name'], 'Product')} ${_text(item['unit']).isNotEmpty ? '(${cleanVariantDisplayName(_text(item['unit']))})' : ''}\nQty: $qty',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),

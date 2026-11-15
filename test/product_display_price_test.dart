@@ -27,6 +27,19 @@ void main() {
       expect(ProductService.hasPriceRange(p), isTrue);
     });
 
+    test('no MRP on the display variant -> no discount, even with a product-level oldPrice', () {
+      final p = {
+        'name': 'Part',
+        'oldPrice': 9999,
+        'variants': [
+          {'id': 'a', 'name': 'A', 'price': 500, 'stock': 3},
+          {'id': 'b', 'name': 'B', 'price': 800, 'mrp': 1000, 'stock': 3},
+        ],
+      };
+      expect(ProductService.getDisplayPrice(p), 500);
+      expect(ProductService.getDisplayMrp(p), 500);
+    });
+
     test('a selected unit still gets its own price (product page / cart)', () {
       final p = netac();
       expect(ProductService.getDisplayPrice(p, unit: '4TB Black / China Mainland'), 47546.14);

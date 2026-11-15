@@ -84,6 +84,7 @@ const { displayPriceFields, productDisplayPrice } = require("./catalog/displayPr
 const { marketingBlockReason, autoMarketingBlockReason } = require("./marketing/eligibility");
 const { isRelevantTitle } = require("./messaging/productMatch");
 const { classifyHealthProduct, isHealthQuery } = require("./catalog/healthProduct");
+const { mentionsSupplier, stripSupplierSentences } = require("./catalog/customerText");
 const { searchImportPublishOptions } = require("./aliexpress/searchImportPublish");
 const { searchImportLogDocId } = require("./aliexpress/searchImportLogId");
 const { searchImportKeywords } = require("./aliexpress/searchImportKeywords");
@@ -1946,7 +1947,8 @@ function importKeywords(value, fallbackText = "") {
 
   return [...new Set(raw
     .map((item) => textValue(item).toLowerCase())
-    .filter((item) => item.length >= 2))]
+    // Keywords end up in page meta: never the supplier's name.
+    .filter((item) => item.length >= 2 && !mentionsSupplier(item)))]
     .slice(0, 40);
 }
 
@@ -2082,7 +2084,12 @@ function applyImportPriceRule(rawValue, rawCost, settings, additionalCostBDT = 0
   const cost = Math.max(0, importNumber(rawCost, rawValue) * settings.exchangeRate) + extra;
   let value = Math.max(converted * (1 + settings.markupPercent / 100), cost + settings.minimumProfit);
 
-  if (settings.roundingMode === "99") {
+  if (settings.roundingMode === "round") {
+    // Shop rule (audit item 16): whole taka, nearest (.5 up) — the same
+    // rule the app shows (formatTaka) and the admin edit form saves, so
+    // sync and admin saves never keep changing each other's prices.
+    value = Math.round(value);
+  } else if (settings.roundingMode === "99") {
     value = Math.max(0, Math.ceil(value) - 0.01);
   } else if (settings.roundingMode === "00" || settings.roundingMode === "integer") {
     value = Math.ceil(value);
@@ -2734,8 +2741,8 @@ function normalizeAliExpressProduct(raw, requestedProductId) {
     source: "aliexpress",
     sourceProductId: productId,
     productId,
-    name: textValue(base.subject || base.product_title || base.title, `AliExpress Product ${productId}`),
-    title: textValue(base.subject || base.product_title || base.title, `AliExpress Product ${productId}`),
+    name: textValue(base.subject || base.product_title || base.title, `Product ${productId}`),
+    title: textValue(base.subject || base.product_title || base.title, `Product ${productId}`),
     description: stripHtmlToText(detailHtmlRaw),
     overview: stripHtmlToText(detailHtmlRaw),
     overviewHtml: sanitizeAliExpressHtml(detailHtmlRaw),
@@ -6395,7 +6402,7 @@ function productKeywords(product) {
   return [...new Set(
     keywords
       .map((item) => cleanText(item).toLowerCase())
-      .filter(Boolean)
+      .filter((item) => item && !mentionsSupplier(item))
   )].slice(0, 20).join(", ");
 }
 
@@ -6569,9 +6576,11 @@ exports.productSeo = onRequest(
         60
       );
 
+      // Seller text can name the supplier/origin ("ships via AliExpress
+      // standard shipping"): those sentences never reach the page meta.
       const description = limitText(
-        product.metaDescription ||
-          product.overview ||
+        stripSupplierSentences(product.metaDescription) ||
+          stripSupplierSentences(product.overview) ||
           `Buy ${productName} online from ChalakChar Mart.`,
         155
       );

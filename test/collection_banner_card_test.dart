@@ -82,11 +82,23 @@ void main() {
       expect(card.bottom - lastLabel.bottom, closeTo(13, 0.5)); // padding + border
     });
 
-    testWidgets('image cells are square and 4 items make a 2x2 grid',
+    testWidgets('phones: 4 items in one row, card about half a 2x2 height',
         (tester) async {
       await _pump(
         tester,
-        CollectionBannerCard(title: 'T', items: _items(4), width: 340),
+        CollectionBannerCard(title: 'T', items: _items(4), width: 320),
+      );
+      final cells = find.byType(AspectRatio);
+      final tops = {for (int i = 0; i < 4; i++) tester.getRect(cells.at(i)).top};
+      expect(tops, hasLength(1));
+      expect(tester.getRect(find.byType(CollectionBannerCard)).height, lessThan(185));
+    });
+
+    testWidgets('desktop: square cells, 4 items make a 2x2 grid on a narrow card',
+        (tester) async {
+      await _pump(
+        tester,
+        CollectionBannerCard(title: 'T', items: _items(4), width: 340, isDesktop: true),
       );
       final cells = find.byType(AspectRatio);
       expect(cells, findsNWidgets(4));

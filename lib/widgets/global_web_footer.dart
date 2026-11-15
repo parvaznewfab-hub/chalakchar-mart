@@ -559,7 +559,10 @@ class GlobalWebFooter extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.symmetric(horizontal: isMobile ? 18 : 70, vertical: 16),
+      // Extra bottom room on wide screens: the floating WhatsApp/Messenger/
+      // chat buttons sit over this empty band at the end of the page, not
+      // over the payment badges.
+      padding: EdgeInsets.fromLTRB(isMobile ? 18 : 70, 16, isMobile ? 18 : 70, isMobile ? 16 : 96),
       decoration: BoxDecoration(
         color: _bottomBg,
         border: Border(

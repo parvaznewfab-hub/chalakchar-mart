@@ -67,7 +67,8 @@ class CollectionBannerItem {
 ///
 /// Height comes from the content: the title (max 2 lines), and square image
 /// cells whose size follows [width]. Item count decides the grid:
-/// 4 → 2x2 (1x4 when the card is wide), 3 → one row of 3,
+/// 4 → one row on phones; on desktop 2x2 (1x4 when the card is wide),
+/// 3 → one row of 3,
 /// 2 → one row of 2, 1 → a single wide image.
 class CollectionBannerCard extends StatelessWidget {
   const CollectionBannerCard({
@@ -181,8 +182,11 @@ class CollectionBannerCard extends StatelessWidget {
       return _cell(context, items.first, aspectRatio: 2);
     }
 
-    final int columns =
-        n == 4 ? (width >= _oneRowBreakpoint ? 4 : 2) : n; // 2 or 3 → one row
+    // Phones: always one row, so the banner is about half as tall as a 2x2
+    // grid (~370px) and a product section shows on the first screen.
+    final int columns = n == 4
+        ? (!isDesktop || width >= _oneRowBreakpoint ? 4 : 2)
+        : n; // 2 or 3 → one row
     final rows = <Widget>[];
     for (int start = 0; start < n; start += columns) {
       final rowItems = items.sublist(start, (start + columns).clamp(0, n));

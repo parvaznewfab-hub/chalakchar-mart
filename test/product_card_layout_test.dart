@@ -117,20 +117,20 @@ void main() {
     expect(find.text('-20%'), findsOneWidget); // ৳120 vs ৳150
   });
 
-  testWidgets('MRP that does not fit is dropped; badge and price stay inside the row', (tester) async {
+  testWidgets('MRP that does not fit is scaled with the price, never dropped (badge needs it)', (tester) async {
     // Wide enough that the horizontal list builds every card.
     tester.view.physicalSize = const Size(2000, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(homepageRow(1.0));
     expect(tester.takeException(), isNull);
-    expect(find.text('৳3,708.71'), findsOneWidget);
+    expect(find.text('৳3,709'), findsOneWidget);
     expect(find.text('-63%'), findsOneWidget);
-    expect(find.text('৳10,024.37'), findsNothing);
-    // The price never reaches into the add button.
-    final card = find.ancestor(of: find.text('৳3,708.71'), matching: find.byType(ProductCard));
+    expect(find.text('৳10,024'), findsOneWidget);
+    // Neither the price nor the MRP reaches into the add button.
+    final card = find.ancestor(of: find.text('৳3,709'), matching: find.byType(ProductCard));
     final button = find.descendant(of: card, matching: find.byIcon(Icons.add));
-    expect(tester.getRect(find.text('৳3,708.71')).right,
+    expect(tester.getRect(find.text('৳10,024')).right,
         lessThanOrEqualTo(tester.getRect(button).left));
   });
 

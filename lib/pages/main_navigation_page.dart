@@ -570,7 +570,8 @@ class _MainNavigationState extends State<MainNavigation> {
         ],
       ),
       bottomNavigationBar: showBottomNav ? _bottomNavigationBar() : null,
-      floatingActionButton: FloatingActionButton(
+      // Phones/tablets open chat from the bottom nav instead.
+      floatingActionButton: showBottomNav ? null : FloatingActionButton(
         heroTag: 'ai_chat_fab',
         backgroundColor: const Color(0xFF32A8C7),
         tooltip: _chatOpen ? 'বন্ধ করুন' : 'AI সহকারী',
@@ -638,8 +639,15 @@ class _MainNavigationState extends State<MainNavigation> {
           unselectedFontSize: 11,
           elevation: 0,
           onTap: (index) {
-            if (index == 3) {
+            if (index == 4) {
               _openMenuHub();
+              return;
+            }
+
+            // Chat lives in the nav on phones (no floating button covering
+            // the cards' "+" / "View all").
+            if (index == 3) {
+              setState(() => _chatOpen = !_chatOpen);
               return;
             }
 
@@ -664,6 +672,13 @@ class _MainNavigationState extends State<MainNavigation> {
               icon: CartBadge(iconColor: Colors.grey),
               activeIcon: CartBadge(iconColor: Color(0xFFFF9900)),
               label: 'Cart',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(
+                _chatOpen ? Icons.keyboard_arrow_down_rounded : Icons.chat_bubble_outline_rounded,
+                color: const Color(0xFF32A8C7),
+              ),
+              label: _chatOpen ? 'বন্ধ করুন' : 'চ্যাট',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.menu_outlined),

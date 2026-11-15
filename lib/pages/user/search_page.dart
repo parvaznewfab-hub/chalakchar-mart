@@ -35,6 +35,14 @@ class _SearchPageState extends State<SearchPage> {
   /// with no product word it can look up; ...). The empty state then stops
   /// promising the product soon.
   final Map<String, String> _rejectedImportQueries = {};
+
+  /// Queries just sent to the server, for up to 3 s: a refused query
+  /// (medicine, ...) is answered within that time, so the empty state
+  /// doesn't flash "we'll bring it" + "জানিয়ে দিন" before the refusal.
+  final Set<String> _importChecking = {};
+
+  /// Queries actually sent for import; only these may promise the product.
+  final Set<String> _importSent = {};
   String _sort = 'relevance';
   String _selectedCategory = 'All';
 
@@ -142,6 +150,15 @@ class _SearchPageState extends State<SearchPage> {
       'https://asia-south1-chalakchar-mart.cloudfunctions.net/aliexpressSearchImport';
 
   Future<void> _triggerSearchImport(String query) async {
+    // Runs from a post-frame callback: rebuild so the empty state switches
+    // to "খোঁজা হচ্ছে…" right away.
+    setState(() {
+      _importChecking.add(query);
+      _importSent.add(query);
+    });
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted && _importChecking.remove(query)) setState(() {});
+    });
     try {
       final user = FirebaseAuth.instance.currentUser;
       final idToken = await user?.getIdToken();
@@ -157,7 +174,9 @@ class _SearchPageState extends State<SearchPage> {
         },
         body: jsonEncode({'query': query, 'userId': user?.uid}),
       ).then((response) {
-        if (response.statusCode != 400 || !mounted) return;
+        if (!mounted) return;
+        if (_importChecking.remove(query)) setState(() {});
+        if (response.statusCode != 400) return;
         final body = jsonDecode(response.body);
         if (body is Map && body['error'] == 'QUERY_REJECTED') {
           setState(() => _rejectedImportQueries[query] = '${body['reason'] ?? ''}');
@@ -673,6 +692,14 @@ class _SearchPageState extends State<SearchPage> {
         ? null
         : _rejectedImportQueries[normalizeSearchQuery(_query)];
     final rejected = rejectReason != null;
+    final checking = _query.isNotEmpty &&
+        !rejected &&
+        _importChecking.contains(normalizeSearchQuery(_query));
+    // Not sent at all (too short, digits only, ...): nothing is coming.
+    final notSent = _query.isNotEmpty &&
+        !rejected &&
+        !checking &&
+        !_importSent.contains(normalizeSearchQuery(_query));
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
@@ -695,11 +722,13 @@ class _SearchPageState extends State<SearchPage> {
           Text(
             _query.isEmpty
                 ? 'Try another keyword or clear filters.'
-: rejectReason == 'health'
-                    ? 'দুঃখিত, এই ধরনের পণ্য ChalakChar Mart-এ পাওয়া যায় না। অন্য কোনো পণ্য খুঁজে দেখুন।'
-                    : rejected
+                : rejectReason == 'health'
+                    ? 'দুঃখিত, এই পণ্যটি আমরা বিক্রি করি না। অন্য কোনো পণ্য খুঁজে দেখুন।'
+                    : rejected || notSent
                         ? 'এই নামে কিছু পাওয়া যায়নি। পণ্যের নাম বা মডেল ইংরেজিতে লিখে খুঁজে দেখুন (যেমন: Samsung A23 display)।'
-                        : 'প্রোডাক্টটি এখন নেই। আমরা খুঁজে দেখছি — একটু পরে আবার চেষ্টা করুন, অথবা পণ্যটি রেডি হলে নোটিফিকেশন পাবেন।',
+                        : checking
+                            ? 'খোঁজা হচ্ছে…'
+                            : 'প্রোডাক্টটি এখন নেই। আমরা বিদেশ থেকে আনার চেষ্টা করছি, পাওয়া গেলে নোটিফিকেশন পাবেন।',
             style: TextStyle(color: Colors.grey.shade600),
             textAlign: TextAlign.center,
           ),
@@ -709,7 +738,7 @@ class _SearchPageState extends State<SearchPage> {
             runSpacing: 10,
             alignment: WrapAlignment.center,
             children: [
-              if (_query.isNotEmpty && !rejected)
+              if (_query.isNotEmpty && !rejected && !checking && !notSent)
                 FilledButton.icon(
                   onPressed: _onNotifyMePressed,
                   icon: const Icon(Icons.notifications_active_outlined),

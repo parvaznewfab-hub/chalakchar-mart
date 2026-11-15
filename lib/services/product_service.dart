@@ -356,7 +356,24 @@ class ProductService {
     final variant = unit == null || unit.trim().isEmpty
         ? displayVariant(normalized)
         : selectedVariant(normalized, unit);
-    return toDouble(variant['mrp'] ?? variant['oldPrice'] ?? normalized['oldPrice'] ?? getDisplayPrice(product, unit: unit));
+    // A product with variants shows only that variant's own MRP: a
+    // product-level oldPrice may belong to another variant and would show a
+    // discount badge with no matching struck-out price (audit item 17).
+    // (normalizeProductData fills a missing variant MRP from the product's.)
+    final price = getDisplayPrice(product, unit: unit);
+    final rawVariants = product['variants'];
+    if (rawVariants is List && rawVariants.isNotEmpty) {
+      final id = text(variant['id']);
+      final name = text(variant['name'] ?? variant['unit']);
+      final raw = rawVariants.whereType<Map>().where((v) =>
+          (id.isNotEmpty && text(v['id']) == id) ||
+          (name.isNotEmpty && text(v['name'] ?? v['unit'] ?? v['variantName']) == name));
+      if (raw.isNotEmpty) {
+        final own = toDouble(raw.first['mrp'] ?? raw.first['oldPrice']);
+        return own > 0 ? own : price;
+      }
+    }
+    return toDouble(variant['mrp'] ?? variant['oldPrice'] ?? normalized['oldPrice'] ?? price);
   }
 
   /// New preferred method.

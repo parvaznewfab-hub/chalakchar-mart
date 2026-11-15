@@ -415,9 +415,8 @@ class ProductCard extends StatelessWidget {
 
 }
 
-/// Price, then the strikethrough MRP only when it fully fits; otherwise the
-/// MRP is dropped (the image badge still shows the discount). A price that
-/// is too wide on its own is scaled down rather than clipped.
+/// Price, then the strikethrough MRP; when both don't fit the line they are
+/// scaled down together (never dropped: the image badge shows the discount).
 class _PriceWithMrp extends StatelessWidget {
   const _PriceWithMrp({
     required this.price,
@@ -434,16 +433,17 @@ class _PriceWithMrp extends StatelessWidget {
   /// shown as "৳X থেকে".
   final bool isFromPrice;
 
+  // Readable next to the price (was 9px light grey, audit item 5).
   static const TextStyle _fromStyle = TextStyle(
-    fontSize: 9,
-    fontWeight: FontWeight.w500,
-    color: Colors.grey,
+    fontSize: 11,
+    fontWeight: FontWeight.w600,
+    color: Color(0xFF4B5563),
   );
 
   static const TextStyle _mrpStyle = TextStyle(
     decoration: TextDecoration.lineThrough,
-    fontSize: 9,
-    color: Colors.grey,
+    fontSize: 10,
+    color: Color(0xFF6B7280),
   );
   static const double _gap = 4;
   static const double _fitSlack = 2;
@@ -506,6 +506,26 @@ class _PriceWithMrp extends StatelessWidget {
               const SizedBox(width: _gap),
               Text(mrpText, maxLines: 1, softWrap: false, style: _mrpStyle),
             ],
+          );
+        }
+
+        // The card's discount badge needs its struck-out MRP: never drop
+        // it, scale the line down a little instead.
+        if (showMrp) {
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  priceWidget,
+                  const SizedBox(width: _gap),
+                  Text(mrpText, maxLines: 1, softWrap: false, style: _mrpStyle),
+                ],
+              ),
+            ),
           );
         }
 

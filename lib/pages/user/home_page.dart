@@ -1351,7 +1351,8 @@ if (featureEnabled(fs, Feature.health)) ...[
 
   Widget _buildMobileCategoryStrip() {
     return Container(
-      height: 92,
+      // Room for two-line names ("Computer Accessories" was cut off).
+      height: 104,
       color: Colors.white,
       child: StreamBuilder<List<CategoryModel>>(
         stream: CategoryService.watchHomeCategories(),
@@ -1385,7 +1386,7 @@ if (featureEnabled(fs, Feature.health)) ...[
                   _openCategorySeo(category.name);
                 },
                 child: SizedBox(
-                  width: 76,
+                  width: 80,
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -1409,12 +1410,13 @@ if (featureEnabled(fs, Feature.health)) ...[
                       const SizedBox(height: 5),
                       Text(
                         category.name,
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
+                          height: 1.15,
                         ),
                       ),
                     ],
@@ -1608,68 +1610,61 @@ if (featureEnabled(fs, Feature.health)) ...[
       return const SizedBox.shrink();
     }
 
+    // One compact row (was a ~120px card with a 22px title): leaves room for
+    // a product section on the first phone screen.
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 10),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
       decoration: BoxDecoration(
         color: const Color(0xFFFFE4C9),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
-          Expanded(
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: Colors.orange.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: const Icon(Icons.card_giftcard, size: 20, color: Color(0xFFFF9900)),
+          ),
+          const SizedBox(width: 10),
+          const Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
+                Text(
                   "Your welcome deals await!",
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
-                    height: 1.05,
-                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, height: 1.2),
                 ),
-                const SizedBox(height: 8),
-                const Text(
+                SizedBox(height: 2),
+                Text(
                   "Login to unlock your welcome deals",
-                  style: TextStyle(fontSize: 14),
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  height: 40,
-                  child: ElevatedButton.icon(
-                    onPressed: _showLoginPopup,
-                    icon: const Icon(Icons.login_rounded, size: 18),
-                    label: const Text(
-                      "Login / Sign Up",
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFFF9900),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12, height: 1.2),
                 ),
               ],
             ),
           ),
           const SizedBox(width: 8),
-          Container(
-            height: 100,
-            width: 95,
-            decoration: BoxDecoration(
-              color: Colors.orange.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(50),
-            ),
-            child: const Icon(
-              Icons.inventory_2,
-              size: 58,
-              color: Color(0xFFFF9900),
+          SizedBox(
+            height: 34,
+            child: ElevatedButton(
+              onPressed: _showLoginPopup,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFF9900),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: const Text("Login", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
             ),
           ),
         ],
@@ -1738,7 +1733,8 @@ if (featureEnabled(fs, Feature.health)) ...[
       builder: (context, snap) {
         final bool isDesktop =
             kIsWeb && MediaQuery.of(context).size.width >= 1024;
-        final double bannerHeight = isDesktop ? 320.0 : 392.0;
+        // Phones: half the old 392px, so products show on the first screen.
+        final double bannerHeight = isDesktop ? 320.0 : 196.0;
 
         if (snap.connectionState == ConnectionState.waiting) {
           return _bannerSkeleton(bannerHeight, isDesktop: isDesktop);

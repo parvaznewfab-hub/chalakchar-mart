@@ -16,6 +16,8 @@ import '../../services/product_service.dart';
 import '../../services/guest_cart_service.dart';
 import '../../utils/price_format.dart';
 import '../../utils/image_url.dart';
+import '../../utils/variant_display_name.dart';
+import '../../utils/customer_text.dart';
 
 class CartPage extends StatefulWidget {
   const CartPage({super.key});
@@ -863,7 +865,9 @@ class _CartPageState extends State<CartPage> {
                     ),
                   ],
                 ),
-                Text(_text(data['manufacturer'], 'Manufacturer'), style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                // No placeholder: most parts have no manufacturer on file.
+                if (_text(data['manufacturer']).isNotEmpty && !mentionsSupplier(_text(data['manufacturer'])))
+                  Text(_text(data['manufacturer']), style: const TextStyle(color: Colors.grey, fontSize: 12)),
                 if (vendorName.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
@@ -902,7 +906,7 @@ class _CartPageState extends State<CartPage> {
                             border: Border.all(color: Colors.grey.shade300),
                           ),
                           child: Text(
-                            _text(data['unit'], 'Default'),
+                            cleanVariantDisplayName(_text(data['unit'], 'Default')),
                             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -1491,7 +1495,9 @@ class _CartPageState extends State<CartPage> {
                     ),
                   ],
                 ),
-                Text(_text(data['manufacturer'], 'Manufacturer'), style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                // No placeholder: most parts have no manufacturer on file.
+                if (_text(data['manufacturer']).isNotEmpty && !mentionsSupplier(_text(data['manufacturer'])))
+                  Text(_text(data['manufacturer']), style: const TextStyle(color: Colors.grey, fontSize: 12)),
                 if (vendorName.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
@@ -1537,7 +1543,7 @@ class _CartPageState extends State<CartPage> {
                                 .map((u) => Align(
                               alignment: Alignment.centerLeft,
                               child: Text(
-                                u,
+                                cleanVariantDisplayName(u),
                                 style: const TextStyle(fontSize: 12),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -1548,7 +1554,7 @@ class _CartPageState extends State<CartPage> {
                                 .map((u) => DropdownMenuItem(
                               value: u,
                               child: Text(
-                                u,
+                                cleanVariantDisplayName(u),
                                 style: const TextStyle(fontSize: 12),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,

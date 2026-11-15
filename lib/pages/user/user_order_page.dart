@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'customer_order_tracking_page.dart';
 import '../../utils/price_format.dart';
 import '../../utils/image_url.dart';
+import '../../utils/variant_display_name.dart';
 
 class OrderPage extends StatelessWidget {
   const OrderPage({super.key});
@@ -324,7 +325,7 @@ class OrderPage extends StatelessWidget {
     final vendorId = _text(item['vendorId'], 'super_admin');
     final vendorName = _text(item['vendorName'], 'ChalakChar Mart');
     final isMarketplace = vendorId != 'super_admin';
-    final unit = _text(item['unit']);
+    final unit = cleanVariantDisplayName(_text(item['unit']));
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
