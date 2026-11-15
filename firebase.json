@@ -20,6 +20,12 @@
         ]
       },
       {
+        "source": "/*.part.js",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache" }
+        ]
+      },
+      {
         "source": "/",
         "headers": [
           { "key": "Cache-Control", "value": "no-cache" }
@@ -72,6 +78,48 @@
         "source": "/",
         "function": {
           "functionId": "homeSeo",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/category/**",
+        "function": {
+          "functionId": "pageSeo",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/about-us",
+        "function": {
+          "functionId": "pageSeo",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/privacy-policy",
+        "function": {
+          "functionId": "pageSeo",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/terms-conditions",
+        "function": {
+          "functionId": "pageSeo",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/return-policy",
+        "function": {
+          "functionId": "pageSeo",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/data-deletion",
+        "function": {
+          "functionId": "pageSeo",
           "region": "asia-south1"
         }
       },

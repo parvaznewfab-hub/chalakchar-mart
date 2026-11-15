@@ -30,10 +30,11 @@ class _SearchPageState extends State<SearchPage> {
 
   String _query = '';
 
-  /// Normalized queries the server refused to import (e.g. medicine /
-  /// health queries): the empty state then says the shop doesn't sell this
-  /// kind of product instead of promising it soon.
-  final Set<String> _rejectedImportQueries = {};
+  /// Normalized queries the server refused to import -> its reason
+  /// ("health": medicine / health queries; "no_english_terms": Bangla words
+  /// with no product word it can look up; ...). The empty state then stops
+  /// promising the product soon.
+  final Map<String, String> _rejectedImportQueries = {};
   String _sort = 'relevance';
   String _selectedCategory = 'All';
 
@@ -156,10 +157,10 @@ class _SearchPageState extends State<SearchPage> {
         },
         body: jsonEncode({'query': query, 'userId': user?.uid}),
       ).then((response) {
-        if (response.statusCode == 400 &&
-            response.body.contains('QUERY_REJECTED') &&
-            mounted) {
-          setState(() => _rejectedImportQueries.add(query));
+        if (response.statusCode != 400 || !mounted) return;
+        final body = jsonDecode(response.body);
+        if (body is Map && body['error'] == 'QUERY_REJECTED') {
+          setState(() => _rejectedImportQueries[query] = '${body['reason'] ?? ''}');
         }
       }).catchError((_) {});
     } catch (_) {
@@ -668,8 +669,10 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Widget _emptyState() {
-    final rejected = _query.isNotEmpty &&
-        _rejectedImportQueries.contains(normalizeSearchQuery(_query));
+    final rejectReason = _query.isEmpty
+        ? null
+        : _rejectedImportQueries[normalizeSearchQuery(_query)];
+    final rejected = rejectReason != null;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
@@ -692,9 +695,11 @@ class _SearchPageState extends State<SearchPage> {
           Text(
             _query.isEmpty
                 ? 'Try another keyword or clear filters.'
-                : rejected
+: rejectReason == 'health'
                     ? 'দুঃখিত, এই ধরনের পণ্য ChalakChar Mart-এ পাওয়া যায় না। অন্য কোনো পণ্য খুঁজে দেখুন।'
-                    : 'প্রোডাক্টটি এখন নেই। আমরা খুঁজে দেখছি — একটু পরে আবার চেষ্টা করুন, অথবা পণ্যটি রেডি হলে নোটিফিকেশন পাবেন।',
+                    : rejected
+                        ? 'এই নামে কিছু পাওয়া যায়নি। পণ্যের নাম বা মডেল ইংরেজিতে লিখে খুঁজে দেখুন (যেমন: Samsung A23 display)।'
+                        : 'প্রোডাক্টটি এখন নেই। আমরা খুঁজে দেখছি — একটু পরে আবার চেষ্টা করুন, অথবা পণ্যটি রেডি হলে নোটিফিকেশন পাবেন।',
             style: TextStyle(color: Colors.grey.shade600),
             textAlign: TextAlign.center,
           ),

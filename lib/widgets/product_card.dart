@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../services/guest_cart_service.dart';
 import '../services/product_service.dart';
 import '../utils/price_format.dart';
+import '../utils/image_url.dart';
 
 class ProductCard extends StatelessWidget {
   final dynamic data;
@@ -242,7 +243,7 @@ class ProductCard extends StatelessWidget {
                         padding: const EdgeInsets.fromLTRB(6, 6, 6, 2),
                         child: image.isNotEmpty
                             ? Image.network(
-                          image,
+                          sizedImageUrl(image, 350),
                           key: imageKey,
                           fit: BoxFit.contain,
                           cacheWidth: 220,

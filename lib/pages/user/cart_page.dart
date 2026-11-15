@@ -15,6 +15,7 @@ import '../../services/vendor_commission_service.dart';
 import '../../services/product_service.dart';
 import '../../services/guest_cart_service.dart';
 import '../../utils/price_format.dart';
+import '../../utils/image_url.dart';
 
 class CartPage extends StatefulWidget {
   const CartPage({super.key});
@@ -1622,7 +1623,7 @@ class _CartPageState extends State<CartPage> {
       child: url.trim().isEmpty
           ? fallback
           : Image.network(
-              url,
+              sizedImageUrl(url, 220),
               fit: BoxFit.contain,
               loadingBuilder: (_, child, progress) => progress == null
                   ? child

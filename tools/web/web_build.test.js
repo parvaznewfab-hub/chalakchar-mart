@@ -108,3 +108,17 @@ test("worker: skips waiting, deletes only Flutter's caches, unregisters, never n
   assert.equal(navigated, 0, "open tabs (cart, checkout, forms) are never reloaded");
   assert.equal(listeners.fetch, undefined, "no fetch handler: requests go to the network");
 });
+
+test("unblocks zoom in the engine's viewport tag", () => {
+  const dir = fakeBuild("_flutter.loader.load();");
+  fs.writeFileSync(
+    path.join(dir, "main.dart.js"),
+    'p.name="viewport"\np.content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"'
+  );
+  const { zoomFixes } = finalizeWebBuild(dir);
+  assert.equal(zoomFixes, 1);
+  const js = fs.readFileSync(path.join(dir, "main.dart.js"), "utf8");
+  assert.ok(js.includes('p.content="width=device-width, initial-scale=1.0"'));
+  assert.ok(!js.includes("user-scalable=no"));
+  assert.equal(finalizeWebBuild(dir).zoomFixes, 0, "running twice changes nothing");
+});

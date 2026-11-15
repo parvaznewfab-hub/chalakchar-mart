@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../utils/image_url.dart';
 
 class MarketplaceHomeSection extends StatelessWidget {
   const MarketplaceHomeSection({super.key});
@@ -88,7 +89,7 @@ class MarketplaceHomeSection extends StatelessWidget {
                   borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
                 ),
                 child: Image.network(
-                  image,
+                  sizedImageUrl(image, 350),
                   fit: BoxFit.contain,
                   errorBuilder: (_, __, ___) =>
                   const Icon(Icons.medication, color: Colors.grey, size: 42),

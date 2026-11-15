@@ -7,6 +7,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../services/auth_service.dart';
+import '../../services/image_upload_service.dart';
 
 /// Professional banner manager for admin side.
 ///
@@ -161,9 +162,9 @@ class _ManageBannersProPageState extends State<ManageBannersProPage> {
 
     if (kIsWeb) {
       final bytes = await file.readAsBytes();
-      await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+      await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg', cacheControl: kImageCacheControl));
     } else {
-      await ref.putFile(File(file.path));
+      await ref.putFile(File(file.path), SettableMetadata(contentType: 'image/jpeg', cacheControl: kImageCacheControl));
     }
 
     return ref.getDownloadURL();
@@ -172,6 +173,7 @@ class _ManageBannersProPageState extends State<ManageBannersProPage> {
   Future<void> _pickNormalImage() async {
     final picked = await ImagePicker().pickImage(
       source: ImageSource.gallery,
+      maxWidth: 1600,
       imageQuality: 85,
     );
     if (picked == null) return;
@@ -189,6 +191,7 @@ class _ManageBannersProPageState extends State<ManageBannersProPage> {
   Future<void> _pickMobileImage() async {
     final picked = await ImagePicker().pickImage(
       source: ImageSource.gallery,
+      maxWidth: 1600,
       imageQuality: 85,
     );
     if (picked == null) return;
@@ -206,6 +209,7 @@ class _ManageBannersProPageState extends State<ManageBannersProPage> {
   Future<void> _pickDesktopImage() async {
     final picked = await ImagePicker().pickImage(
       source: ImageSource.gallery,
+      maxWidth: 1600,
       imageQuality: 85,
     );
     if (picked == null) return;
@@ -223,6 +227,8 @@ class _ManageBannersProPageState extends State<ManageBannersProPage> {
   Future<void> _pickItemImage(int index) async {
     final picked = await ImagePicker().pickImage(
       source: ImageSource.gallery,
+      maxWidth: 600,
+      maxHeight: 600,
       imageQuality: 85,
     );
     if (picked == null) return;

@@ -42,6 +42,27 @@ String normalizeImageUrl(String? url) {
   return out;
 }
 
+/// Square sizes the AliExpress CDN serves resized (`<img>_480x480q75.jpg_.webp`).
+const List<int> _alicdnSizes = [120, 220, 350, 480, 640, 800, 960];
+
+final RegExp _alicdnResizable = RegExp(r'\.(?:jpe?g|png)$', caseSensitive: false);
+
+/// [normalizeImageUrl], and for AliExpress CDN images a resized WebP copy at
+/// least [px] pixels on its longer side (e.g. a 200 KB product photo becomes
+/// ~16 KB at 480). Other hosts (Firebase Storage) are returned unchanged.
+/// Use the original URL where full resolution matters (zoom, full screen).
+String sizedImageUrl(String? url, int px) {
+  final out = normalizeImageUrl(url);
+  if (out.isEmpty) return out;
+  final uri = Uri.tryParse(out);
+  final host = uri?.host.toLowerCase() ?? '';
+  if (host != 'alicdn.com' && !host.endsWith('.alicdn.com')) return out;
+  if (uri!.hasQuery || uri.hasFragment) return out;
+  if (!_alicdnResizable.hasMatch(uri.path)) return out;
+  final size = _alicdnSizes.firstWhere((s) => s >= px, orElse: () => _alicdnSizes.last);
+  return '${out}_${size}x${size}q75.jpg_.webp';
+}
+
 final Set<String> _loggedImageFailures = <String>{};
 
 /// Wraps an `Image.network` errorBuilder so failures are logged (debug builds

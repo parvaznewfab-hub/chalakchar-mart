@@ -7,6 +7,7 @@ import '../../widgets/global_web_footer.dart';
 import 'package:flutter/foundation.dart';
 import 'customer_order_tracking_page.dart';
 import '../../utils/price_format.dart';
+import '../../utils/image_url.dart';
 
 class OrderPage extends StatelessWidget {
   const OrderPage({super.key});
@@ -344,7 +345,7 @@ class OrderPage extends StatelessWidget {
             ),
             child: _text(item['image']).isNotEmpty
                 ? Image.network(
-              _text(item['image']),
+              sizedImageUrl(_text(item['image']), 120),
               fit: BoxFit.contain,
               errorBuilder: (_, __, ___) => const Icon(Icons.medication, color: Colors.grey),
             )

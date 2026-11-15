@@ -3,10 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'user/cart_page.dart';
 import '../widgets/cart_badge.dart';
-import 'admin/admin_dashboard_page.dart';
 import 'auth/login_page.dart';
 import 'settings_page.dart';
-import 'user/delivery/delivery_partner_apply_page.dart';
 import 'user/help_center_page.dart';
 import 'user/chat_screen.dart' show ChatPanel;
 import 'user/home_page.dart';
@@ -14,10 +12,9 @@ import 'user/my_lists_page.dart';
 import 'user/profile/my_address_page.dart';
 import 'user/profile/profile_page.dart';
 import 'user/user_order_page.dart';
-import 'vendor/vendor_apply_page.dart';
-import 'vendor/vendor_dashboard_page.dart';
 import 'user/my_appointments_page.dart';
 import '../widgets/health_gate.dart';
+import '../deferred/staff.dart';
 
 class MainNavigation extends StatefulWidget {
   final String role;
@@ -312,7 +309,7 @@ class _MainNavigationState extends State<MainNavigation> {
                                 icon: Icons.storefront_outlined,
                                 title: 'Seller Account',
                                 color: const Color(0xFFFF9900),
-                                onTap: () => _openPage(const VendorApplyPage()),
+                                onTap: () => _openPage(StaffPages.vendorApply()),
                               ),
                             ),
                             const SizedBox(width: 10),
@@ -321,7 +318,7 @@ class _MainNavigationState extends State<MainNavigation> {
                                 icon: Icons.delivery_dining_outlined,
                                 title: 'Delivery Partner',
                                 color: Colors.green,
-                                onTap: () => _openPage(const DeliveryPartnerApplyPage()),
+                                onTap: () => _openPage(StaffPages.deliveryPartnerApply()),
                               ),
                             ),
                           ],
@@ -514,11 +511,11 @@ class _MainNavigationState extends State<MainNavigation> {
   @override
   Widget build(BuildContext context) {
     if (_isAdminRole(widget.role)) {
-      return const Scaffold(body: AdminDashboard());
+      return Scaffold(body: StaffPages.adminDashboard());
     }
 
     if (_isVendorRole(widget.role)) {
-      return const Scaffold(body: VendorDashboardPage());
+      return Scaffold(body: StaffPages.vendorDashboard());
     }
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
@@ -540,11 +537,11 @@ class _MainNavigationState extends State<MainNavigation> {
             }
 
             if (_isAdminRole(role)) {
-              return const Scaffold(body: AdminDashboard());
+              return Scaffold(body: StaffPages.adminDashboard());
             }
 
             if (_isVendorRole(role)) {
-              return const Scaffold(body: VendorDashboardPage());
+              return Scaffold(body: StaffPages.vendorDashboard());
             }
 
             return _buildUserShell(role: role);

@@ -15,18 +15,14 @@ import 'services/notification_service.dart';
 import 'pages/main_navigation_page.dart';
 import 'pages/user/settings_details_pages.dart';
 import 'pages/user/data_deletion_page.dart';
-import 'pages/user/delivery/delivery_partner_dashboard_page.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
-import 'pages/admin/admin_dashboard_page.dart';
-import 'pages/admin/admin_edit_order_page.dart';
-import 'pages/admin/admin_notifications_page.dart';
-import 'pages/admin/admin_lists_page.dart';
 import 'pages/user/product_seo_loader_page.dart';
 import 'pages/user/category_products_page.dart';
 import 'pages/auth/login_page.dart';
 import 'pages/user/cart_page.dart';
 import 'services/seo_route_observer.dart';
 import 'widgets/health_gate.dart';
+import 'deferred/staff.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -101,7 +97,7 @@ void _handleMessage(RemoteMessage message) {
   if (orderId != null && orderId.isNotEmpty) {
     navigatorKey.currentState?.push(
       MaterialPageRoute(
-        builder: (_) => AdminEditOrderPage(orderId: orderId),
+        builder: (_) => StaffPages.adminEditOrder(orderId),
       ),
     );
     return;
@@ -110,7 +106,7 @@ void _handleMessage(RemoteMessage message) {
   if (type.contains('list') || (listId != null && listId.isNotEmpty)) {
     navigatorKey.currentState?.push(
       MaterialPageRoute(
-        builder: (_) => const AdminListsPage(),
+        builder: (_) => StaffPages.adminLists(),
       ),
     );
     return;
@@ -119,7 +115,7 @@ void _handleMessage(RemoteMessage message) {
   if (type.contains('admin') || type.contains('notification')) {
     navigatorKey.currentState?.push(
       MaterialPageRoute(
-        builder: (_) => const AdminNotificationsPage(),
+        builder: (_) => StaffPages.adminNotifications(),
       ),
     );
     return;
@@ -277,11 +273,11 @@ class MyApp extends StatelessWidget {
                 final partnerData = roleSnap.data?[1].data();
 
                 if (_canAccessAdmin(userData)) {
-                  return const AdminDashboard();
+                  return StaffPages.adminDashboard();
                 }
 
                 if (_canAccessDeliveryPartner(userData, partnerData)) {
-                  return const DeliveryPartnerDashboardPage();
+                  return StaffPages.deliveryPartnerDashboard();
                 }
 
                 final role = (userData['role'] ?? 'user').toString();
@@ -391,9 +387,9 @@ class MyApp extends StatelessWidget {
         '/terms-conditions': (context) => const TermsConditionsPage(),
         '/return-policy': (context) => const ReturnPolicyPage(),
         '/data-deletion': (context) => const DataDeletionPage(),
-        '/admin': (context) => const AdminDashboard(),
-        '/admin/notifications': (context) => const AdminNotificationsPage(),
-        '/admin/lists': (context) => const AdminListsPage(),
+        '/admin': (context) => StaffPages.adminDashboard(),
+        '/admin/notifications': (context) => StaffPages.adminNotifications(),
+        '/admin/lists': (context) => StaffPages.adminLists(),
         '/login': (context) => const Scaffold(body: LoginPage()),
         '/cart': (context) => const CartPage(),
       },

@@ -4,6 +4,7 @@ import '../services/product_service.dart';
 import '../utils/price_format.dart';
 import '../utils/variant_display_name.dart';
 import '../utils/variant_selector_model.dart';
+import '../utils/image_url.dart';
 
 /// Product-details variant picker.
 ///
@@ -411,7 +412,7 @@ class _VariantSelectorState extends State<VariantSelector> {
                       height: _thumb,
                       child: image.isNotEmpty
                           ? Image.network(
-                              image,
+                              sizedImageUrl(image, 220),
                               fit: BoxFit.cover,
                               // Neutral box while loading (no empty gap).
                               loadingBuilder: (_, child, progress) =>

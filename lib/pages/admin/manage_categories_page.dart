@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../services/auth_service.dart';
+import '../../services/image_upload_service.dart';
 import '../../utils/category_lookup.dart';
 import '../../utils/category_normalize.dart';
 
@@ -137,8 +138,11 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
       return;
     }
 
+    // Category images show as small icons (46-140px): 400px is plenty.
     final picked = await ImagePicker().pickImage(
       source: ImageSource.gallery,
+      maxWidth: 400,
+      maxHeight: 400,
       imageQuality: 85,
     );
 
@@ -172,9 +176,9 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
         .child('categories/$prefix${DateTime.now().millisecondsSinceEpoch}.jpg');
 
     if (kIsWeb && bytes != null) {
-      await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+      await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg', cacheControl: kImageCacheControl));
     } else if (file != null) {
-      await ref.putFile(file, SettableMetadata(contentType: 'image/jpeg'));
+      await ref.putFile(file, SettableMetadata(contentType: 'image/jpeg', cacheControl: kImageCacheControl));
     }
 
     return ref.getDownloadURL();

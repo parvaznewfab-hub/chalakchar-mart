@@ -2,9 +2,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import '../pages/admin/admin_dashboard_page.dart';
 import '../pages/main_navigation_page.dart';
 import '../services/notification_service.dart';
+import '../deferred/staff.dart';
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -39,7 +39,7 @@ class AuthGate extends StatelessWidget {
               if (roleSnap.hasData && roleSnap.data!.exists) {
                 final role = (roleSnap.data!.data() as Map<String, dynamic>?)?['role'] ?? 'user';
 
-                if (role == 'admin') return const AdminDashboard();
+                if (role == 'admin') return StaffPages.adminDashboard();
               }
               return const MainNavigation(role: 'user'); // logged in user
             },

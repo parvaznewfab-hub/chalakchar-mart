@@ -8,7 +8,6 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/app_settings_service.dart';
 import '../services/image_search_service.dart';
-import '../pages/admin/admin_dashboard_page.dart';
 import '../pages/auth/login_page.dart';
 import '../pages/settings_page.dart';
 import '../pages/user/help_center_page.dart';
@@ -17,13 +16,10 @@ import '../pages/user/profile/profile_page.dart';
 import '../pages/user/referral_page.dart';
 import '../pages/user/search_page.dart';
 import '../pages/user/user_order_page.dart';
-import '../pages/vendor/vendor_apply_page.dart';
-import '../pages/vendor/vendor_dashboard_page.dart';
 import '../services/auth_service.dart';
 import 'cart_badge.dart';
-import '../pages/user/delivery/delivery_partner_apply_page.dart';
-import '../pages/user/delivery/delivery_partner_dashboard_page.dart';
 import '../pages/user/notifications_page.dart';
+import '../deferred/staff.dart';
 
 class GlobalWebHeader extends StatefulWidget implements PreferredSizeWidget {
   const GlobalWebHeader({super.key});
@@ -1192,7 +1188,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
     } else if (value == 'delivery_partner') {
       await _openDeliveryPartner();
     } else if (value == 'admin') {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminDashboard()));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => StaffPages.adminDashboard()));
     } else if (value == 'logout') {
       await _authService.signOut();
     }
@@ -1225,7 +1221,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
           adminRoles.contains('staff');
 
       if (isAdmin) {
-        Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminDashboard()));
+        Navigator.push(context, MaterialPageRoute(builder: (_) => StaffPages.adminDashboard()));
         return;
       }
 
@@ -1239,7 +1235,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
       if ((isVendorRole || sellerStatus == 'approved') &&
           sellerStatus != 'suspended' &&
           sellerStatus != 'rejected') {
-        Navigator.push(context, MaterialPageRoute(builder: (_) => const VendorDashboardPage()));
+        Navigator.push(context, MaterialPageRoute(builder: (_) => StaffPages.vendorDashboard()));
         return;
       }
 
@@ -1263,7 +1259,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
         );
       }
 
-      Navigator.push(context, MaterialPageRoute(builder: (_) => const VendorApplyPage()));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => StaffPages.vendorApply()));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1293,7 +1289,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => const DeliveryPartnerApplyPage(),
+            builder: (_) => StaffPages.deliveryPartnerApply(),
           ),
         );
         return;
@@ -1307,7 +1303,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => const DeliveryPartnerDashboardPage(),
+            builder: (_) => StaffPages.deliveryPartnerDashboard(),
           ),
         );
         return;
@@ -1316,7 +1312,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => const DeliveryPartnerApplyPage(),
+          builder: (_) => StaffPages.deliveryPartnerApply(),
         ),
       );
 

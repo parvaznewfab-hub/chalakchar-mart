@@ -18,6 +18,11 @@
 //    cleared, so some builds silently ship without them. Files the build did
 //    produce (index.html, flutter_bootstrap.js, ...) are never overwritten.
 //
+// 5. Lets visitors zoom: the Flutter engine replaces any viewport tag with
+//    "width=device-width, initial-scale=1.0, maximum-scale=1.0,
+//    user-scalable=no" at startup (main.dart.js); the zoom-blocking part is
+//    removed there (accessibility: browsers' "force zoom" and Lighthouse).
+//
 // Build with:  flutter build web --release --pwa-strategy=none
 // Usage:       node tools/web/finalize_web_build.js <buildDir>
 
@@ -50,6 +55,17 @@ const REQUIRED_BUILD_FILES = [
   "assets/FontManifest.json",
 ];
 
+const ENGINE_VIEWPORT = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
+const ZOOMABLE_VIEWPORT = "width=device-width, initial-scale=1.0";
+
+/** Removes the engine's zoom block from main.dart.js; returns how many it replaced. */
+function allowZoom(mainJs) {
+  const text = fs.readFileSync(mainJs, "utf8");
+  const count = text.split(ENGINE_VIEWPORT).length - 1;
+  if (count) fs.writeFileSync(mainJs, text.split(ENGINE_VIEWPORT).join(ZOOMABLE_VIEWPORT));
+  return count;
+}
+
 function finalizeWebBuild(buildDir, webDir = path.join(__dirname, "..", "..", "web")) {
   const bootstrap = path.join(buildDir, "flutter_bootstrap.js");
   const mainJs = path.join(buildDir, "main.dart.js");
@@ -76,7 +92,8 @@ function finalizeWebBuild(buildDir, webDir = path.join(__dirname, "..", "..", "w
   const killSwitch = path.join(__dirname, "flutter_service_worker.js");
   fs.copyFileSync(killSwitch, path.join(buildDir, "flutter_service_worker.js"));
   const restored = copyMissing(webDir, buildDir);
-  return { replaced: "flutter_service_worker.js", restored };
+  const zoomFixes = allowZoom(mainJs);
+  return { replaced: "flutter_service_worker.js", restored, zoomFixes };
 }
 
 module.exports = { finalizeWebBuild };
@@ -84,8 +101,10 @@ module.exports = { finalizeWebBuild };
 if (require.main === module) {
   const buildDir = process.argv[2] || path.join(__dirname, "..", "..", "build", "web");
   try {
-    const { restored } = finalizeWebBuild(buildDir);
+    const { restored, zoomFixes } = finalizeWebBuild(buildDir);
     if (restored.length) console.log(`finalize_web_build: restored files the build left out: ${restored.join(", ")}`);
+    // 0 after a Flutter upgrade = the engine string changed: check zoom by hand.
+    console.log(`finalize_web_build: viewport zoom unblocked in main.dart.js (${zoomFixes} place${zoomFixes === 1 ? "" : "s"})`);
     console.log(`finalize_web_build: OK (no service worker registered; self-removing worker installed in ${buildDir})`);
   } catch (e) {
     console.error(`finalize_web_build: ${e.message}`);

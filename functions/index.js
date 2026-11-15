@@ -86,6 +86,7 @@ const { isRelevantTitle } = require("./messaging/productMatch");
 const { classifyHealthProduct, isHealthQuery } = require("./catalog/healthProduct");
 const { searchImportPublishOptions } = require("./aliexpress/searchImportPublish");
 const { searchImportLogDocId } = require("./aliexpress/searchImportLogId");
+const { searchImportKeywords } = require("./aliexpress/searchImportKeywords");
 const { isSystemPriceWrite, priceGuardUpdate, wishlistDiscountDecision } = require("./marketing/priceChange");
 const { loadActiveTaxonomy, taxonomyPromptBlock, matchAiTaxonomy } = require("./category/aiTaxonomy");
 const { matchCategoryByKeyword } = require("./category/aliExpressCategoryKeywords");
@@ -4074,11 +4075,24 @@ exports.aliexpressSearchImport = onRequest(
       logger.info("AliExpress search-import: query rejected", { query: validation.query.slice(0, 100), reason: validation.reason });
       return res.status(400).json({ ok: false, error: "QUERY_REJECTED", reason: validation.reason });
     }
-    const query = validation.query;
+    const typedQuery = validation.query;
 
-    if (isHealthQuery(query) && !(await loadAppFeatures()).healthEnabled) {
-      logger.info("AliExpress search-import: health query refused", { query: query.slice(0, 100) });
+    if (isHealthQuery(typedQuery) && !(await loadAppFeatures()).healthEnabled) {
+      logger.info("AliExpress search-import: health query refused", { query: typedQuery.slice(0, 100) });
       return res.status(400).json({ ok: false, error: "QUERY_REJECTED", reason: "health" });
+    }
+
+    // AliExpress understands English only: Bangla becomes English product
+    // words ("১২৮ জিবি এসএসডি" -> "128gb ssd"); nothing translatable -> no
+    // import (it only ever returned unrelated items). The keywords are also
+    // the searchImportLog key, so both spellings share one import.
+    const query = searchImportKeywords(typedQuery);
+    if (!query) {
+      logger.info("AliExpress search-import: no English product words", { query: typedQuery.slice(0, 100) });
+      return res.status(400).json({ ok: false, error: "QUERY_REJECTED", reason: "no_english_terms" });
+    }
+    if (query !== typedQuery) {
+      logger.info("AliExpress search-import: Bangla query translated", { typed: typedQuery.slice(0, 100), query });
     }
 
     const uid = await verifyOptionalFirebaseIdToken(req);
@@ -6484,7 +6498,15 @@ exports.productSeo = onRequest(
 
       if (!productId) {
         res.set("Content-Type", "text/html; charset=utf-8");
-        return res.status(404).send("<!DOCTYPE html><html><head><title>Product not found | ChalakChar Mart</title><meta name=\"robots\" content=\"noindex, follow\"></head><body>Product not found</body></html>");
+        // Still the app shell (404 + noindex): a dead shared link opens the
+        // shop instead of a bare "Product not found" text page.
+        return res.status(404).send(renderAppShellHtml({
+          title: "Product not found | ChalakChar Mart",
+          description: "এই পণ্যটি এখন পাওয়া যাচ্ছে না। ChalakChar Mart-এ মোবাইল ও ল্যাপটপ পার্টস, কম্পিউটার এক্সেসরিজ ও অন্যান্য পণ্য দেখুন।",
+          canonical: "https://chalakcharmart.com/",
+          robots: "noindex, follow",
+          image: "https://chalakcharmart.com/icons/Icon-512.png",
+        }));
       }
 
       // First try by Firestore document ID.
@@ -6519,7 +6541,15 @@ exports.productSeo = onRequest(
 
         res.set("Content-Type", "text/html; charset=utf-8");
         res.set("Cache-Control", "no-store, max-age=0");
-        return res.status(404).send("<!DOCTYPE html><html><head><title>Product not found | ChalakChar Mart</title><meta name=\"robots\" content=\"noindex, follow\"></head><body>Product not found</body></html>");
+        // Still the app shell (404 + noindex): a dead shared link opens the
+        // shop instead of a bare "Product not found" text page.
+        return res.status(404).send(renderAppShellHtml({
+          title: "Product not found | ChalakChar Mart",
+          description: "এই পণ্যটি এখন পাওয়া যাচ্ছে না। ChalakChar Mart-এ মোবাইল ও ল্যাপটপ পার্টস, কম্পিউটার এক্সেসরিজ ও অন্যান্য পণ্য দেখুন।",
+          canonical: "https://chalakcharmart.com/",
+          robots: "noindex, follow",
+          image: "https://chalakcharmart.com/icons/Icon-512.png",
+        }));
       }
 
       const product = productDoc.data() || {};
@@ -6529,9 +6559,8 @@ exports.productSeo = onRequest(
       // A hidden product (inactive / unpublished, incl. hiddenReason
       // "health_removed") keeps working for anyone with the link, but is
       // never indexed: noindex in the page and in the X-Robots-Tag header.
-      const isHiddenProduct = product.isActive === false
-        || product.isVisible === false
-        || product.isPublished === false;
+      // Also hidden when its category is switched off in the admin.
+      const isHiddenProduct = !isPubliclyListedProduct(product, await inactiveCategoryNames());
       const robots = isHiddenProduct ? "noindex, nofollow" : "index, follow";
 
       const productName = cleanText(product.name, "Product");
@@ -6668,11 +6697,6 @@ exports.productSeo = onRequest(
         "publisher": {
           "@id": `${baseUrl}/#organization`,
         },
-        "potentialAction": {
-          "@type": "SearchAction",
-          "target": `${baseUrl}/search?q={search_term_string}`,
-          "query-input": "required name=search_term_string",
-        },
       };
 
       const breadcrumbSchema = {
@@ -6712,7 +6736,7 @@ exports.productSeo = onRequest(
       };
 
       const html = `<!DOCTYPE html>
-<html>
+<html lang="bn">
 <head>
   <base href="/">
   <meta charset="UTF-8">
@@ -6746,6 +6770,7 @@ exports.productSeo = onRequest(
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="manifest" href="manifest.json">
+  ${APP_SHELL_PRECONNECTS}
 
   <script type="application/ld+json">${jsonLdEscapeObject(jsonLdGraph)}</script>
 </head>
@@ -6866,9 +6891,13 @@ exports.sitemap = onRequest(
         .where("isActive", "==", true)
         .where("approvalStatus", "==", "approved")
         .get();
+      // Only what shoppers can see: not unpublished/invisible, not hidden
+      // (hiddenReason, e.g. "health_removed"), not in a switched-off category.
+      const inactiveCategories = await inactiveCategoryNames();
 
       productsSnap.forEach((doc) => {
         const data = doc.data() || {};
+        if (!isPubliclyListedProduct(data, inactiveCategories)) return;
 
         urls.push(
           sitemapUrl(
@@ -6981,11 +7010,6 @@ exports.homeSeo = onRequest(
         "url": baseUrl,
         "name": "ChalakChar Mart",
         "publisher": { "@id": `${baseUrl}/#organization` },
-        "potentialAction": {
-          "@type": "SearchAction",
-          "target": `${baseUrl}/search?q={search_term_string}`,
-          "query-input": "required name=search_term_string",
-        },
       };
 
       const graph = [organizationSchema, websiteSchema];
@@ -7002,7 +7026,7 @@ exports.homeSeo = onRequest(
       const jsonLdGraph = { "@context": "https://schema.org", "@graph": graph };
 
       const html = `<!DOCTYPE html>
-<html>
+<html lang="bn">
 <head>
   <base href="/">
   <meta charset="UTF-8">
@@ -7032,6 +7056,7 @@ exports.homeSeo = onRequest(
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="manifest" href="manifest.json">
+  ${APP_SHELL_PRECONNECTS}
 
   <script type="application/ld+json">${jsonLdEscapeObject(jsonLdGraph)}</script>
 </head>
@@ -7047,6 +7072,226 @@ exports.homeSeo = onRequest(
       logger.error("Home SEO render failed", error);
       res.set("Content-Type", "text/html; charset=utf-8");
       return res.status(500).send("<!DOCTYPE html><html><head><title>ChalakChar Mart</title></head><body>Something went wrong</body></html>");
+    }
+  }
+);
+
+// -----------------------------------------------------------------------------
+// Server-side SEO HTML for category and policy pages
+// -----------------------------------------------------------------------------
+// Firebase Hosting rewrites /category/**, /about-us, /privacy-policy,
+// /terms-conditions, /return-policy, /data-deletion -> pageSeo. Before this
+// they got index.html's generic home title/description/canonical, so search
+// engines saw every page as a copy of the home page. Same app shell as
+// homeSeo/productSeo; Flutter takes over after load.
+// -----------------------------------------------------------------------------
+
+// Opened early so the first Firestore/image/canvaskit requests skip the
+// DNS + TLS setup.
+const APP_SHELL_PRECONNECTS = [
+  "https://www.gstatic.com",
+  "https://firestore.googleapis.com",
+  "https://firebasestorage.googleapis.com",
+  "https://ae01.alicdn.com",
+].map((href) => `<link rel="preconnect" href="${href}" crossorigin>`).join("\n  ");
+
+const POLICY_PAGE_SEO = {
+  "/about-us": {
+    title: "About Us | ChalakChar Mart",
+    description: "ChalakChar Mart — চালাকচর বাজার, মনোহরদী, নরসিংদীর অনলাইন শপ। মোবাইল ও ল্যাপটপ পার্টস, কম্পিউটার এক্সেসরিজ ও দৈনন্দিন পণ্য, ক্যাশ অন ডেলিভারিতে সারা দেশে।",
+  },
+  "/privacy-policy": {
+    title: "Privacy Policy | ChalakChar Mart",
+    description: "ChalakChar Mart কোন তথ্য সংগ্রহ করে, কীভাবে ব্যবহার ও সুরক্ষিত রাখে, এবং আপনার তথ্য দেখা, সংশোধন বা মুছে ফেলার অনুরোধ যেভাবে করবেন।",
+  },
+  "/terms-conditions": {
+    title: "Terms & Conditions | ChalakChar Mart",
+    description: "ChalakChar Mart-এ অর্ডার, দাম, পেমেন্ট, ডেলিভারি, পণ্যের সামঞ্জস্য ও অ্যাকাউন্ট ব্যবহারের শর্তাবলী।",
+  },
+  "/return-policy": {
+    title: "Return & Refund Policy | ChalakChar Mart",
+    description: "পণ্য ফেরত, রিপ্লেসমেন্ট, ওয়ারেন্টি ও রিফান্ডের নিয়ম — মোবাইল ও ল্যাপটপ পার্টস হাতে পেয়ে কী করবেন এবং কখন রিপ্লেসমেন্ট পাবেন।",
+  },
+  "/data-deletion": {
+    title: "Data Deletion | ChalakChar Mart",
+    description: "ChalakChar Mart অ্যাকাউন্ট ও ব্যক্তিগত তথ্য মুছে ফেলার অনুরোধ যেভাবে করবেন।",
+  },
+};
+
+function renderAppShellHtml({ title, description, canonical, robots = "index, follow", image, ogType = "website", jsonLd = null }) {
+  const ld = jsonLd ? `  <script type="application/ld+json">${jsonLdEscapeObject(jsonLd)}</script>\n` : "";
+  return `<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <base href="/">
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>${htmlEscape(title)}</title>
+  <meta name="description" content="${htmlEscape(description)}">
+  <meta name="robots" content="${robots}">
+
+  <meta property="og:site_name" content="ChalakChar Mart">
+  <meta property="fb:app_id" content="996213106661804">
+  <meta property="og:title" content="${htmlEscape(title)}">
+  <meta property="og:description" content="${htmlEscape(description)}">
+  <meta property="og:type" content="${ogType}">
+  <meta property="og:url" content="${htmlEscape(canonical)}">
+  <meta property="og:image" content="${htmlEscape(image)}">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${htmlEscape(title)}">
+  <meta name="twitter:description" content="${htmlEscape(description)}">
+  <meta name="twitter:image" content="${htmlEscape(image)}">
+
+  <link rel="canonical" href="${htmlEscape(canonical)}">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="manifest" href="manifest.json">
+  ${APP_SHELL_PRECONNECTS}
+${ld}</head>
+<body>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>`;
+}
+
+/** Names (lowercase) of categories switched off in the admin. */
+async function inactiveCategoryNames() {
+  const snap = await db.collection("categories").where("isActive", "==", false).get();
+  return new Set(snap.docs.map((d) => cleanText(d.data()?.name).toLowerCase()).filter(Boolean));
+}
+
+/**
+ * A product shoppers can see: active, visible, published, not hidden
+ * (e.g. hiddenReason "health_removed") and not in a switched-off category.
+ * Used for the sitemap and category structured data.
+ */
+function isPubliclyListedProduct(product, inactiveCategories = new Set()) {
+  if (!product) return false;
+  if (product.isActive === false || product.isVisible === false || product.isPublished === false) return false;
+  if (cleanText(product.hiddenReason)) return false;
+  const category = cleanText(product.category).toLowerCase();
+  if (category && inactiveCategories.has(category)) return false;
+  return true;
+}
+
+exports.pageSeo = onRequest(
+  {
+    region: "asia-south1",
+    cors: false,
+    timeoutSeconds: 15,
+    memory: "256MiB",
+  },
+  async (req, res) => {
+    const baseUrl = "https://chalakcharmart.com";
+    const image = `${baseUrl}/icons/Icon-512.png`;
+    const path = String(req.path || "/").replace(/\/+$/, "") || "/";
+    try {
+      const policy = POLICY_PAGE_SEO[path];
+      if (policy) {
+        res.set("Content-Type", "text/html; charset=utf-8");
+        res.set("Cache-Control", "public, max-age=600, s-maxage=3600");
+        return res.status(200).send(renderAppShellHtml({ ...policy, canonical: `${baseUrl}${path}`, image }));
+      }
+
+      const match = path.match(/^\/category\/([^/]+)$/);
+      let slug = "";
+      try {
+        slug = match ? seoSlug(decodeURIComponent(match[1])) : "";
+      } catch (_) {
+        slug = "";
+      }
+      let category = null;
+      if (slug) {
+        const categoriesSnap = await db.collection("categories").get();
+        const doc = categoriesSnap.docs.find((d) => seoSlug(d.data()?.name) === slug);
+        if (doc && doc.data()?.isActive !== false) category = doc.data();
+      }
+
+      if (!category) {
+        // Unknown or switched-off category: the app still opens (it shows
+        // its own "not found"), but search engines must not index it.
+        res.set("Content-Type", "text/html; charset=utf-8");
+        res.set("Cache-Control", "public, max-age=300, s-maxage=600");
+        res.set("X-Robots-Tag", "noindex");
+        return res.status(404).send(renderAppShellHtml({
+          title: "Page not found | ChalakChar Mart",
+          description: "এই পেজটি পাওয়া যায়নি। ChalakChar Mart-এ মোবাইল ও ল্যাপটপ পার্টস, কম্পিউটার এক্সেসরিজ ও অন্যান্য পণ্য দেখুন।",
+          canonical: `${baseUrl}${path}`,
+          robots: "noindex, follow",
+          image,
+        }));
+      }
+
+      const name = cleanText(category.name);
+      const canonical = `${baseUrl}/category/${slug}`;
+      const title = limitText(`${name} Price in Bangladesh | ChalakChar Mart`, 65);
+      const description = limitText(
+        cleanText(category.seoDescription || category.description) ||
+          `ChalakChar Mart থেকে ${name} কিনুন — মডেল মিলিয়ে অর্ডার, ক্যাশ অন ডেলিভারি, সারা বাংলাদেশে হোম ডেলিভারি।`,
+        160
+      );
+
+      const productsSnap = await db.collection("products")
+        .where("category", "==", category.name)
+        .where("isActive", "==", true)
+        .limit(60)
+        .get();
+      const items = productsSnap.docs
+        .filter((d) => isPubliclyListedProduct(d.data()))
+        .slice(0, 30)
+        .map((d, i) => ({
+          "@type": "ListItem",
+          "position": i + 1,
+          "url": `${baseUrl}/product/${encodeURIComponent(d.id)}`,
+          "name": limitText(cleanText(d.data().name), 110),
+        }));
+
+      const jsonLd = {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "CollectionPage",
+            "@id": `${canonical}#page`,
+            "url": canonical,
+            "name": title,
+            "description": description,
+            "inLanguage": "bn",
+            "isPartOf": { "@id": `${baseUrl}/#website` },
+          },
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              { "@type": "ListItem", "position": 1, "name": "Home", "item": `${baseUrl}/` },
+              { "@type": "ListItem", "position": 2, "name": name, "item": canonical },
+            ],
+          },
+          ...(items.length ? [{ "@type": "ItemList", "itemListElement": items }] : []),
+        ],
+      };
+
+      res.set("Content-Type", "text/html; charset=utf-8");
+      res.set("Cache-Control", "public, max-age=600, s-maxage=1800");
+      return res.status(200).send(renderAppShellHtml({
+        title,
+        description,
+        canonical,
+        image: cleanText(category.imageUrl) || image,
+        jsonLd,
+      }));
+    } catch (error) {
+      logger.error("Page SEO render failed", { path, message: error.message });
+      // Never leave the shopper on an error page: fall back to the plain shell.
+      res.set("Content-Type", "text/html; charset=utf-8");
+      res.set("Cache-Control", "no-cache");
+      return res.status(200).send(renderAppShellHtml({
+        title: "ChalakChar Mart",
+        description: "ChalakChar Mart — মোবাইল ও ল্যাপটপ পার্টস, কম্পিউটার এক্সেসরিজ ও দৈনন্দিন পণ্য।",
+        canonical: `${baseUrl}${path}`,
+        image,
+      }));
     }
   }
 );

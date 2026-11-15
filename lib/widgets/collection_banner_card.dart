@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/image_url.dart';
 
 /// One cell of a collection ("amazon_grid") banner.
 ///
@@ -247,7 +248,7 @@ class CollectionBannerCard extends StatelessWidget {
     final custom = imageBuilder?.call(context, url);
     if (custom != null) return custom;
     return Image.network(
-      url,
+      sizedImageUrl(url, 350),
       fit: BoxFit.cover,
       errorBuilder: (_, __, ___) => const _ImagePlaceholder(),
     );

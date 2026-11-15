@@ -23,6 +23,7 @@ import 'search_page.dart';
 import '../../services/category_service.dart';
 import '../../services/image_search_service.dart';
 import '../../widgets/health_gate.dart';
+import '../../utils/image_url.dart';
 
 
 
@@ -2042,7 +2043,7 @@ if (featureEnabled(fs, Feature.health)) ...[
       fit: StackFit.expand,
       children: [
         Image.network(
-          url,
+          sizedImageUrl(url, 960),
           width: double.infinity,
           height: height,
           fit: BoxFit.cover,
@@ -2219,7 +2220,7 @@ if (featureEnabled(fs, Feature.health)) ...[
                 ? ClipRRect(
               borderRadius: BorderRadius.circular(20),
               child: Image.network(
-                url,
+                sizedImageUrl(url, 480),
                 fit: BoxFit.cover,
                 height: double.infinity,
                 errorBuilder: (_, __, ___) => const Icon(
@@ -2369,7 +2370,7 @@ if (featureEnabled(fs, Feature.health)) ...[
         children: [
           Expanded(
             child: Image.network(
-              imageUrl,
+              sizedImageUrl(imageUrl, 480),
               width: double.infinity,
               fit: BoxFit.cover,
               errorBuilder: (_, __, ___) => const Center(

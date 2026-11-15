@@ -23,6 +23,7 @@ import 'package:share_plus/share_plus.dart';
 import 'wishlist_page.dart';
 import 'cart_page.dart';
 import '../../utils/price_format.dart';
+import '../../utils/image_url.dart';
 
 class ProductDetailsPage extends StatefulWidget {
   final Map<String, dynamic> data;
@@ -1768,7 +1769,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
                     ),
                   ),
                   child: Image.network(
-                    url,
+                    sizedImageUrl(url, 220),
                     fit: BoxFit.contain,
                     errorBuilder: (_, __, ___) =>
                         const Icon(Icons.broken_image, color: Colors.grey),
@@ -2659,7 +2660,7 @@ class _HoverMagnifierImageState extends State<_HoverMagnifierImage> {
             children: [
               Positioned.fill(
                 child: Image.network(
-                  widget.imageUrl,
+                  sizedImageUrl(widget.imageUrl, 960),
                   fit: BoxFit.contain,
                   errorBuilder: (_, __, ___) => const Icon(
                     Icons.broken_image,

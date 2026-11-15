@@ -722,6 +722,8 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
           Future<void> pickImage({bool main = false}) async {
             final picked = await ImagePicker().pickImage(
               source: ImageSource.gallery,
+              maxWidth: 1200,
+              maxHeight: 1200,
               imageQuality: 85,
             );
 
