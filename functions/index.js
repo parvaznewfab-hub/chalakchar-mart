@@ -6903,10 +6903,17 @@ exports.sitemap = onRequest(
       // Only what shoppers can see: not unpublished/invisible, not hidden
       // (hiddenReason, e.g. "health_removed"), not in a switched-off category.
       const inactiveCategories = await inactiveCategoryNames();
+      // Only products in an existing, active category: the old grocery items
+      // (Cooking, Grocery, ... not in categories/) stay out until the owner
+      // decides on them (audit D1).
+      const activeCategories = new Set(categoriesSnap.docs
+        .map((d) => cleanText(d.data()?.name).toLowerCase())
+        .filter(Boolean));
 
       productsSnap.forEach((doc) => {
         const data = doc.data() || {};
         if (!isPubliclyListedProduct(data, inactiveCategories)) return;
+        if (!activeCategories.has(cleanText(data.category).toLowerCase())) return;
 
         urls.push(
           sitemapUrl(
