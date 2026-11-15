@@ -113,6 +113,10 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   bool showSponsoredProducts = true;
   bool showTopVendors = true;
   bool showHomeBanners = true;
+
+  // settings/app.features — off by default (absent = off).
+  bool healthEnabled = false;
+  bool listOrderEnabled = false;
   bool enableReferral = true;
   bool enableAbdCash = true;
   bool enableOrderNotifications = true;
@@ -392,6 +396,11 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       showSponsoredProducts = _bool(data['showSponsoredProducts'], true);
       showTopVendors = _bool(data['showTopVendors'], true);
       showHomeBanners = _bool(data['showHomeBanners'], true);
+      final features = data['features'] is Map
+          ? Map<String, dynamic>.from(data['features'] as Map)
+          : <String, dynamic>{};
+      healthEnabled = _bool(features['healthEnabled'], false);
+      listOrderEnabled = _bool(features['listOrderEnabled'], false);
 
       enableReferral = _bool(data['enableReferral'], true);
       enableAbdCash = _bool(data['enableAbdCash'], true);
@@ -535,6 +544,12 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
         'showSponsoredProducts': showSponsoredProducts,
         'showTopVendors': showTopVendors,
         'showHomeBanners': showHomeBanners,
+
+        // Merged field by field (SetOptions.merge), other features keys kept.
+        'features': {
+          'healthEnabled': healthEnabled,
+          'listOrderEnabled': listOrderEnabled,
+        },
 
         'enableReferral': enableReferral,
         'enableAbdCash': enableAbdCash,
@@ -1053,6 +1068,24 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
         subtitle: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
       ),
     );
+  }
+
+  Future<bool> _confirmHealthOn() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Health features চালু করবেন?'),
+        content: const Text(
+          'চালু করলে Play Store-এর Health apps declaration বদলাতে হবে আর ওষুধ বিক্রির জন্য ড্রাগ লাইসেন্স লাগবে। '
+          'Save চাপলে তবেই সব কাস্টমারের কাছে ডাক্তার/অ্যাপয়েন্টমেন্ট ফিচার দেখা যাবে।',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('বাতিল')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('চালু করব')),
+        ],
+      ),
+    );
+    return ok == true;
   }
 
   Widget _section({
@@ -1909,6 +1942,37 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
             ),
 
             _referralApprovalsSection(),
+
+            _section(
+              title: 'Features',
+              icon: Icons.toggle_on_rounded,
+              children: [
+                _switchTile(
+                  title: 'Health features (doctors, appointments, medicine)',
+                  subtitle: 'Off: Consult Doctor, My Appointments, doctor pages and admin Doctor/Appointments sections are hidden. Data is kept.',
+                  value: healthEnabled,
+                  icon: Icons.health_and_safety_rounded,
+                  onChanged: (v) async {
+                    if (v && !await _confirmHealthOn()) return;
+                    setState(() => healthEnabled = v);
+                  },
+                ),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(12, 6, 12, 10),
+                  child: Text(
+                    '⚠️ চালু করলে Play Store declaration আর ড্রাগ লাইসেন্স লাগবে',
+                    style: TextStyle(color: Color(0xFFB91C1C), fontWeight: FontWeight.w700),
+                  ),
+                ),
+                _switchTile(
+                  title: 'Order with List',
+                  subtitle: 'Customers upload a photo of a list; admin builds the order (My Lists, admin Lists). Off by default; also on while health features are on.',
+                  value: listOrderEnabled,
+                  icon: Icons.upload_file_rounded,
+                  onChanged: (v) => setState(() => listOrderEnabled = v),
+                ),
+              ],
+            ),
 
             _section(
               title: 'Homepage Controls',

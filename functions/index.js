@@ -83,6 +83,7 @@ const { resolveProductTaxonomy } = require("./category/resolveProductTaxonomy");
 const { displayPriceFields, productDisplayPrice } = require("./catalog/displayPrice");
 const { marketingBlockReason, autoMarketingBlockReason } = require("./marketing/eligibility");
 const { isRelevantTitle } = require("./messaging/productMatch");
+const { classifyHealthProduct, isHealthQuery } = require("./catalog/healthProduct");
 const { searchImportPublishOptions } = require("./aliexpress/searchImportPublish");
 const { searchImportLogDocId } = require("./aliexpress/searchImportLogId");
 const { isSystemPriceWrite, priceGuardUpdate, wishlistDiscountDecision } = require("./marketing/priceChange");
@@ -2195,6 +2196,25 @@ async function buildMarketplaceProductPayload(body, options = {}) {
   const name = textValue(sourceData.name || sourceData.title);
   if (!name) throw new Error("Product name/title is required");
 
+  // Import denylist: no medicines, supplements, health products or medical
+  // devices while health features are off (settings/app.features).
+  const healthCheck = classifyHealthProduct({
+    name,
+    category: sourceData.category || sourceData.category_name,
+    type: sourceData.type,
+    strength: sourceData.strength,
+    generic: sourceData.generic,
+  });
+  if ((healthCheck.group === "rx" || healthCheck.group === "otc") && !(await loadAppFeatures()).healthEnabled) {
+    logger.info("Import blocked: health product", { sourceProductId, name: name.slice(0, 100), reasons: healthCheck.reasons });
+    throw importHttpError(
+      "HEALTH_PRODUCT_BLOCKED",
+      "Health/medicine products are not imported (ChalakChar Mart offers no health products).",
+      422,
+      { reasons: healthCheck.reasons }
+    );
+  }
+
   const importSettings = await marketplaceImportSettings(source);
   // Imported products follow the Admin Panel review policy by default.
   // n8n cannot bypass it via the request body — only options.forcePublish /
@@ -4056,6 +4076,11 @@ exports.aliexpressSearchImport = onRequest(
     }
     const query = validation.query;
 
+    if (isHealthQuery(query) && !(await loadAppFeatures()).healthEnabled) {
+      logger.info("AliExpress search-import: health query refused", { query: query.slice(0, 100) });
+      return res.status(400).json({ ok: false, error: "QUERY_REJECTED", reason: "health" });
+    }
+
     const uid = await verifyOptionalFirebaseIdToken(req);
 
     // Rate limiting must never take the endpoint down on its own failure —
@@ -5711,10 +5736,12 @@ Rules:
 // System prompt for the in-app AI chat, scoped to ChalakChar Mart per the
 // omnichannel messaging spec §3 — shared by every channel that falls through
 // to the general-question AI branch of handleCustomerMessage.
-const CUSTOMER_ASSISTANT_SYSTEM_PROMPT = `You are the helpful customer support assistant for ChalakChar Mart, a Bangladeshi multi-vendor ecommerce platform focused on pharmacy and healthcare products, alongside grocery, beverages, cooking items, LPG cylinders, and more.
+const CUSTOMER_ASSISTANT_SYSTEM_PROMPT = `You are the helpful customer support assistant for ChalakChar Mart, a Bangladeshi online shop for mobile phone and laptop parts (displays, batteries, motherboards, flex cables), computer accessories and other everyday products. Some parts are imported from abroad to order and take longer to deliver.
 Answer customer questions briefly and in a friendly tone, in Bangla unless the customer writes in English.
 You do not have live access to exact stock or prices, so for those questions tell the customer to check the product page or search results, and never invent a price, stock count, or delivery date.
-Do not give medical dosage advice or diagnose medical conditions; for medicine questions, suggest they consult a pharmacist or doctor.
+For "will this part fit my device" questions, ask for the exact device model number and suggest sending it (or a photo of the old part) on WhatsApp so the team can check.
+ChalakChar Mart does not sell medicines and offers no doctor, appointment, prescription or other health services. If asked about medicine, symptoms, doses, doctors or health products, politely say the shop does not offer this, give no medical advice of any kind, and suggest a local pharmacy, doctor or hospital for medical needs.
+Never mention suppliers or where products are sourced from by name.
 If you are not confident you can answer correctly, say so plainly (e.g. "I'm not sure about that") rather than guessing — an uncertain answer is routed to a human teammate instead of being shown to the customer.`;
 
 // Recent conversation history read for both AI context and the "same
@@ -5837,9 +5864,26 @@ function triggerAliExpressSearchImportFallback(query) {
   });
 }
 
+// settings/app.features.healthEnabled (off when absent), cached per
+// instance for a minute like the chat catalog.
+let appFeaturesCache = { at: 0, features: null };
+async function loadAppFeatures() {
+  if (appFeaturesCache.features && Date.now() - appFeaturesCache.at < 60 * 1000) return appFeaturesCache.features;
+  let features = {};
+  try {
+    const snap = await db.collection("settings").doc("app").get();
+    features = mapValue(snap.data()?.features);
+  } catch (error) {
+    logger.warn("loadAppFeatures failed, health features treated as off", { message: error.message });
+  }
+  appFeaturesCache = { at: Date.now(), features };
+  return features;
+}
+
 async function customerMessageDeps(overrides = {}) {
-  const settings = await loadMarketingSettings();
+  const [settings, features] = await Promise.all([loadMarketingSettings(), loadAppFeatures()]);
   return {
+    healthEnabled: features.healthEnabled === true,
     getRecentMessages: getRecentConversationMessages,
     writeMessage: writeConversationMessage,
     upsertConversation,
@@ -6446,20 +6490,6 @@ exports.productSeo = onRequest(
       // First try by Firestore document ID.
       let productDoc = await db.collection("products").doc(productId).get();
 
-      logger.warn("SEO DEBUG", {
-        productId,
-        exists: productDoc.exists,
-        projectId: admin.app().options.projectId,
-      });
-
-      const testDocs = await db.collection("products").limit(5).get();
-
-      testDocs.forEach((d) => {
-        logger.warn("PRODUCT_DOC", {
-          id: d.id,
-        });
-      });
-
       // Fallbacks: some admin imports may save product id in a field instead of doc id.
       if (!productDoc.exists) {
         const fallbackFields = ["id", "productId", "sku"];
@@ -6495,6 +6525,14 @@ exports.productSeo = onRequest(
       const product = productDoc.data() || {};
       const baseUrl = "https://chalakcharmart.com";
       const productUrl = `${baseUrl}/product/${encodeURIComponent(productId)}`;
+
+      // A hidden product (inactive / unpublished, incl. hiddenReason
+      // "health_removed") keeps working for anyone with the link, but is
+      // never indexed: noindex in the page and in the X-Robots-Tag header.
+      const isHiddenProduct = product.isActive === false
+        || product.isVisible === false
+        || product.isPublished === false;
+      const robots = isHiddenProduct ? "noindex, nofollow" : "index, follow";
 
       const productName = cleanText(product.name, "Product");
       const title = limitText(
@@ -6685,7 +6723,7 @@ exports.productSeo = onRequest(
   <meta name="title" content="${htmlEscape(title)}">
   <meta name="description" content="${htmlEscape(description)}">
   <meta name="keywords" content="${htmlEscape(keywords)}">
-  <meta name="robots" content="index, follow">
+  <meta name="robots" content="${robots}">
 
   <meta property="og:site_name" content="ChalakChar Mart">
   <meta property="fb:app_id" content="996213106661804">
@@ -6718,6 +6756,7 @@ exports.productSeo = onRequest(
 
       res.set("Content-Type", "text/html; charset=utf-8");
       res.set("Cache-Control", "public, max-age=300, s-maxage=600");
+      if (isHiddenProduct) res.set("X-Robots-Tag", "noindex, nofollow");
       return res.status(200).send(html);
     } catch (error) {
       logger.error("Product SEO render failed", error);
@@ -6876,13 +6915,13 @@ exports.homeSeo = onRequest(
       const baseUrl = "https://chalakcharmart.com";
 
       const title = limitText(
-        "ChalakChar Mart | Online Pharmacy, Grocery & Doctor Appointment in Bangladesh",
+        // No pharmacy/doctor wording: the shop offers no health features.
+        "ChalakChar Mart | Mobile & Laptop Parts Online in Bangladesh",
         60
       );
 
       const description = limitText(
-        "ChalakChar Mart থেকে অনলাইনে কিনুন ওষুধ, মুদি, ফল-সবজি ও দৈনন্দিন পণ্য। " +
-        "সহজে ডাক্তার অ্যাপয়েন্টমেন্ট বুক করুন এবং দ্রুত হোম ডেলিভারি পান বাংলাদেশ জুড়ে।",
+        "ChalakChar Mart থেকে অনলাইনে কিনুন মোবাইল ও ল্যাপটপ পার্টস, ডিসপ্লে, ব্যাটারি, মাদারবোর্ড, কম্পিউটার এক্সেসরিজ ও দৈনন্দিন পণ্য। ক্যাশ অন ডেলিভারি, সারা দেশে হোম ডেলিভারি।",
         155
       );
 
@@ -6916,11 +6955,12 @@ exports.homeSeo = onRequest(
       }
 
       const keywords = [
-        "online pharmacy bangladesh",
         "chalakchar mart",
-        "grocery delivery bangladesh",
-        "doctor appointment online",
-        "medicine delivery dhaka",
+        "mobile parts bangladesh",
+        "laptop parts bangladesh",
+        "phone display replacement",
+        "mobile battery price bangladesh",
+        "computer accessories bangladesh",
         "online shopping bangladesh",
         ...categoryNames.map((c) => c.toLowerCase()),
       ].join(", ");

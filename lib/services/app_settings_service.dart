@@ -16,11 +16,17 @@ class AppSettingsService {
   /// The underlying Firestore listener is shared while active, and the latest
   /// settings object is kept in memory for instant fallback rendering.
   static Stream<AppSettings> watch() {
-    _sharedStream ??= _ref.snapshots().map((doc) {
-      final settings = AppSettings.fromMap(doc.data() ?? {});
-      _cached = settings;
-      return settings;
-    }).asBroadcastStream();
+    try {
+      _sharedStream ??= _ref.snapshots().map((doc) {
+        final settings = AppSettings.fromMap(doc.data() ?? {});
+        _cached = settings;
+        return settings;
+      }).asBroadcastStream();
+    } catch (_) {
+      // Firebase not initialized (failed startup, tests): defaults, so
+      // feature gates stay off instead of throwing.
+      return Stream.value(cached);
+    }
 
     return _sharedStream!;
   }
@@ -90,6 +96,17 @@ class AppSettings {
   final bool showTopVendors;
   final bool showHomeBanners;
 
+  /// settings/app.features.healthEnabled — doctors, appointments,
+  /// prescription/medicine features. Off when missing: ChalakChar Mart
+  /// provides no health features (Play Store Health apps declaration).
+  final bool healthEnabled;
+
+  /// settings/app.features.listOrderEnabled — "Order with List" (photo of a
+  /// list -> admin builds the order). Built for prescription/medicine lists;
+  /// off by default, kept for a future parts bulk-order use. Also shown while
+  /// [healthEnabled] is on.
+  final bool listOrderEnabled;
+
   final bool enableReferral;
   final bool enableChalakCharCash;
   final bool enableOrderNotifications;
@@ -151,6 +168,8 @@ class AppSettings {
     required this.showSponsoredProducts,
     required this.showTopVendors,
     required this.showHomeBanners,
+    this.healthEnabled = false,
+    this.listOrderEnabled = false,
     required this.enableReferral,
     required this.enableChalakCharCash,
     required this.enableOrderNotifications,
@@ -283,6 +302,8 @@ class AppSettings {
       showSponsoredProducts: boolValue(data['showSponsoredProducts'], true),
       showTopVendors: boolValue(data['showTopVendors'], true),
       showHomeBanners: boolValue(data['showHomeBanners'], true),
+      healthEnabled: boolValue(mapValue(data['features'])['healthEnabled'], false),
+      listOrderEnabled: boolValue(mapValue(data['features'])['listOrderEnabled'], false),
 
       enableReferral: boolValue(data['enableReferral'], true),
       enableChalakCharCash: boolValue(data['enableChalakCharCash'] ?? data['enableAbdCash'], true),

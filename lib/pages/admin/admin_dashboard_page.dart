@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../services/app_settings_service.dart';
 import '../../services/auth_service.dart';
+import '../../widgets/health_gate.dart';
 import '../../services/notification_service.dart';
 
 import 'admin_analytics_page.dart';
@@ -36,6 +40,37 @@ class _AdminDashboardState extends State<AdminDashboard> {
   final AuthService authService = AuthService();
 
   String selectedKey = 'dashboard';
+
+  // Health / list-order sections follow settings/app.features (off by
+  // default); rebuild when an admin flips them in Settings.
+  StreamSubscription<AppSettings>? _settingsSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _settingsSub = AppSettingsService.watch().listen((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _settingsSub?.cancel();
+    super.dispose();
+  }
+
+  /// Menu keys that exist only for an optional feature (data is kept).
+  static const Map<String, Feature> _featureMenus = {
+    'doctorDept': Feature.health,
+    'doctors': Feature.health,
+    'appointments': Feature.health,
+    'lists': Feature.listOrder,
+  };
+
+  bool _featureOn(String key) {
+    final feature = _featureMenus[key];
+    return feature == null || featureEnabled(AppSettingsService.cached, feature);
+  }
 
   static const List<_AdminMenuItem> allMenuItems = [
     _AdminMenuItem(
@@ -291,7 +326,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 
   List<_AdminMenuItem> _allowedMenus(Map<String, dynamic> data) {
-    return allMenuItems.where((item) => _can(data, item.permission)).toList();
+    return allMenuItems
+        .where((item) => _featureOn(item.key) && _can(data, item.permission))
+        .toList();
   }
 
   Widget _pageByKey(String key, Map<String, dynamic> userData) {
@@ -301,6 +338,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
         item = menuItem;
         break;
       }
+    }
+
+    if (item != null && !_featureOn(item.key)) {
+      return _AccessDeniedPage(
+        title: 'Feature turned off',
+        message: 'This section is turned off in Settings (Features). Its data is kept.',
+      );
     }
 
     if (item == null || !_can(userData, item.permission)) {
@@ -356,7 +400,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
           canOrders: _can(userData, 'orders.view'),
           canProducts: _can(userData, 'products.view'),
           canUsers: _can(userData, 'users.view'),
-          canLists: _can(userData, 'lists.view'),
+          // "Lists" + "Pending Rx" cards: list orders were prescription lists.
+          canLists: _can(userData, 'lists.view') && HealthFeatures.listOrderEnabled,
           canCoupons: _can(userData, 'coupons.view'),
           canNotifications: _can(userData, 'notifications.view'),
           canMarketing: _can(userData, 'marketing.view'),

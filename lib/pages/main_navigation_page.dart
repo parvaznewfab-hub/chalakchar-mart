@@ -17,6 +17,7 @@ import 'user/user_order_page.dart';
 import 'vendor/vendor_apply_page.dart';
 import 'vendor/vendor_dashboard_page.dart';
 import 'user/my_appointments_page.dart';
+import '../widgets/health_gate.dart';
 
 class MainNavigation extends StatefulWidget {
   final String role;
@@ -280,17 +281,22 @@ class _MainNavigationState extends State<MainNavigation> {
                           subtitle: 'Track orders and order history',
                           onTap: () => _openPage(const OrderPage()),
                         ),
-                        _menuTile(
-                          icon: Icons.upload_file_outlined,
-                          title: 'My Lists',
-                          subtitle: 'Uploaded list history',
-                          onTap: () => _openPage(const MyListsPage()),
+                        HealthGate(
+                          feature: Feature.listOrder,
+                          child: _menuTile(
+                            icon: Icons.upload_file_outlined,
+                            title: 'My Lists',
+                            subtitle: 'Uploaded list history',
+                            onTap: () => _openPage(const MyListsPage()),
+                          ),
                         ),
-                        _menuTile(
-                          icon: Icons.calendar_month_outlined,
-                          title: 'My Appointments',
-                          subtitle: 'View your doctor booking history',
-                          onTap: () => _openPage(const MyAppointmentsPage()),
+                        HealthGate(
+                          child: _menuTile(
+                            icon: Icons.calendar_month_outlined,
+                            title: 'My Appointments',
+                            subtitle: 'View your doctor booking history',
+                            onTap: () => _openPage(const MyAppointmentsPage()),
+                          ),
                         ),
                         _menuTile(
                           icon: Icons.location_on_outlined,

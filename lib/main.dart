@@ -26,6 +26,7 @@ import 'pages/user/category_products_page.dart';
 import 'pages/auth/login_page.dart';
 import 'pages/user/cart_page.dart';
 import 'services/seo_route_observer.dart';
+import 'widgets/health_gate.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -398,6 +399,16 @@ class MyApp extends StatelessWidget {
       },
       onGenerateRoute: (settings) {
         final uri = Uri.parse(settings.name ?? '');
+
+        // Health pages (doctors, appointments, prescriptions) are off unless
+        // settings/app.features.healthEnabled: an old or typed URL to them
+        // opens the home page, with "/" in the address bar.
+        if (!HealthFeatures.enabled && HealthFeatures.isHealthRoute(settings.name)) {
+          return MaterialPageRoute(
+            settings: const RouteSettings(name: '/'),
+            builder: (_) => _homePage(),
+          );
+        }
 
         if (uri.pathSegments.length == 2 &&
             uri.pathSegments.first == 'product') {

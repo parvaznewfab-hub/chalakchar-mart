@@ -23,6 +23,15 @@ const {
 } = require("./handoffDetection");
 const { shouldTriggerSearchImportFallback } = require("./searchImportGuard");
 const { normalizeChatQuery } = require("./queryNormalize");
+const { isHealthQuery } = require("../catalog/healthProduct");
+
+// ChalakChar Mart offers no health features (Play Store Health apps
+// declaration): medicine / doctor / health questions get this fixed reply —
+// no product search, no AI answer, no import.
+const HEALTH_NOT_OFFERED_MESSAGE =
+  "দুঃখিত, ChalakChar Mart এখন ওষুধ, ডাক্তার বা স্বাস্থ্যসেবা সংক্রান্ত কোনো সেবা দেয় না, তাই এ বিষয়ে কোনো পরামর্শ দিতে পারছি না। " +
+  "চিকিৎসার প্রয়োজনে নিকটস্থ ফার্মেসি, ডাক্তার বা হাসপাতালে যোগাযোগ করুন। " +
+  "মোবাইল/ল্যাপটপ পার্টস বা অন্য কোনো পণ্য নিয়ে সাহায্য লাগলে জানাবেন। 🙏";
 
 const HANDOFF_HOLDING_MESSAGE =
   "আপনার সাথে আমাদের টিমের একজন শীঘ্রই যোগাযোগ করবে। একটু অপেক্ষা করুন। 🙏";
@@ -74,7 +83,8 @@ async function handleCustomerMessage(deps, input) {
   // the first reply). Not started for an explicit handoff; ignored, with its
   // error swallowed, if the history turns out to need a handoff.
   const wantsHuman = containsHandoffKeyword(text);
-  const productsPromise = wantsHuman
+  const healthQuestion = !deps.healthEnabled && isHealthQuery(text);
+  const productsPromise = wantsHuman || healthQuestion
     ? null
     : Promise.resolve().then(() => deps.searchProducts(text, 5));
   productsPromise?.catch(() => {});
@@ -94,7 +104,9 @@ async function handleCustomerMessage(deps, input) {
   let productLinks = null;
   let needsHuman = false;
 
-  if (wantsHuman || hasRepeatedUnresolvedQuestion(recentMessages, text, REPEAT_THRESHOLD)) {
+  if (healthQuestion) {
+    replyText = HEALTH_NOT_OFFERED_MESSAGE;
+  } else if (wantsHuman || hasRepeatedUnresolvedQuestion(recentMessages, text, REPEAT_THRESHOLD)) {
     replyText = HANDOFF_HOLDING_MESSAGE;
     needsHuman = true;
   } else {
@@ -167,4 +179,4 @@ async function handleCustomerMessage(deps, input) {
   return { replyText, replyMediaUrl: null, productLinks, needsHuman, conversationId };
 }
 
-module.exports = { handleCustomerMessage, HANDOFF_HOLDING_MESSAGE, REPEAT_THRESHOLD };
+module.exports = { handleCustomerMessage, HANDOFF_HOLDING_MESSAGE, HEALTH_NOT_OFFERED_MESSAGE, REPEAT_THRESHOLD };

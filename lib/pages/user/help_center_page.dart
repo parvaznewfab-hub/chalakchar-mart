@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../services/app_settings_service.dart';
+import '../../widgets/health_gate.dart';
 
 class HelpCenterPage extends StatefulWidget {
   final bool scrollToFaq;
@@ -165,7 +167,8 @@ class _HelpCenterPageState extends State<HelpCenterPage> {
 
             const SizedBox(height: 30),
 
-            InkWell(
+            HealthGate(
+              child: InkWell(
               onTap: _openYoutube,
               borderRadius: BorderRadius.circular(15),
               child: Container(
@@ -219,6 +222,7 @@ class _HelpCenterPageState extends State<HelpCenterPage> {
                 ),
               ),
             ),
+            ),
 
             const SizedBox(height: 30),
 
@@ -241,26 +245,67 @@ class _HelpCenterPageState extends State<HelpCenterPage> {
             ),
             const SizedBox(height: 15),
 
-            _faqItem(
-              "কিভাবে মেডিসিন অর্ডার করব?",
-              "আপনি আমাদের অ্যাপ থেকে যেকোনো মেডিসিন সার্চ করে কার্টে যোগ করে অর্ডার করতে পারেন অথবা প্রেসক্রিপশন আপলোড করে অর্ডার করতে পারেন।",
-            ),
-            _faqItem(
-              "কিভাবে ডাক্তার দেখাব?",
-              "আমাদের 'Consult Doctor' সেকশনে গিয়ে আপনি আপনার পছন্দমতো ডাক্তার সিলেক্ট করে অ্যাপয়েন্টমেন্ট বুক করতে পারেন।",
-            ),
-            _faqItem(
-              "ডাক্তারের সাথে কিভাবে যোগাযোগ করব?",
-              "অ্যাপয়েন্টমেন্ট কনফার্ম হওয়ার পর আপনি ডাক্তারের সাথে কথা বলতে পারবেন।",
-            ),
-            _faqItem(
-              "কিভাবে রিপোর্ট দেখাব?",
-              "আপনার প্রোফাইল সেকশনে 'My Reports' এ গিয়ে আপনার সকল ল্যাব রিপোর্ট দেখতে পাবেন।",
+            HealthGate(
+              fallback: Column(children: _partsFaq()),
+              child: Column(
+                children: [
+                _faqItem(
+                  "কিভাবে মেডিসিন অর্ডার করব?",
+                  "আপনি আমাদের অ্যাপ থেকে যেকোনো মেডিসিন সার্চ করে কার্টে যোগ করে অর্ডার করতে পারেন অথবা প্রেসক্রিপশন আপলোড করে অর্ডার করতে পারেন।",
+                ),
+                _faqItem(
+                  "কিভাবে ডাক্তার দেখাব?",
+                  "আমাদের 'Consult Doctor' সেকশনে গিয়ে আপনি আপনার পছন্দমতো ডাক্তার সিলেক্ট করে অ্যাপয়েন্টমেন্ট বুক করতে পারেন।",
+                ),
+                _faqItem(
+                  "ডাক্তারের সাথে কিভাবে যোগাযোগ করব?",
+                  "অ্যাপয়েন্টমেন্ট কনফার্ম হওয়ার পর আপনি ডাক্তারের সাথে কথা বলতে পারবেন।",
+                ),
+                _faqItem(
+                  "কিভাবে রিপোর্ট দেখাব?",
+                  "আপনার প্রোফাইল সেকশনে 'My Reports' এ গিয়ে আপনার সকল ল্যাব রিপোর্ট দেখতে পাবেন।",
+                ),
+                ],
+              ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  /// FAQ for mobile / laptop parts (no health features).
+  List<Widget> _partsFaq() {
+    return [
+      _faqItem(
+        "কীভাবে অর্ডার করব?",
+        "প্রোডাক্ট সার্চ করুন বা ক্যাটাগরি থেকে বেছে নিন। মডেল/ভ্যারিয়েন্ট সিলেক্ট করে কার্টে যোগ করুন, তারপর ঠিকানা দিয়ে অর্ডার করুন। অর্ডার কনফার্ম করতে আমাদের টিম প্রয়োজনে ফোন করবে।",
+      ),
+      _faqItem(
+        "আমার ফোন বা ল্যাপটপে পার্টসটা মিলবে কিনা কীভাবে বুঝব?",
+        "প্রোডাক্ট পেজে মডেল নম্বরগুলো মিলিয়ে নিন (যেমন SM-A235F, HP 15-D)। নিশ্চিত না হলে অর্ডারের আগে WhatsApp-এ আপনার ডিভাইসের মডেল নম্বর বা পুরনো পার্টসের ছবি পাঠান, আমরা মিলিয়ে দেব।",
+      ),
+      _faqItem(
+        "ডেলিভারি কতদিনে পাব?",
+        "প্রতিটি প্রোডাক্ট পেজে আনুমানিক ডেলিভারি সময় দেখানো থাকে। দেশে স্টকে থাকা পণ্য কয়েক দিনের মধ্যে পৌঁছায়; বিদেশ থেকে আমদানি করা পণ্যে সাধারণত বেশি সময় লাগে।",
+      ),
+      _faqItem(
+        "বিদেশ থেকে আমদানি করা পণ্য মানে কী?",
+        "কিছু পার্টস আমরা আপনার অর্ডারের পর বিদেশ থেকে আনিয়ে দিই। এগুলোর পেজে \"বিদেশ থেকে আমদানি\" আর আনুমানিক ডেলিভারি সময় লেখা থাকে। অর্ডারের পর আমরা যাচাই করে কনফার্ম করি; কোনো অতিরিক্ত খরচ লাগলে কনফার্মের আগে আপনাকে জানানো হবে।",
+      ),
+      _faqItem(
+        "ওয়ারেন্টি আছে কি?",
+        "পণ্যের পেজে ওয়ারেন্টি উল্লেখ থাকলে সেই অনুযায়ী পাবেন। ডিসপ্লে, ব্যাটারি বা বোর্ড ইনস্টলের আগে অবশ্যই পরীক্ষা করে নিন; ইনস্টলের সময় ভাঙা বা ক্ষতিগ্রস্ত পার্টস ওয়ারেন্টিতে পড়ে না।",
+      ),
+      _faqItem(
+        "পণ্য নষ্ট বা ভুল এলে কী করব?",
+        "ডেলিভারির পর দ্রুত (Return Policy-তে দেওয়া সময়ের মধ্যে) ছবি/ভিডিওসহ আমাদের জানান। চালু অবস্থায় নষ্ট বা ভুল পণ্য হলে যাচাই করে বদলে দেওয়া বা টাকা ফেরত দেওয়া হয়। বিস্তারিত Return Policy পেজে আছে।",
+      ),
+      _faqItem(
+        "পেমেন্ট কীভাবে করব?",
+        "এখন ক্যাশ অন ডেলিভারি চালু আছে। অন্য পেমেন্ট পদ্ধতি চালু হলে চেকআউটে দেখা যাবে।",
+      ),
+    ];
   }
 
   Widget _businessLocationCard() {
@@ -298,19 +343,24 @@ class _HelpCenterPageState extends State<HelpCenterPage> {
             ],
           ),
           const SizedBox(height: 12),
-          const Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.location_on_outlined,
-                  color: Colors.redAccent, size: 22),
-              SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  "Chalak Char Bazar Medicine Market, Monohardi, Narsingdi, Bangladesh",
-                  style: TextStyle(fontSize: 15, height: 1.5),
+          // Same source as the footer (settings/app.address).
+          StreamBuilder<AppSettings>(
+            stream: AppSettingsService.watch(),
+            initialData: AppSettingsService.cached,
+            builder: (context, snap) => Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.location_on_outlined,
+                    color: Colors.redAccent, size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    (snap.data ?? AppSettingsService.cached).address,
+                    style: const TextStyle(fontSize: 15, height: 1.5),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(height: 10),
           const Row(
@@ -339,7 +389,7 @@ class _HelpCenterPageState extends State<HelpCenterPage> {
           ),
           const SizedBox(height: 14),
           const Text(
-            "We are committed to providing authentic products and reliable healthcare services to our customers.",
+            "We are committed to providing authentic products and reliable service to our customers.",
             style: TextStyle(
               fontSize: 13,
               color: Colors.black54,

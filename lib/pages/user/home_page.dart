@@ -22,6 +22,7 @@ import 'doctor_departments_page.dart';
 import 'search_page.dart';
 import '../../services/category_service.dart';
 import '../../services/image_search_service.dart';
+import '../../widgets/health_gate.dart';
 
 
 
@@ -813,8 +814,15 @@ class _ProductHomePageState extends State<ProductHomePage> {
               width: 0.5,
             ),
           ),
-          child: Row(
+          child: FeatureSettingsBuilder(
+            builder: (_, fs) =>
+                // Only the wallet card is left: a slim banner instead of one
+                // card (and a full-width button) stretched across 1220px.
+                (!featureEnabled(fs, Feature.listOrder) && !featureEnabled(fs, Feature.health))
+                    ? _webWalletBanner()
+                    : Row(
             children: [
+if (featureEnabled(fs, Feature.listOrder)) ...[
               Expanded(
                 child: _webActionCard(
                   icon: Icons.upload_file,
@@ -826,7 +834,9 @@ class _ProductHomePageState extends State<ProductHomePage> {
               ),
 
               const SizedBox(width: 18),
+],
 
+if (featureEnabled(fs, Feature.health)) ...[
               Expanded(
                 child: _webActionCard(
                   icon: Icons.medical_services,
@@ -843,6 +853,7 @@ class _ProductHomePageState extends State<ProductHomePage> {
               ),
 
               const SizedBox(width: 18),
+],
 
               Expanded(
                 child: _webActionCard(
@@ -867,6 +878,69 @@ class _ProductHomePageState extends State<ProductHomePage> {
                       }
                     }
                   },
+                ),
+              ),
+            ],
+          ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _webWalletBanner() {
+    const accent = Color(0xFF32A8C7);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _openCashWallet,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.account_balance_wallet_outlined, color: accent, size: 26),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      "ChalakChar Cash & Rewards",
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      "Check rewards, referral code, cash balance, and cash history.",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              SizedBox(
+                height: 40,
+                child: ElevatedButton.icon(
+                  onPressed: _openCashWallet,
+                  icon: const Icon(Icons.account_balance_wallet_outlined, size: 18),
+                  label: const Text("View Wallet", style: TextStyle(fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: accent,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
                 ),
               ),
             ],
@@ -1356,49 +1430,127 @@ class _ProductHomePageState extends State<ProductHomePage> {
   Widget _buildMobileQuickActions(Color color) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: Row(
-        children: [
-          Expanded(
-            child: _amazonActionTile(
-              title: "Order with\nList",
-              icon: Icons.upload_file,
-              color: color,
-              onTap: _showImageSourcePicker,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _amazonActionTile(
-              title: "Consult\nDoctor",
-              icon: Icons.medical_services_outlined,
-              color: Colors.green,
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const DoctorDepartmentsPage()),
+      child: FeatureSettingsBuilder(
+        builder: (_, fs) {
+          // (title, icon, color, onTap) for each enabled quick action.
+          final actions = <(String, IconData, Color, VoidCallback)>[
+            if (featureEnabled(fs, Feature.listOrder))
+              ("Order with\nList", Icons.upload_file, color, _showImageSourcePicker),
+            if (featureEnabled(fs, Feature.health))
+              (
+                "Consult\nDoctor",
+                Icons.medical_services_outlined,
+                Colors.green,
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const DoctorDepartmentsPage()),
+                ),
               ),
+            (
+              "ChalakChar Mart Cash\n& Rewards",
+              Icons.verified_outlined,
+              Colors.orange,
+              _openCashWallet,
             ),
+          ];
+
+          // A single action would stretch a 110px tile across the whole
+          // row; show it as a slim banner instead.
+          if (actions.length == 1) {
+            final a = actions.first;
+            return _quickActionBanner(
+              title: a.$1.replaceAll('\n', ' '),
+              icon: a.$2,
+              color: a.$3,
+              onTap: a.$4,
+            );
+          }
+
+          return Row(
+            children: [
+              for (var i = 0; i < actions.length; i++) ...[
+                if (i > 0) const SizedBox(width: 8),
+                Expanded(
+                  child: _amazonActionTile(
+                    title: actions[i].$1,
+                    icon: actions[i].$2,
+                    color: actions[i].$3,
+                    onTap: actions[i].$4,
+                  ),
+                ),
+              ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _openCashWallet() async {
+    if (!_ensureLoggedIn()) return;
+    final complete = await _isProfileComplete();
+    if (!mounted) return;
+    if (complete) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const ChalakCharCashWalletPage()));
+    } else {
+      _showProfileWarning();
+    }
+  }
+
+  Widget _quickActionBanner({
+    required String title,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      elevation: 0,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 52),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _amazonActionTile(
-              title: "ChalakChar Mart Cash\n& Rewards",
-              icon: Icons.verified_outlined,
-              color: Colors.orange,
-              onTap: () async {
-                if (_ensureLoggedIn()) {
-                  final complete = await _isProfileComplete();
-                  if (complete) {
-                    if (mounted) {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => const ChalakCharCashWalletPage()));
-                    }
-                  } else {
-                    if (mounted) _showProfileWarning();
-                  }
-                }
-              },
-            ),
+          child: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: color, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    height: 1.2,
+                  ),
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: Colors.black45, size: 20),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

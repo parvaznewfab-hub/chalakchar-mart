@@ -1,5 +1,6 @@
 import 'dart:async';
 import '../pages/user/my_appointments_page.dart';
+import 'health_gate.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -782,8 +783,8 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
                 ),
                 const Divider(height: 24),
                 _guestMenu('My Orders'),
-                _guestMenu('My Lists'),
-                _guestMenu('My Appointments'),
+                if (HealthFeatures.listOrderEnabled) _guestMenu('My Lists'),
+                if (HealthFeatures.enabled) _guestMenu('My Appointments'),
                 _guestMenu('Help Center'),
                 _guestMenu('Seller Account'),
                 _guestMenu('Delivery Partner'),
@@ -886,8 +887,10 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
                     ),
                     const Divider(height: 24),
                     _accountMenuText('My Orders', 'orders'),
-                    _accountMenuText('My Lists', 'lists'),
-                    _accountMenuText('My Appointments', 'appointments'),
+                    if (HealthFeatures.listOrderEnabled)
+                      _accountMenuText('My Lists', 'lists'),
+                    if (HealthFeatures.enabled)
+                      _accountMenuText('My Appointments', 'appointments'),
                     _accountMenuText('My Profile', 'account'),
                     _accountMenuText('Referral', 'referral'),
                     _accountMenuText('Help Center', 'help'),
@@ -1175,9 +1178,9 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
     } else if (value == 'orders') {
       Navigator.push(context, MaterialPageRoute(builder: (_) => const OrderPage()));
     } else if (value == 'lists') {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => const MyListsPage()));
+      HealthFeatures.open(context, const MyListsPage(), feature: Feature.listOrder);
     } else if (value == 'appointments') {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => const MyAppointmentsPage()));
+      HealthFeatures.open(context, const MyAppointmentsPage());
     } else if (value == 'referral') {
       Navigator.push(context, MaterialPageRoute(builder: (_) => const ReferralPage()));
     } else if (value == 'help') {

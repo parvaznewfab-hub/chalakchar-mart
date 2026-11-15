@@ -1,11 +1,11 @@
 {
-    "name": "chalakchar_mart",
-    "short_name": "chalakchar_mart",
+    "name": "ChalakChar Mart",
+    "short_name": "ChalakChar Mart",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "ChalakChar Mart Ecommerce App",
+    "description": "Buy mobile and laptop parts, displays, batteries, motherboards, computer accessories and everyday products online with cash on delivery across Bangladesh.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
@@ -33,4 +33,3 @@
         }
     ]
 }
-

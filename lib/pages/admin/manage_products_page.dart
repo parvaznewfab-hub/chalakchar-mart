@@ -21,6 +21,8 @@ import '../../services/marketing_queue_service.dart';
 import '../../utils/variant_merge.dart';
 import '../../services/category_resolver_service.dart';
 import '../../utils/category_lookup.dart';
+import '../../utils/category_kind.dart';
+import '../../widgets/health_gate.dart';
 import '../../utils/category_normalize.dart';
 import '../../utils/ai_taxonomy_match.dart';
 
@@ -2565,16 +2567,24 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                   const SizedBox(height: 12),
                   aiResultBox(),
                   if (banglaTitle.isNotEmpty || banglaDescription.isNotEmpty || seoTags.isNotEmpty) const SizedBox(height: 12),
-                  fieldPair(
-                    formField(generic, 'Generic'),
-                    formField(manufacturer, 'Manufacturer'),
-                  ),
+                  // Medicine-era fields: Generic only with health features on;
+                  // Type/Strength hidden for electronics (E4), and Strength is
+                  // the pack size for everything else. Hidden values are kept.
+                  if (HealthFeatures.enabled)
+                    fieldPair(
+                      formField(generic, 'Generic'),
+                      formField(manufacturer, 'Manufacturer'),
+                    )
+                  else
+                    formField(manufacturer, 'Brand / Manufacturer'),
                   const SizedBox(height: 12),
-                  fieldPair(
-                    formField(type, 'Type'),
-                    formField(strength, 'Strength'),
-                  ),
-                  const SizedBox(height: 12),
+                  if (HealthFeatures.enabled || !isElectronicsCategory(category)) ...[
+                    fieldPair(
+                      formField(type, 'Type'),
+                      formField(strength, HealthFeatures.enabled ? 'Strength' : 'Size / Weight'),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   categoryDropdown(),
                   const SizedBox(height: 12),
                   subcategoryDropdown(),

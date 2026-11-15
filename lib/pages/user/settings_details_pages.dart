@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../widgets/health_gate.dart';
+import 'policy_texts.dart';
+
 class PermissionsPage extends StatelessWidget {
   const PermissionsPage({super.key});
 
@@ -93,14 +96,14 @@ class PermissionsPage extends StatelessWidget {
             icon: Icons.camera_alt,
             title: "Camera Permission",
             description:
-            "Used to capture and upload list images for product orders.",
+            "Used to take a photo to search for a product (image search).",
           ),
 
           _permissionItem(
             icon: Icons.photo_library,
             title: "Storage / Gallery",
             description:
-            "Used to select list images from your device gallery.",
+            "Used to pick a photo from your gallery for image search.",
           ),
 
           _permissionItem(
@@ -148,7 +151,17 @@ class AboutUsPage extends StatelessWidget {
       ),
       body: const SingleChildScrollView(
         padding: EdgeInsets.all(16),
-        child: Text(
+        child: HealthGate(
+          // Pharmacy-era text only with health features on; otherwise the
+          // current draft (policy_texts.dart).
+          fallback: Text(kAboutUsNoHealth,
+          style: TextStyle(
+            fontSize: 15,
+            height: 1.6,
+            color: Colors.black87,
+          ),
+        ),
+          child: Text(
           '''About ChalakChar Mart
 
 ChalakChar Mart is a trusted online marketplace and e-commerce platform dedicated to providing safe, reliable, and convenient product ordering services.
@@ -212,6 +225,7 @@ We are always here to support your daily needs.''',
             color: Colors.black87,
           ),
         ),
+        ),
       ),
     );
   }
@@ -232,7 +246,17 @@ class PrivacyPolicyPage extends StatelessWidget {
       ),
       body: const SingleChildScrollView(
         padding: EdgeInsets.all(16),
-        child: Text(
+        child: HealthGate(
+          // Pharmacy-era text only with health features on; otherwise the
+          // current draft (policy_texts.dart).
+          fallback: Text(kPrivacyPolicyNoHealth,
+          style: TextStyle(
+            fontSize: 15,
+            height: 1.6,
+            color: Colors.black87,
+          ),
+        ),
+          child: Text(
           '''ব্যবহারকারীর তথ্য সুরক্ষা
 
 1. আপনার তথ্য আমাদের কাছে নিরাপদ থাকবে। আপনার সম্মতি ছাড়া আমরা আপনার ব্যক্তিগত তথ্য কারও সাথে শেয়ার করব না।
@@ -329,6 +353,7 @@ ChalakChar Mart প্রয়োজনে এই গোপনীয়তা নী�
             color: Colors.black87,
           ),
         ),
+        ),
       ),
     );
   }
@@ -349,7 +374,17 @@ class TermsConditionsPage extends StatelessWidget {
       ),
       body: const SingleChildScrollView(
         padding: EdgeInsets.all(16),
-        child: Text(
+        child: HealthGate(
+          // Pharmacy-era text only with health features on; otherwise the
+          // current draft (policy_texts.dart).
+          fallback: Text(kTermsNoHealth,
+          style: TextStyle(
+            fontSize: 15,
+            height: 1.6,
+            color: Colors.black87,
+          ),
+        ),
+          child: Text(
           '''শর্তাবলী
 
 ChalakChar Mart মোবাইল অ্যাপ্লিকেশন ব্যবহার করার মাধ্যমে আপনি নিশ্চিত করছেন যে আপনি নিচে উল্লেখিত আমাদের শর্তাবলী ও নীতিমালা মেনে নিচ্ছেন। আপনি যদি এই শর্তাবলী মেনে নিতে না চান, তাহলে অনুগ্রহ করে অ্যাপ ব্যবহার করা বন্ধ করুন।
@@ -467,6 +502,7 @@ ChalakChar Mart প্রয়োজন অনুযায়ী এই শর্ত�
             color: Colors.black87,
           ),
         ),
+        ),
       ),
     );
   }
@@ -487,7 +523,17 @@ class ReturnPolicyPage extends StatelessWidget {
       ),
       body: const SingleChildScrollView(
         padding: EdgeInsets.all(16),
-        child: Text(
+        child: HealthGate(
+          // Pharmacy-era text only with health features on; otherwise the
+          // current draft (policy_texts.dart).
+          fallback: Text(kReturnPolicyNoHealth,
+          style: TextStyle(
+            fontSize: 15,
+            height: 1.6,
+            color: Colors.black87,
+          ),
+        ),
+          child: Text(
           '''রিটার্ন ও রিফান্ড পলিসি
 
 ChalakChar Mart থেকে অর্ডার করা পণ্য ফেরত, বিনিময় এবং রিফান্ডের ক্ষেত্রে নিচের নীতিমালা প্রযোজ্য হবে।
@@ -575,6 +621,7 @@ ChalakChar Mart প্রয়োজন অনুযায়ী এই Return Policy
             height: 1.6,
             color: Colors.black87,
           ),
+        ),
         ),
       ),
     );
