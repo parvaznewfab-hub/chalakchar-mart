@@ -24,6 +24,7 @@ import '../../services/category_service.dart';
 import '../../services/image_search_service.dart';
 import '../../widgets/health_gate.dart';
 import '../../utils/image_url.dart';
+import '../../widgets/all_products_section.dart';
 
 
 
@@ -781,6 +782,9 @@ class _ProductHomePageState extends State<ProductHomePage> {
                       },
                     ),
 
+                    const SizedBox(height: 24),
+                    AllProductsSection(onAddToCart: runAddToCartAnimation, isDesktop: true),
+
                     const SizedBox(height: 50),
                     const GlobalWebFooter(),
                   ],
@@ -1141,6 +1145,8 @@ if (featureEnabled(fs, Feature.health)) ...[
                   _buildWelcomeDealsCard(),
                   const SizedBox(height: 10),
                   _buildMobileCategorySections(),
+                  AllProductsSection(onAddToCart: runAddToCartAnimation),
+                  const SizedBox(height: 24),
                 ],
               ),
             ),
