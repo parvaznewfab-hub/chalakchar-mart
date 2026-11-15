@@ -34,6 +34,10 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final TextEditingController phoneController = TextEditingController();
+
+  /// Shown under the phone field inside the login card (audit #23: a
+  /// snackbar appeared behind the modal, at the bottom of the screen).
+  String? _phoneError;
   final TextEditingController referralCodeController = TextEditingController();
 
   final AuthService _authService = AuthService();
@@ -181,9 +185,10 @@ class _LoginPageState extends State<LoginPage> {
     final digits = rawPhone.replaceAll(RegExp(r'[^0-9]'), '');
 
     if (digits.length != 11 || !digits.startsWith('01')) {
-      _showMessage('Please enter valid 11 digit Bangladeshi mobile number');
+      setState(() => _phoneError = 'Please enter a valid 11 digit Bangladeshi mobile number (01XXXXXXXXX)');
       return;
     }
+    if (_phoneError != null) setState(() => _phoneError = null);
 
     final phone = _normalizePhone(rawPhone);
 
@@ -224,8 +229,10 @@ class _LoginPageState extends State<LoginPage> {
           },
           verificationFailed: (FirebaseAuthException e) {
             if (!mounted) return;
-            setState(() => loading = false);
-            _showMessage(e.message ?? 'Verification failed');
+            setState(() {
+              loading = false;
+              _phoneError = _otpErrorText(e.code, e.message);
+            });
           },
           codeSent: (String verId, int? resendToken) {
             if (!mounted) return;
@@ -248,7 +255,24 @@ class _LoginPageState extends State<LoginPage> {
         setRecaptchaVisible(false);
       }
 
-      _showMessage('OTP failed: $e');
+      setState(() => _phoneError = _otpErrorText(e is FirebaseAuthException ? e.code : '', '$e'));
+    }
+  }
+
+  /// Short, readable reason for a failed OTP send, shown under the phone field.
+  String _otpErrorText(String code, String? raw) {
+    switch (code) {
+      case 'invalid-phone-number':
+        return 'This mobile number is not valid. Please check it (01XXXXXXXXX).';
+      case 'too-many-requests':
+      case 'quota-exceeded':
+        return 'Too many attempts. Please wait a few minutes and try again.';
+      case 'network-request-failed':
+        return 'No internet connection. Please check your connection and try again.';
+      case 'captcha-check-failed':
+        return 'Verification failed. Please reload the page and try again.';
+      default:
+        return 'Could not send the OTP. Please try again.';
     }
   }
 
@@ -649,6 +673,9 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                                 keyboardType: TextInputType.phone,
                                 textInputAction: TextInputAction.done,
+                                onChanged: (_) {
+                                  if (_phoneError != null) setState(() => _phoneError = null);
+                                },
                                 onSubmitted: (_) {
                                   if (!loading) sendOTP();
                                 },
@@ -657,6 +684,32 @@ class _LoginPageState extends State<LoginPage> {
                           ],
                         ),
                       ),
+
+                      if (_phoneError != null)
+                        Container(
+                          key: const Key('login-phone-error'),
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(top: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFF1F1),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFF87171)),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 18),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  _phoneError!,
+                                  style: const TextStyle(color: Color(0xFFB91C1C), fontSize: 13, fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
 
                       if (widget.createAccountMode) ...[
                         const SizedBox(height: 14),

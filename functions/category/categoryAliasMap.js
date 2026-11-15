@@ -37,6 +37,20 @@ const SUBCATEGORY_TO_CATEGORY = {
   "motherboard and mainboard": "Motherboard",
 };
 
+// Names (as category OR subcategory) that mean one exact place:
+// { categoryName, subcategoryName }. Checked before the tables above.
+const LAPTOP_MOTHERBOARD_TARGET = { categoryName: "Motherboard", subcategoryName: "Laptop Motherboard" };
+const TAXONOMY_REDIRECTS = {
+  "laptop motherboard": LAPTOP_MOTHERBOARD_TARGET,
+  "laptop motherboards": LAPTOP_MOTHERBOARD_TARGET,
+  "laptop mainboard": LAPTOP_MOTHERBOARD_TARGET,
+  "laptop mainboards": LAPTOP_MOTHERBOARD_TARGET,
+  "laptop main board": LAPTOP_MOTHERBOARD_TARGET,
+  "laptop logic board": LAPTOP_MOTHERBOARD_TARGET,
+  "notebook motherboard": LAPTOP_MOTHERBOARD_TARGET,
+  "notebook mainboard": LAPTOP_MOTHERBOARD_TARGET,
+};
+
 /**
  * Resolves a raw category name to its canonical form via the alias table.
  * Returns the original (trimmed) name unchanged if no alias matches.
@@ -59,10 +73,13 @@ async function resolveCategoryAlias(rawName) {
  * resolve. Unchanged when the subcategory is not a redirected name.
  */
 function resolveTaxonomyRedirect(rawCategoryName, rawSubcategoryName) {
+  const exact = TAXONOMY_REDIRECTS[normalizeCategoryKey(String(rawSubcategoryName ?? "").trim())]
+    || TAXONOMY_REDIRECTS[normalizeCategoryKey(String(rawCategoryName ?? "").trim())];
+  if (exact) return { ...exact };
   const sub = String(rawSubcategoryName ?? "").trim();
   const target = sub ? SUBCATEGORY_TO_CATEGORY[normalizeCategoryKey(sub)] : null;
   if (!target) return { categoryName: rawCategoryName, subcategoryName: rawSubcategoryName };
   return { categoryName: target, subcategoryName: "" };
 }
 
-module.exports = { CATEGORY_ALIASES, SUBCATEGORY_TO_CATEGORY, resolveCategoryAlias, resolveTaxonomyRedirect };
+module.exports = { CATEGORY_ALIASES, SUBCATEGORY_TO_CATEGORY, TAXONOMY_REDIRECTS, resolveCategoryAlias, resolveTaxonomyRedirect };

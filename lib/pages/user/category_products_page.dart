@@ -83,6 +83,20 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
     }
   }
 
+  /// Category names seen in the stream, by slug, for the app bar title.
+  final Map<String, String> _namesBySlug = {};
+
+  String _titleFor(String requested) {
+    final known = _namesBySlug[_normalizeSlug(requested)];
+    if (known != null) return known;
+    // Until categories load: "mobile-parts" -> "Mobile Parts".
+    return requested
+        .split(RegExp(r'[-_\s]+'))
+        .where((w) => w.isNotEmpty)
+        .map((w) => w[0].toUpperCase() + w.substring(1))
+        .join(' ');
+  }
+
   String _normalizeSlug(String value) {
     return value
         .trim()
@@ -166,14 +180,16 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isDesktop = kIsWeb && MediaQuery.of(context).size.width >= 1024;
+    final isDesktop = kIsWeb && MediaQuery.of(context).size.width >= 900;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: (isDesktop
           ? const GlobalWebHeader()
           : AppBar(
-              title: Text(widget.category),
+              // The real name ("Mobile Parts"), not the URL slug
+              // ("mobile-parts") — audit #20.
+              title: Text(_titleFor(widget.category)),
               backgroundColor: Colors.white,
               foregroundColor: Colors.black,
               elevation: 0,
@@ -196,6 +212,20 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
           }
 
           final activeCategories = categorySnap.data ?? const <CategoryModel>[];
+          var learnedName = false;
+          for (final c in activeCategories) {
+            final slug = _normalizeSlug(c.name);
+            if (_namesBySlug[slug] != c.name) {
+              _namesBySlug[slug] = c.name;
+              learnedName = true;
+            }
+          }
+          if (learnedName) {
+            // The app bar is outside this builder: rebuild it once.
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) setState(() {});
+            });
+          }
 
           final requestedSlug = _normalizeSlug(widget.category);
 

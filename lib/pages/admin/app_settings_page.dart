@@ -313,8 +313,9 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
           ? paymentBadges.map((e) => e.toString()).join(', ')
           : _text(paymentBadges, 'COD, bKash, Nagad, Card');
 
-      tradeLicenseController.text = _text(data['tradeLicenseNo'], '528');
-      dbidController.text = _text(data['dbidNo'], '000000000');
+      tradeLicenseController.text = _text(data['tradeLicenseNo'], '');
+      // Blank, never a fake number: the footer hides an empty DBID.
+      dbidController.text = _text(data['dbidNo'], '');
 
       minimumOrderController.text = _double(data['minimumOrderAmount'], 300).toStringAsFixed(0);
       freeDeliveryMinController.text = _double(data['freeDeliveryMinAmount'], 0).toStringAsFixed(0);

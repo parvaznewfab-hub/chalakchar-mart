@@ -98,6 +98,26 @@ const CATEGORY_KEYWORD_RULES = [
  * if the title matches none. Never invents a category — a miss here just
  * means the caller should fall through to the AI-assisted step.
  */
+// Laptop boards: a laptop / notebook model word AND a board word. These go
+// to Motherboard › "Laptop Motherboard" whatever category the supplier sent
+// (an HP Probook board once landed in Mobile Parts). Phone words veto it
+// ("for iPhone ... laptop" bundles are phone boards).
+const LAPTOP_WORDS = /\b(laptop|notebook|probook|elitebook|thinkpad|ideapad|thinkbook|macbook|inspiron|latitude|vostro|pavilion|envy|aspire|nitro|vivobook|zenbook|rog|tuf|chromebook)\b/i;
+const BOARD_WORDS = /\b(motherboard|main\s?board|logic\s?board)\b/i;
+const PHONE_WORDS = /\b(iphone|ipad|samsung\s+galaxy|redmi|xiaomi|oppo|vivo\b|realme|huawei|honor|tecno|infinix|phone)\b/i;
+
+const LAPTOP_MOTHERBOARD = Object.freeze({ categoryName: "Motherboard", subcategoryName: "Laptop Motherboard" });
+
+/**
+ * Category + subcategory that a product TITLE forces, before any supplier
+ * category: { categoryName, subcategoryName } or null.
+ */
+function matchTaxonomyOverride(title) {
+  const text = String(title || "");
+  if (LAPTOP_WORDS.test(text) && BOARD_WORDS.test(text) && !PHONE_WORDS.test(text)) return { ...LAPTOP_MOTHERBOARD };
+  return null;
+}
+
 function matchCategoryByKeyword(title) {
   const text = String(title || "");
   for (const rule of CATEGORY_KEYWORD_RULES) {
@@ -106,4 +126,4 @@ function matchCategoryByKeyword(title) {
   return null;
 }
 
-module.exports = { CATEGORY_KEYWORD_RULES, matchCategoryByKeyword };
+module.exports = { CATEGORY_KEYWORD_RULES, matchCategoryByKeyword, matchTaxonomyOverride, LAPTOP_MOTHERBOARD };

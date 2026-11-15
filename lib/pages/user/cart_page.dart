@@ -18,6 +18,7 @@ import '../../utils/price_format.dart';
 import '../../utils/image_url.dart';
 import '../../utils/variant_display_name.dart';
 import '../../utils/customer_text.dart';
+import 'search_page.dart';
 
 class CartPage extends StatefulWidget {
   const CartPage({super.key});
@@ -966,7 +967,12 @@ class _CartPageState extends State<CartPage> {
     final user = FirebaseAuth.instance.currentUser;
     final isGuest = user == null;
     final userId = user?.uid ?? '';
-    final isDesktop = kIsWeb && MediaQuery.of(context).size.width >= 1024;
+    // Same breakpoint as GlobalWebHeader (it draws nothing below 900px).
+    final isDesktop = kIsWeb && MediaQuery.of(context).size.width >= 900;
+    // Opened as its own page (not the Cart tab): a back + search bar, so it
+    // is never a dead end on tablets/narrow desktop windows (audit #18).
+    final canPop = Navigator.of(context).canPop();
+    final standalone = canPop || ModalRoute.of(context)?.settings.name == '/cart';
 
     if (!isGuest) {
       Future.microtask(() => _mergeGuestCartIfNeeded(user));
@@ -974,7 +980,34 @@ class _CartPageState extends State<CartPage> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F7F7),
-      appBar: isDesktop ? const GlobalWebHeader() : null,
+      appBar: isDesktop
+          ? const GlobalWebHeader() as PreferredSizeWidget
+          : standalone
+              ? AppBar(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.black87,
+                  elevation: 0.5,
+                  // Opened straight from a /cart link: nothing to go back to.
+                  leading: canPop
+                      ? null
+                      : IconButton(
+                          tooltip: 'Home',
+                          icon: const Icon(Icons.home_outlined),
+                          onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil('/', (r) => false),
+                        ),
+                  title: const Text('Cart', style: TextStyle(fontWeight: FontWeight.bold)),
+                  actions: [
+                    IconButton(
+                      tooltip: 'Search',
+                      icon: const Icon(Icons.search),
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const SearchPage(initialQuery: '')),
+                      ),
+                    ),
+                  ],
+                )
+              : null,
       body: isGuest
           ? _buildGuestCartBody(isDesktop)
           : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(

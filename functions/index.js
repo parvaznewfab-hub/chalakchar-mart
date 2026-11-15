@@ -90,7 +90,7 @@ const { searchImportLogDocId } = require("./aliexpress/searchImportLogId");
 const { searchImportKeywords } = require("./aliexpress/searchImportKeywords");
 const { isSystemPriceWrite, priceGuardUpdate, wishlistDiscountDecision } = require("./marketing/priceChange");
 const { loadActiveTaxonomy, taxonomyPromptBlock, matchAiTaxonomy } = require("./category/aiTaxonomy");
-const { matchCategoryByKeyword } = require("./category/aliExpressCategoryKeywords");
+const { matchCategoryByKeyword, matchTaxonomyOverride } = require("./category/aliExpressCategoryKeywords");
 const {
   buildCategorySuggestionPrompt,
   parseCategorySuggestionResponse,
@@ -2353,10 +2353,20 @@ async function buildMarketplaceProductPayload(body, options = {}) {
   // resolve through the shared category/subcategory resolver and follow
   // the admin-tier defaults (visible immediately) — never the restricted
   // vendor-tier defaults, which only ever apply to vendor-initiated saves.
+  // A title that names exactly one place wins over the supplier's category
+  // (laptop boards -> Motherboard › Laptop Motherboard).
+  let subcategoryInputForTaxonomy = textValue(sourceData.suggestedSubCategory || sourceData.subCategory);
+  const titleOverride = matchTaxonomyOverride(name);
+  if (titleOverride) {
+    categoryInputForTaxonomy = titleOverride.categoryName;
+    subcategoryInputForTaxonomy = titleOverride.subcategoryName;
+    categoryResolutionMethod = "keyword";
+  }
+
   const taxonomy = await resolveProductTaxonomy(
     db,
     categoryInputForTaxonomy,
-    textValue(sourceData.suggestedSubCategory || sourceData.subCategory),
+    subcategoryInputForTaxonomy,
     { source }
   );
 

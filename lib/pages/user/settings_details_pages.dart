@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../widgets/health_gate.dart';
 import 'policy_texts.dart';
+import '../../utils/contact_info.dart';
 
 class PermissionsPage extends StatelessWidget {
   const PermissionsPage({super.key});
@@ -154,7 +155,7 @@ class AboutUsPage extends StatelessWidget {
         child: HealthGate(
           // Pharmacy-era text only with health features on; otherwise the
           // current draft (policy_texts.dart).
-          fallback: Text(kAboutUsNoHealth,
+          fallback: SettingsContactText(kAboutUsNoHealth,
           style: TextStyle(
             fontSize: 15,
             height: 1.6,
@@ -249,7 +250,7 @@ class PrivacyPolicyPage extends StatelessWidget {
         child: HealthGate(
           // Pharmacy-era text only with health features on; otherwise the
           // current draft (policy_texts.dart).
-          fallback: Text(kPrivacyPolicyNoHealth,
+          fallback: SettingsContactText(kPrivacyPolicyNoHealth,
           style: TextStyle(
             fontSize: 15,
             height: 1.6,
@@ -377,7 +378,7 @@ class TermsConditionsPage extends StatelessWidget {
         child: HealthGate(
           // Pharmacy-era text only with health features on; otherwise the
           // current draft (policy_texts.dart).
-          fallback: Text(kTermsNoHealth,
+          fallback: SettingsContactText(kTermsNoHealth,
           style: TextStyle(
             fontSize: 15,
             height: 1.6,
@@ -526,7 +527,7 @@ class ReturnPolicyPage extends StatelessWidget {
         child: HealthGate(
           // Pharmacy-era text only with health features on; otherwise the
           // current draft (policy_texts.dart).
-          fallback: Text(kReturnPolicyNoHealth,
+          fallback: SettingsContactText(kReturnPolicyNoHealth,
           style: TextStyle(
             fontSize: 15,
             height: 1.6,

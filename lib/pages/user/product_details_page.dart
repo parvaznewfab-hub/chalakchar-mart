@@ -26,6 +26,8 @@ import '../../utils/price_format.dart';
 import '../../utils/image_url.dart';
 import '../../utils/customer_text.dart';
 import 'search_page.dart';
+import '../../utils/contact_info.dart';
+import '../../services/app_settings_service.dart';
 
 class ProductDetailsPage extends StatefulWidget {
   final Map<String, dynamic> data;
@@ -297,11 +299,11 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
   }
 
   Future<void> _contactVendorViaWhatsApp(Map<String, dynamic> data) async {
-    const whatsappNumber = '8801975838764';
     final name = _text(data['name'], 'this product');
-    final uri = Uri.parse(
-      'https://wa.me/$whatsappNumber?text=${Uri.encodeComponent('Assalamu Alaikum, I have a question about: $name')}',
-    );
+    final uri = Uri.parse(whatsappLink(
+      AppSettingsService.cached.whatsappNumber,
+      message: 'Assalamu Alaikum, I have a question about: $name',
+    ));
 
     try {
       if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
@@ -947,7 +949,9 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
   Widget build(BuildContext context) {
     final data = ProductService.normalizeProductData(widget.data);
     final screenWidth = MediaQuery.of(context).size.width;
-    final isMobile = screenWidth < 800;
+    // Below 900px GlobalWebHeader draws nothing, so the mobile top bar
+    // (back + search) is used there (audit #18: 800-899px had neither).
+    final isMobile = screenWidth < 900;
 
     final units = _units(data);
     final unitPrice = ProductService.getDisplayPrice(data, unit: _selectedUnit);

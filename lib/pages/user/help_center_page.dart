@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/app_settings_service.dart';
 import '../../widgets/health_gate.dart';
+import '../../utils/contact_info.dart';
 
 class HelpCenterPage extends StatefulWidget {
   final bool scrollToFaq;
@@ -41,8 +42,6 @@ class _HelpCenterPageState extends State<HelpCenterPage> {
     }
   }
 
-  static const String supportPhone = '01975838764';
-  static const String whatsappNumber = '8801975838764';
 
   Future<void> _openYoutube() async {
     try {
@@ -85,7 +84,7 @@ class _HelpCenterPageState extends State<HelpCenterPage> {
   Future<void> _callSupport() async {
     final Uri phoneUri = Uri(
       scheme: 'tel',
-      path: supportPhone,
+      path: AppSettingsService.cached.supportPhone.replaceAll(RegExp(r'[^0-9+]'), ''),
     );
 
     if (!await launchUrl(phoneUri)) {
@@ -95,7 +94,7 @@ class _HelpCenterPageState extends State<HelpCenterPage> {
 
   Future<void> _openWhatsApp() async {
     final Uri whatsappUri = Uri.parse(
-      'https://wa.me/$whatsappNumber?text=Assalamu%20Alaikum%2C%20ChalakChar%20Mart',
+      whatsappLink(AppSettingsService.cached.whatsappNumber, message: 'Assalamu Alaikum, ChalakChar Mart'),
     );
 
     if (!await launchUrl(
@@ -363,29 +362,38 @@ class _HelpCenterPageState extends State<HelpCenterPage> {
             ),
           ),
           const SizedBox(height: 10),
-          const Row(
-            children: [
-              Icon(Icons.call_outlined, color: Colors.green, size: 22),
-              SizedBox(width: 10),
-              Text(
-                "01975-838764",
-                style: TextStyle(fontSize: 15),
-              ),
-            ],
+          // Phone and email as entered in Admin › Settings (same as the footer).
+          StreamBuilder<AppSettings>(
+            stream: AppSettingsService.watch(),
+            initialData: AppSettingsService.cached,
+            builder: (context, snap) => Row(
+              children: [
+                const Icon(Icons.call_outlined, color: Colors.green, size: 22),
+                const SizedBox(width: 10),
+                Text(
+                  (snap.data ?? AppSettingsService.cached).supportPhone,
+                  style: const TextStyle(fontSize: 15),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 10),
-          const Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.email_outlined, color: Color(0xFF32A8C7), size: 22),
-              SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  "chalakcharmart@gmail.com",
-                  style: TextStyle(fontSize: 15),
+          StreamBuilder<AppSettings>(
+            stream: AppSettingsService.watch(),
+            initialData: AppSettingsService.cached,
+            builder: (context, snap) => Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.email_outlined, color: Color(0xFF32A8C7), size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    (snap.data ?? AppSettingsService.cached).email,
+                    style: const TextStyle(fontSize: 15),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(height: 14),
           const Text(

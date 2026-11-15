@@ -28,8 +28,13 @@ class ProductCard extends StatelessWidget {
   static const int _titleMaxLines = 2;
   static const double _metaFontSize = 10;
   static const double _metaLineHeight = 1.3;
-  static const double _priceFontSize = 12;
-  static const double _priceLineHeight = 1.3;
+  // Price block (audit: 5-digit price + MRP + "+" overflowed one row):
+  // line 1 = price + "থেকে", line 2 = struck-out MRP (space kept even
+  // without an MRP so every card in a row is the same height).
+  static const double _priceFontSize = 13;
+  static const double _priceLineHeight = 1.25;
+  static const double _mrpFontSize = 10;
+  static const double _mrpLineHeight = 1.3;
   static const double _addButtonSize = 26;
   static const double _contentTopPadding = 5;
   static const double _contentBottomPadding = 8;
@@ -45,8 +50,8 @@ class ProductCard extends StatelessWidget {
     final scaler = MediaQuery.textScalerOf(context);
     final title = scaler.scale(_titleFontSize) * _titleLineHeight * _titleMaxLines;
     final meta = scaler.scale(_metaFontSize) * _metaLineHeight;
-    final priceText = scaler.scale(_priceFontSize) * _priceLineHeight;
-    final priceRow = priceText > _addButtonSize ? priceText : _addButtonSize;
+    final priceBlock = _PriceBlock.lineHeights(scaler).reduce((a, b) => a + b);
+    final priceRow = priceBlock > _addButtonSize ? priceBlock : _addButtonSize;
     return (imageHeight +
             _contentTopPadding +
             title +
@@ -367,21 +372,18 @@ class ProductCard extends StatelessWidget {
                   // room reserved for a 1-line title or missing manufacturer.
                   const Spacer(),
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Expanded(
-                        child: _PriceWithMrp(
+                        child: _PriceBlock(
                           price: price,
                           mrp: oldPrice,
                           isFromPrice: hasPriceRange,
-                          priceStyle: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: primaryColor,
-                            fontSize: _priceFontSize,
-                            height: _priceLineHeight,
-                          ),
                         ),
                       ),
-                      const SizedBox(width: 4),
+                      // "+" in its own column, centred on both lines: never
+                      // squeezed into the text.
+                      const SizedBox(width: 6),
                       GestureDetector(
                         onTap: isOutOfStock
                             ? null
@@ -415,130 +417,91 @@ class ProductCard extends StatelessWidget {
 
 }
 
-/// Price, then the strikethrough MRP; when both don't fit the line they are
-/// scaled down together (never dropped: the image badge shows the discount).
-class _PriceWithMrp extends StatelessWidget {
-  const _PriceWithMrp({
+/// Two lines: price (+ "থেকে" for a from-price), then the struck-out MRP.
+/// Each line has a fixed height (from the text scale) and scales its text
+/// down instead of overflowing, so even "৳62,477 থেকে" / "৳99,999" fit a
+/// 320px phone at text scale 1.3. Line 2 keeps its space without an MRP.
+class _PriceBlock extends StatelessWidget {
+  const _PriceBlock({
     required this.price,
     required this.mrp,
-    required this.priceStyle,
     this.isFromPrice = false,
   });
 
   final double price;
   final double mrp;
-  final TextStyle priceStyle;
 
-  /// Variants cost different amounts: the price is a "from" price and is
-  /// shown as "৳X থেকে".
+  /// Variants cost different amounts: shown as "৳X থেকে".
   final bool isFromPrice;
 
-  // Readable next to the price (was 9px light grey, audit item 5).
+  static const TextStyle _priceStyle = TextStyle(
+    fontWeight: FontWeight.bold,
+    color: Color(0xFF32A8C7),
+    fontSize: ProductCard._priceFontSize,
+    height: ProductCard._priceLineHeight,
+  );
+
+  // Readable next to the price (audit item 5).
   static const TextStyle _fromStyle = TextStyle(
     fontSize: 11,
     fontWeight: FontWeight.w600,
     color: Color(0xFF4B5563),
+    height: ProductCard._priceLineHeight,
   );
 
   static const TextStyle _mrpStyle = TextStyle(
     decoration: TextDecoration.lineThrough,
-    fontSize: 10,
+    fontSize: ProductCard._mrpFontSize,
+    height: ProductCard._mrpLineHeight,
     color: Color(0xFF6B7280),
   );
-  static const double _gap = 4;
-  static const double _fitSlack = 2;
+
+  /// [price line, MRP line] heights at [scaler].
+  static List<double> lineHeights(TextScaler scaler) => [
+        scaler.scale(ProductCard._priceFontSize) * ProductCard._priceLineHeight,
+        scaler.scale(ProductCard._mrpFontSize) * ProductCard._mrpLineHeight,
+      ];
 
   @override
   Widget build(BuildContext context) {
-    final priceText = formatTaka(price);
+    final heights = lineHeights(MediaQuery.textScalerOf(context));
     final showMrp = mrp > price;
-    final mrpText = showMrp ? formatTaka(mrp) : '';
 
-    // On web the "৳" glyph comes from a fallback font that loads after the
-    // first layout; re-measure when fonts arrive, or the decision made with
-    // the narrower pre-load metrics would let the MRP overlap the button.
-    return ListenableBuilder(
-      listenable: PaintingBinding.instance.systemFonts,
-      builder: (context, _) => LayoutBuilder(
-      builder: (context, constraints) {
-        final scaler = MediaQuery.textScalerOf(context);
-        final priceSpan = TextSpan(
-          text: priceText,
-          style: priceStyle,
-          children: [
-            if (isFromPrice) const TextSpan(text: ' থেকে', style: _fromStyle),
-          ],
-        );
-        double widthOfSpan(InlineSpan span) {
-          final painter = TextPainter(
-            text: span,
-            maxLines: 1,
-            textDirection: TextDirection.ltr,
-            textScaler: scaler,
-          )..layout();
-          final width = painter.width;
-          painter.dispose();
-          return width;
-        }
-
-        double widthOf(String text, TextStyle style) {
-          final painter = TextPainter(
-            text: TextSpan(text: text, style: style),
-            maxLines: 1,
-            textDirection: TextDirection.ltr,
-            textScaler: scaler,
-          )..layout();
-          final width = painter.width;
-          painter.dispose();
-          return width;
-        }
-
-        final priceWidget = Text.rich(priceSpan, maxLines: 1, softWrap: false);
-        // A couple of px of slack absorbs sub-pixel rounding differences.
-        final fitsWithMrp = showMrp &&
-            widthOfSpan(priceSpan) + _gap + widthOf(mrpText, _mrpStyle) + _fitSlack <=
-                constraints.maxWidth;
-
-        if (fitsWithMrp) {
-          return Row(
-            children: [
-              priceWidget,
-              const SizedBox(width: _gap),
-              Text(mrpText, maxLines: 1, softWrap: false, style: _mrpStyle),
-            ],
-          );
-        }
-
-        // The card's discount badge needs its struck-out MRP: never drop
-        // it, scale the line down a little instead.
-        if (showMrp) {
-          return Align(
-            alignment: Alignment.centerLeft,
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  priceWidget,
-                  const SizedBox(width: _gap),
-                  Text(mrpText, maxLines: 1, softWrap: false, style: _mrpStyle),
-                ],
-              ),
-            ),
-          );
-        }
-
-        return Align(
-          alignment: Alignment.centerLeft,
+    Widget line(double height, Widget child) => SizedBox(
+          height: height,
+          width: double.infinity,
           child: FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
-            child: priceWidget,
+            child: child,
           ),
         );
-      },
-      ),
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        line(
+          heights[0],
+          Text.rich(
+            TextSpan(
+              text: formatTaka(price),
+              style: _priceStyle,
+              children: [
+                if (isFromPrice) const TextSpan(text: ' থেকে', style: _fromStyle),
+              ],
+            ),
+            maxLines: 1,
+            softWrap: false,
+          ),
+        ),
+        line(
+          heights[1],
+          showMrp
+              ? Text(formatTaka(mrp), maxLines: 1, softWrap: false, style: _mrpStyle)
+              : const SizedBox.shrink(),
+        ),
+      ],
     );
   }
 }

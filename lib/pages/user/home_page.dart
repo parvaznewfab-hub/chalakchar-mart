@@ -25,6 +25,8 @@ import '../../services/image_search_service.dart';
 import '../../widgets/health_gate.dart';
 import '../../utils/image_url.dart';
 import '../../widgets/all_products_section.dart';
+import '../../utils/contact_info.dart';
+import '../../services/app_settings_service.dart';
 
 
 
@@ -588,9 +590,10 @@ class _ProductHomePageState extends State<ProductHomePage> {
                     label: "WhatsApp",
                     color: Colors.green,
                     onTap: () {
-                      _openUrl(
-                        "https://wa.me/8801975838764?text=Assalamu%20Alaikum%2C%20ChalakChar%20Mart",
-                      );
+                      _openUrl(whatsappLink(
+                        AppSettingsService.cached.whatsappNumber,
+                        message: 'Assalamu Alaikum, ChalakChar Mart',
+                      ));
                     },
                   ),
                   const SizedBox(height: 12),

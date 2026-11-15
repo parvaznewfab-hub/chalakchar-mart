@@ -37,7 +37,40 @@ final worstCases = <String, Map<String, dynamic>>{
   'no manufacturer': product('nomfr', 'Short', 120, 150, manufacturer: ''),
   // Real fractional prices that overlapped the add button on desktop.
   'fractional price': product('frac', 'AMD Ryzen 3 2200G R3 2200G PRO 2200GE', 3708.71, 10024.37),
+  // 5-digit "from" price + MRP that overlapped "+" at 360px (2026-11-15).
+  'from 24,452 / 35,438': fromProduct('from5', 'Netac SSD 1TB 2TB 4TB 128GB 256GB 512GB SSD SATA', 24452, 35438),
+  'from 62,477 / 99,999': fromProduct('from6', highestPriceTitle, 62477, 99999),
 };
+
+/// A product whose variants cost different amounts ("৳X থেকে").
+Map<String, dynamic> fromProduct(String id, String name, num price, num mrp) => {
+      'id': id,
+      'name': name,
+      'manufacturer': 'Netac',
+      'image': '',
+      'isActive': true,
+      'variants': [
+        {'name': 'A', 'price': price, 'mrp': mrp, 'stock': 5},
+        {'name': 'B', 'price': price * 2, 'mrp': mrp * 2, 'stock': 5},
+      ],
+    };
+
+/// Rects of the add buttons and of every price/MRP text inside each card.
+void expectAddButtonsClearOfText(WidgetTester tester) {
+  for (final card in find.byType(ProductCard).evaluate()) {
+    final cardFinder = find.byWidget(card.widget);
+    final button = tester.getRect(find.descendant(of: cardFinder, matching: find.byIcon(Icons.add)));
+    final texts = find.descendant(
+      of: cardFinder,
+      matching: find.byWidgetPredicate((w) => w is RichText && w.text.toPlainText().contains('৳')),
+    );
+    for (final t in texts.evaluate()) {
+      final r = tester.getRect(find.byWidget(t.widget).first);
+      expect(r.right, lessThanOrEqualTo(button.left + 0.5),
+          reason: '"${(t.widget as RichText).text.toPlainText()}" reaches into "+"');
+    }
+  }
+}
 
 /// Homepage row: a fixed-height horizontal list of fixed-width cards.
 Widget homepageRow(double textScale) => MaterialApp(
@@ -84,15 +117,34 @@ void main() {
       expect(find.byType(ProductCard), findsNWidgets(worstCases.length));
     });
 
-    for (final (label, width, columns) in [('mobile', 360.0, 2), ('desktop', 1280.0, 6)]) {
-      testWidgets('$label grid: worst cases fit, no overflow (text x$scale)', (tester) async {
-        tester.view.physicalSize = Size(width, 900);
+    for (final (label, width, columns) in [
+      ('320px', 320.0, 2),
+      ('360px', 360.0, 2),
+      ('375px', 375.0, 2),
+      ('1366px', 1366.0, 6),
+    ]) {
+      testWidgets('$label grid: worst cases fit, no overflow, "+" clear of text (text x$scale)', (tester) async {
+        tester.view.physicalSize = Size(width, 2400);
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.reset);
         await tester.pumpWidget(grid(width, columns, scale));
         expect(tester.takeException(), isNull);
+        expectAddButtonsClearOfText(tester);
       });
     }
+
+    testWidgets('row: "+" clear of text and every card the same height, MRP or not (text x$scale)', (tester) async {
+      tester.view.physicalSize = const Size(2400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(homepageRow(scale));
+      expect(tester.takeException(), isNull);
+      expectAddButtonsClearOfText(tester);
+      final heights = {
+        for (final c in find.byType(ProductCard).evaluate()) tester.getSize(find.byWidget(c.widget)).height,
+      };
+      expect(heights, hasLength(1));
+    });
   }
 
   testWidgets('prices are formatted and the discount badge shows only with a discount', (tester) async {
@@ -102,36 +154,36 @@ void main() {
     addTearDown(tester.view.reset);
     await tester.pumpWidget(homepageRow(1.0));
     expect(find.text('৳94,780'), findsOneWidget);
-    expect(find.text('-31%'), findsOneWidget);
+    expect(find.text('-31%'), findsNWidgets(2)); // 94,780/137,363 and 24,452/35,438
+    expect(find.text('-38%'), findsOneWidget); // 62,477/99,999
     expect(find.text('-10%'), findsOneWidget); // ৳1,850 vs ৳2,050
     expect(find.text('৳699'), findsOneWidget);
     expect(find.text('৳6'), findsOneWidget);
     expect(find.textContaining('.00'), findsNothing);
-    // Exactly four badges (-31%, -10%, -20%, -63%): none for the no-discount and
+    // Exactly six badges (-31% x2, -38%, -10%, -20%, -63%): none for the no-discount and
     // MRP-0 products. Matched exactly, since a title contains "100%".
     final badge = RegExp(r'^-\d+%$');
     expect(
       find.byWidgetPredicate((w) => w is Text && badge.hasMatch(w.data ?? '')),
-      findsNWidgets(4),
+      findsNWidgets(6),
     );
     expect(find.text('-20%'), findsOneWidget); // ৳120 vs ৳150
   });
 
-  testWidgets('MRP that does not fit is scaled with the price, never dropped (badge needs it)', (tester) async {
-    // Wide enough that the horizontal list builds every card.
-    tester.view.physicalSize = const Size(2000, 800);
+  testWidgets('price on line 1, struck-out MRP on line 2, "+" to the right of both', (tester) async {
+    tester.view.physicalSize = const Size(2400, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(homepageRow(1.0));
     expect(tester.takeException(), isNull);
-    expect(find.text('৳3,709'), findsOneWidget);
-    expect(find.text('-63%'), findsOneWidget);
+    final price = tester.getRect(find.text('৳24,452 থেকে'));
+    final mrp = tester.getRect(find.text('৳35,438'));
+    expect(mrp.top, greaterThanOrEqualTo(price.bottom - 0.5));
+    final card = find.ancestor(of: find.text('৳35,438'), matching: find.byType(ProductCard));
+    final button = tester.getRect(find.descendant(of: card, matching: find.byIcon(Icons.add)));
+    expect(button.left, greaterThanOrEqualTo(price.right));
+    expect(button.left, greaterThanOrEqualTo(mrp.right));
     expect(find.text('৳10,024'), findsOneWidget);
-    // Neither the price nor the MRP reaches into the add button.
-    final card = find.ancestor(of: find.text('৳3,709'), matching: find.byType(ProductCard));
-    final button = find.descendant(of: card, matching: find.byIcon(Icons.add));
-    expect(tester.getRect(find.text('৳10,024')).right,
-        lessThanOrEqualTo(tester.getRect(button).left));
   });
 
   testWidgets('row card height is exactly the computed content height', (tester) async {
@@ -149,9 +201,10 @@ void main() {
     ).first);
     expect(ProductCard.rowHeight(context), ProductCard.cardHeight(context) + 12);
     expect(outer.height, ProductCard.rowHeight(context));
-    // The price row sits at the bottom of the card, 8px above its edge.
+    // The price block (line 2 = MRP) sits at the bottom of the card, 8px
+    // above its edge.
     final cardRect = tester.getRect(find.byType(ProductCard).first);
-    final priceRect = tester.getRect(find.text('৳1,850'));
-    expect(cardRect.bottom - 8 - 8 - priceRect.bottom, lessThan(8));
+    final mrpRect = tester.getRect(find.text('৳2,050'));
+    expect(cardRect.bottom - 8 - 8 - mrpRect.bottom, lessThan(8));
   });
 }
