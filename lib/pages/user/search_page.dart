@@ -29,6 +29,11 @@ class _SearchPageState extends State<SearchPage> {
   final TextEditingController _searchController = TextEditingController();
 
   String _query = '';
+
+  /// Normalized queries the server refused to import (e.g. medicine /
+  /// health queries): the empty state then says the shop doesn't sell this
+  /// kind of product instead of promising it soon.
+  final Set<String> _rejectedImportQueries = {};
   String _sort = 'relevance';
   String _selectedCategory = 'All';
 
@@ -150,7 +155,13 @@ class _SearchPageState extends State<SearchPage> {
           if (idToken != null) 'authorization': 'Bearer $idToken',
         },
         body: jsonEncode({'query': query, 'userId': user?.uid}),
-      );
+      ).then((response) {
+        if (response.statusCode == 400 &&
+            response.body.contains('QUERY_REJECTED') &&
+            mounted) {
+          setState(() => _rejectedImportQueries.add(query));
+        }
+      }).catchError((_) {});
     } catch (_) {
       // Silent — best-effort, search UI must not depend on it.
     }
@@ -657,6 +668,8 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Widget _emptyState() {
+    final rejected = _query.isNotEmpty &&
+        _rejectedImportQueries.contains(normalizeSearchQuery(_query));
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
@@ -679,7 +692,9 @@ class _SearchPageState extends State<SearchPage> {
           Text(
             _query.isEmpty
                 ? 'Try another keyword or clear filters.'
-                : 'প্রোডাক্টটি এখন নেই। আমরা AliExpress থেকে কিছুক্ষণের মধ্যে আপলোড করছি — একটু পরে আবার চেষ্টা করুন, অথবা পণ্যটি রেডি হলে নোটিফিকেশন পাবেন।',
+                : rejected
+                    ? 'দুঃখিত, এই ধরনের পণ্য ChalakChar Mart-এ পাওয়া যায় না। অন্য কোনো পণ্য খুঁজে দেখুন।'
+                    : 'প্রোডাক্টটি এখন নেই। আমরা খুঁজে দেখছি — একটু পরে আবার চেষ্টা করুন, অথবা পণ্যটি রেডি হলে নোটিফিকেশন পাবেন।',
             style: TextStyle(color: Colors.grey.shade600),
             textAlign: TextAlign.center,
           ),
@@ -689,7 +704,7 @@ class _SearchPageState extends State<SearchPage> {
             runSpacing: 10,
             alignment: WrapAlignment.center,
             children: [
-              if (_query.isNotEmpty)
+              if (_query.isNotEmpty && !rejected)
                 FilledButton.icon(
                   onPressed: _onNotifyMePressed,
                   icon: const Icon(Icons.notifications_active_outlined),
