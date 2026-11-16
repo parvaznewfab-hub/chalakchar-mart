@@ -86,6 +86,8 @@ const { isRelevantTitle } = require("./messaging/productMatch");
 const { classifyHealthProduct, isHealthQuery } = require("./catalog/healthProduct");
 const { mentionsSupplier, stripSupplierSentences } = require("./catalog/customerText");
 const { isMarketingType, allowsMarketing, linkFields, templates: customerTemplates } = require("./notifications/customerNotifications");
+const { modelKeysUpdate, isModelKeysWrite } = require("./catalog/deviceModel");
+const { pickRelatedRows, modelKeysOf, modelSeriesOf } = require("./catalog/relatedProducts");
 const { searchImportPublishOptions } = require("./aliexpress/searchImportPublish");
 const { searchImportLogDocId } = require("./aliexpress/searchImportLogId");
 const { searchImportKeywords } = require("./aliexpress/searchImportKeywords");
@@ -4722,6 +4724,23 @@ async function applyProductPriceGuard(ref, product, productId) {
   }
 }
 
+/**
+ * Keeps modelKeys/modelSeries (device models in the name, for the product
+ * page's "more parts for this model" row) in line with the name. Stamped
+ * model_keys, so the update trigger it causes sends nothing.
+ */
+async function applyProductModelKeys(ref, product, productId) {
+  const update = modelKeysUpdate(product, admin.firestore.FieldValue.serverTimestamp());
+  if (!update) return false;
+  try {
+    await ref.update(update);
+    return true;
+  } catch (error) {
+    logger.warn("Model keys: update failed", { productId, message: error.message });
+    return false;
+  }
+}
+
 exports.onProductCreated = onDocumentCreated("products/{productId}", async (event) => {
   const productId = event.params.productId;
   const product = event.data?.data() || {};
@@ -4729,6 +4748,7 @@ exports.onProductCreated = onDocumentCreated("products/{productId}", async (even
   // Same price guard as onProductStockUpdated (new products from older
   // app builds / vendor saves carry variants[0] as their price).
   if (event.data) await applyProductPriceGuard(event.data.ref, product, productId);
+  if (event.data) await applyProductModelKeys(event.data.ref, product, productId);
 
   if (!shouldMarketProduct(product)) {
     logger.info("Product marketing skipped", {
@@ -4774,6 +4794,13 @@ exports.onProductStockUpdated = onDocumentUpdated("products/{productId}", async 
   if (isSystemPriceWrite(before, after)) {
     logger.info("Product update marketing skipped: price backfill/guard write", { productId, source: after.lastWriteSource || null });
     return;
+  }
+
+  // The model-key sync's own write (or the backfill's) changes nothing a
+  // shopper is told about.
+  if (isModelKeysWrite(before, after)) return;
+  if ((before.name || "") !== (after.name || "") || !Array.isArray(after.modelKeys)) {
+    await applyProductModelKeys(event.data.after.ref, after, productId);
   }
 
   // Price guard: older app builds (admin save, stock updates) and vendor
@@ -6461,6 +6488,65 @@ function productStock(product) {
 }
 
 
+/**
+ * The product page's related rows as plain links, so crawlers find the
+ * related products in the first HTML (Flutter draws the same rows after
+ * load: widgets/related_products_section.dart). A few small limited
+ * queries, never the whole collection. Empty string on any failure.
+ */
+async function relatedProductsHtml(productId, product) {
+  try {
+    const products = db.collection("products");
+    const docs = (snap) => snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+    const none = Promise.resolve([]);
+    const keys = modelKeysOf(product).slice(0, 30);
+    const series = modelSeriesOf(product).slice(0, 30);
+    const subcategoryId = cleanText(product.subcategoryId);
+    const category = cleanText(product.category);
+    const [activeCategories, exact, inSeries, similar] = await Promise.all([
+      db.collection("categories").where("isActive", "==", true).get()
+        .then((snap) => new Set(snap.docs.map((d) => cleanText(d.data()?.name).toLowerCase()).filter(Boolean))),
+      keys.length ? products.where("modelKeys", "array-contains-any", keys).limit(40).get().then(docs) : none,
+      series.length ? products.where("modelSeries", "array-contains-any", series).limit(40).get().then(docs) : none,
+      subcategoryId
+        ? products.where("subcategoryId", "==", subcategoryId).limit(60).get().then(docs)
+        : category ? products.where("category", "==", category).limit(60).get().then(docs) : none,
+    ]);
+    // Same rule as the shop (lib/utils/related_products.dart isShopVisibleProduct).
+    const isVisible = (p) => p.isActive === true && p.approvalStatus === "approved" &&
+      p.isVisible !== false && p.isPublished !== false && !cleanText(p.hiddenReason) &&
+      activeCategories.has(cleanText(p.category).toLowerCase());
+    const { modelRow, similar: similarRow } = pickRelatedRows({
+      current: { ...product, id: productId },
+      exactCandidates: exact,
+      seriesCandidates: inSeries,
+      similarCandidates: similar,
+      isVisible,
+      price: productDisplayPrice,
+      stock: productStock,
+    });
+    const section = (title, list) => !list.length ? "" : `    <h2>${htmlEscape(title)}</h2>
+    <ul>
+${list.map((p) => `      <li><a href="/product/${encodeURIComponent(p.id)}">${htmlEscape(limitText(p.name, 110))}</a></li>`).join("\n")}
+    </ul>
+`;
+    const body = (modelRow ? section(modelRow.title, modelRow.products) : "") + section("একই ধরনের আরও পণ্য", similarRow);
+    // Seen only until Flutter draws over it (slow phones, crawlers): a
+    // quiet, readable list rather than raw default-styled links.
+    return body ? `  <style>
+    .related-seo{max-width:960px;margin:24px auto;padding:0 16px;font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#555}
+    .related-seo h2{font-size:15px;font-weight:600;color:#333;margin:16px 0 6px}
+    .related-seo ul{list-style:none;margin:0;padding:0}
+    .related-seo li{padding:3px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .related-seo a{color:#1f7f99;text-decoration:none}
+  </style>
+  <nav class="related-seo" aria-label="Related products">\n${body}  </nav>\n` : "";
+  } catch (error) {
+    logger.warn("Related products HTML skipped", { productId, message: error.message || String(error) });
+    return "";
+  }
+}
+
 async function productReviewSchemas(productId, productName) {
   try {
     const reviewsSnap = await db
@@ -6720,7 +6806,10 @@ exports.productSeo = onRequest(
         };
       }
 
-      const reviewSchemas = await productReviewSchemas(productId, productName);
+      const [reviewSchemas, relatedHtml] = await Promise.all([
+        productReviewSchemas(productId, productName),
+        isHiddenProduct ? Promise.resolve("") : relatedProductsHtml(productId, product),
+      ]);
       if (reviewSchemas.length > 0) {
         schema.review = reviewSchemas;
       }
@@ -6821,7 +6910,7 @@ exports.productSeo = onRequest(
   <script type="application/ld+json">${jsonLdEscapeObject(jsonLdGraph)}</script>
 </head>
 <body>
-  <script src="flutter_bootstrap.js" async></script>
+${relatedHtml}  <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>`;
 

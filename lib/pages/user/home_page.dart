@@ -1658,14 +1658,15 @@ if (featureEnabled(fs, Feature.health)) ...[
               children: [
                 Text(
                   "Your welcome deals await!",
-                  maxLines: 1,
+                  // Two lines on narrow phones (320px cut it to "deals a…").
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, height: 1.2),
                 ),
                 SizedBox(height: 2),
                 Text(
                   "Login to unlock your welcome deals",
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 12, height: 1.2),
                 ),
