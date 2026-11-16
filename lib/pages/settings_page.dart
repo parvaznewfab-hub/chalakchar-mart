@@ -4,6 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../providers/settings_provider.dart';
 import '../services/auth_service.dart';
+import '../widgets/notification_prefs_section.dart';
+import '../widgets/login_methods_section.dart';
 import 'main_navigation_page.dart';
 import 'user/help_center_page.dart';
 import 'user/settings_details_pages.dart';
@@ -75,6 +77,13 @@ class SettingsPage extends StatelessWidget {
                   ),
                 ),
               ),
+
+              if (FirebaseAuth.instance.currentUser != null) ...[
+                _section("Notifications"),
+                const NotificationPrefsSection(),
+                _section("যুক্ত লগইন পদ্ধতি"),
+                const LoginMethodsSection(),
+              ],
 
               _section("Legal"),
 

@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'firebase_options.dart';
+import 'utils/web_auth_domain.dart';
 import 'providers/settings_provider.dart';
 import 'services/notification_service.dart';
 
@@ -38,7 +39,11 @@ Future<void> main() async {
   // used to keep the page blank forever.
   try {
     await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
+      // Web: sign-in popups use this site's own /__/auth/handler, not
+      // firebaseapp.com (unreachable on some networks), see web_auth_domain.dart.
+      options: kIsWeb
+          ? DefaultFirebaseOptions.web.copyWith(authDomain: authDomainForHost(Uri.base.host))
+          : DefaultFirebaseOptions.currentPlatform,
     );
 
     if (kIsWeb) {

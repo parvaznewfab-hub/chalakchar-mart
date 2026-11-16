@@ -9,7 +9,12 @@ import 'notification_service.dart';
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
-  final GoogleSignIn _googleSignIn = GoogleSignIn();
+  // Created on first use, which is Android/iOS only (web signs in with the
+  // Firebase popup). On web the GoogleSignIn() constructor starts the plugin
+  // at once and, with no web client ID set, threw an uncaught "Null check"
+  // error on every page load (F4).
+  GoogleSignIn? _googleSignInInstance;
+  GoogleSignIn get _googleSignIn => _googleSignInInstance ??= GoogleSignIn();
 
   User? get currentUser => _auth.currentUser;
   String? get currentUid => _auth.currentUser?.uid;
@@ -21,7 +26,120 @@ class AuthService {
   static const String roleVendor = 'vendor';
   static const String roleUser = 'user';
 
+  // ---------------------------------------------------------------------
+  // Account linking (one account per email).
+  //
+  // Signing in with Facebook when the email already belongs to a Google (or
+  // other) account fails with account-exists-with-different-credential. The
+  // Facebook credential from that error is kept here, in memory only, for a
+  // short while; once the customer signs in the old way, it is linked to that
+  // account (linkPendingCredentialIfAny), so Facebook then opens the same uid
+  // with its orders and notifications. The same works the other way round.
+  // ---------------------------------------------------------------------
+
+  static PendingLink? _pendingLink;
+  static const Duration _pendingLinkTtl = Duration(minutes: 15);
+
+  static PendingLink? get pendingLink {
+    final p = _pendingLink;
+    if (p == null) return null;
+    if (DateTime.now().difference(p.createdAt) > _pendingLinkTtl) {
+      _pendingLink = null;
+      return null;
+    }
+    return p;
+  }
+
+  static void clearPendingLink() => _pendingLink = null;
+
+  /// Web hands back a generic OAuthCredential; linking wants the provider's own.
+  static AuthCredential _normalizeCredential(AuthCredential c) {
+    if (c is FacebookAuthCredential || c is GoogleAuthCredential) return c;
+    if (c is OAuthCredential) {
+      if (c.providerId == 'facebook.com' && c.accessToken != null) {
+        return FacebookAuthProvider.credential(c.accessToken!);
+      }
+      if (c.providerId == 'google.com') {
+        return GoogleAuthProvider.credential(idToken: c.idToken, accessToken: c.accessToken);
+      }
+    }
+    return c;
+  }
+
+  /// Keeps the credential and throws [AccountExistsException] for the UI.
+  Future<Never> _accountExists(
+    FirebaseAuthException e,
+    String providerId,
+    AuthCredential? attempted,
+  ) async {
+    final credential = e.credential ?? attempted;
+    if (credential != null) {
+      _pendingLink = PendingLink(
+        credential: _normalizeCredential(credential),
+        providerId: providerId,
+        email: e.email,
+        createdAt: DateTime.now(),
+      );
+    }
+
+    // Empty when email enumeration protection is on (it is for this
+    // project); the UI then names every other method.
+    var methods = <String>[];
+    final email = e.email;
+    if (email != null && email.isNotEmpty) {
+      try {
+        // ignore: deprecated_member_use
+        methods = await _auth.fetchSignInMethodsForEmail(email);
+      } catch (err) {
+        debugPrint('fetchSignInMethodsForEmail unavailable: $err');
+      }
+    }
+    throw AccountExistsException(
+      providerId: providerId,
+      email: email,
+      existingMethods: methods.where((m) => m != providerId).toList(),
+      canLink: credential != null,
+    );
+  }
+
+  /// After any successful sign-in: links the kept credential to this
+  /// account. Never throws.
+  Future<LinkResult> linkPendingCredentialIfAny() async {
+    final pending = pendingLink;
+    final user = _auth.currentUser;
+    if (pending == null || user == null) return const LinkResult.none();
+
+    if (user.providerData.any((info) => info.providerId == pending.providerId)) {
+      clearPendingLink();
+      return const LinkResult.none();
+    }
+    // Someone else signed in on this device meanwhile: don't link.
+    final pendingEmail = pending.email?.trim().toLowerCase() ?? '';
+    final userEmail = user.email?.trim().toLowerCase() ?? '';
+    if (pendingEmail.isNotEmpty && userEmail.isNotEmpty && pendingEmail != userEmail) {
+      clearPendingLink();
+      return const LinkResult.none();
+    }
+
+    try {
+      await user.linkWithCredential(pending.credential);
+      clearPendingLink();
+      return LinkResult.linked(pending.providerId);
+    } on FirebaseAuthException catch (e) {
+      debugPrint('Link ${pending.providerId} failed: ${e.code} ${e.message}');
+      clearPendingLink();
+      return LinkResult.failed(pending.providerId, e.code);
+    } catch (e) {
+      debugPrint('Link ${pending.providerId} failed: $e');
+      clearPendingLink();
+      return LinkResult.failed(pending.providerId, 'unknown');
+    }
+  }
+
+  /// Returns null when the customer cancels. Throws [AccountExistsException]
+  /// or [FirebaseAuthException] (shown via authErrorBn).
   Future<User?> signInWithFacebook() async {
+    AuthCredential? attempted;
     try {
       UserCredential credential;
 
@@ -50,17 +168,11 @@ class AuthService {
 
         if (result.status != LoginStatus.success || result.accessToken == null) {
           debugPrint('Facebook login failed: ${result.status} ${result.message}');
-          throw Exception(
-            result.message ??
-                'Facebook login failed. Please check your internet connection and try again.',
-          );
+          throw FirebaseAuthException(code: 'facebook-login-failed', message: result.message);
         }
 
-        final facebookCredential = FacebookAuthProvider.credential(
-          result.accessToken!.tokenString,
-        );
-
-        credential = await _auth.signInWithCredential(facebookCredential);
+        attempted = FacebookAuthProvider.credential(result.accessToken!.tokenString);
+        credential = await _auth.signInWithCredential(attempted);
       }
 
       await createOrGetUser();
@@ -68,28 +180,17 @@ class AuthService {
       return credential.user;
     } on FirebaseAuthException catch (e) {
       debugPrint('Facebook sign in Firebase error: ${e.code} ${e.message}');
-
       if (e.code == 'account-exists-with-different-credential') {
-        throw Exception(
-          'An account already exists with this email using a different sign-in method '
-          '(Google, phone/OTP, or email/password). Please sign in with that method first.',
-        );
+        await _accountExists(e, 'facebook.com', attempted);
       }
-
-      if (e.code == 'network-request-failed') {
-        throw Exception(
-          'Network error. Please check your internet connection and try again.',
-        );
-      }
-
-      rethrow;
-    } catch (e) {
-      debugPrint('Facebook sign in error: $e');
       rethrow;
     }
   }
 
+  /// Returns null when the customer cancels. Throws [AccountExistsException]
+  /// or [FirebaseAuthException] (shown via authErrorBn).
   Future<User?> signInWithGoogle() async {
+    AuthCredential? attempted;
     try {
       UserCredential credential;
 
@@ -105,12 +206,11 @@ class AuthService {
 
         final googleAuth = await googleUser.authentication;
 
-        credential = await _auth.signInWithCredential(
-          GoogleAuthProvider.credential(
-            accessToken: googleAuth.accessToken,
-            idToken: googleAuth.idToken,
-          ),
+        attempted = GoogleAuthProvider.credential(
+          accessToken: googleAuth.accessToken,
+          idToken: googleAuth.idToken,
         );
+        credential = await _auth.signInWithCredential(attempted);
       }
 
       await createOrGetUser();
@@ -118,10 +218,10 @@ class AuthService {
       return credential.user;
     } on FirebaseAuthException catch (e) {
       debugPrint('Google sign in Firebase error: ${e.code} ${e.message}');
-      return null;
-    } catch (e) {
-      debugPrint('Google sign in error: $e');
-      return null;
+      if (e.code == 'account-exists-with-different-credential') {
+        await _accountExists(e, 'google.com', attempted);
+      }
+      rethrow;
     }
   }
 
@@ -740,4 +840,55 @@ class AuthService {
     final text = value.toString().trim();
     return text.isEmpty ? fallback : text;
   }
+}
+
+/// A sign-in credential waiting to be linked (see AuthService).
+class PendingLink {
+  final AuthCredential credential;
+  final String providerId;
+  final String? email;
+  final DateTime createdAt;
+
+  const PendingLink({
+    required this.credential,
+    required this.providerId,
+    required this.email,
+    required this.createdAt,
+  });
+}
+
+/// The email already has an account that uses another sign-in method.
+class AccountExistsException implements Exception {
+  /// The method the customer just tried ('facebook.com' / 'google.com').
+  final String providerId;
+  final String? email;
+
+  /// Methods of the existing account; empty when Firebase won't say
+  /// (email enumeration protection).
+  final List<String> existingMethods;
+
+  /// Whether the tried method will be linked after the next sign-in.
+  final bool canLink;
+
+  const AccountExistsException({
+    required this.providerId,
+    required this.email,
+    required this.existingMethods,
+    required this.canLink,
+  });
+
+  @override
+  String toString() => 'AccountExistsException($providerId)';
+}
+
+class LinkResult {
+  final String? providerId;
+  final bool linked;
+  final String? errorCode;
+
+  const LinkResult.none() : providerId = null, linked = false, errorCode = null;
+  const LinkResult.linked(String this.providerId) : linked = true, errorCode = null;
+  const LinkResult.failed(String this.providerId, String this.errorCode) : linked = false;
+
+  bool get failed => errorCode != null;
 }
