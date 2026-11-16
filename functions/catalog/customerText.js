@@ -41,4 +41,77 @@ function withoutSupplierKeywords(list) {
   return (Array.isArray(list) ? list : []).filter((k) => !mentionsSupplier(k));
 }
 
-module.exports = { mentionsSupplier, isHiddenSpecification, stripSupplierSentences, withoutSupplierKeywords };
+// -----------------------------------------------------------------------------
+// Seller boilerplate in imported descriptions: marketplace rules aimed at
+// the seller's own buyers ("do not open a dispute", "leave a bad review",
+// "please contact us", "Tips: please check the appearance…"), plus broken
+// characters (U+FFFD "��") and HTML entities left as text ("don&#x27;t").
+// Removed sentence by sentence at display time; Firestore is not changed.
+// -----------------------------------------------------------------------------
+const SELLER_SENTENCE = /\bdisputes?\b|\b(?:bad|negative|neutral|poor)\s+(?:reviews?|feedbacks?|ratings?)\b|\bcontact\s+(?:us|me)\b|\bcustomer\s+service\b|\bdear\s+(?:buyers?|customers?|friends?)\b|^\s*tips?\s*[:：]/i;
+// Broken characters and emoji bullets mark where a new sentence starts.
+const SENTENCE_MARK = /�+|[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]️?/gu;
+const LINE_SENTENCE_END = /(?<=[!?।])\s+|(?<=\.)(?!\d)\s*|\u0000+\s*|(?=\btips?\s*[:：])/i;
+
+function decodeEntities(text) {
+  return text
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+}
+
+function isDroppedSentence(sentence) {
+  return SELLER_SENTENCE.test(sentence) || mentionsSupplier(sentence);
+}
+
+function lineNeedsCleaning(line) {
+  SENTENCE_MARK.lastIndex = 0;
+  return SENTENCE_MARK.test(line) || isDroppedSentence(line) || /\btips?\s*[:：]/i.test(line);
+}
+
+function cleanLine(line) {
+  if (!lineNeedsCleaning(line)) return line;
+  return line
+    .replace(SENTENCE_MARK, "\u0000")
+    .split(LINE_SENTENCE_END)
+    .map((part) => (part || "").trim())
+    .filter((part) => part && !isDroppedSentence(part))
+    .join(" ")
+    .trim();
+}
+
+/**
+ * Text shoppers may see: seller boilerplate, supplier/origin sentences,
+ * broken characters dropped; HTML entities decoded. Lines with nothing to
+ * remove stay exactly as they were (spec lists keep their shape).
+ */
+function cleanCustomerText(text) {
+  const lines = decodeEntities(String(text ?? "")).split("\n");
+  const out = [];
+  for (const line of lines) {
+    const cleaned = cleanLine(line);
+    if (cleaned || !line.trim()) out.push(cleaned);
+  }
+  return out.join("\n").trim();
+}
+
+/** [cleanCustomerText] for each text run of an HTML description; tags stay. */
+function cleanCustomerHtml(html) {
+  const wrapped = `>${String(html ?? "")}<`;
+  const cleaned = wrapped.replace(/>([^<>]+)</g, (whole, text) => {
+    const lines = text.split("\n").map(cleanLine);
+    const joined = lines.join("\n");
+    return joined === text ? whole : `>${joined.trim()}<`;
+  });
+  return cleaned.slice(1, -1);
+}
+
+module.exports = {
+  mentionsSupplier,
+  isHiddenSpecification,
+  stripSupplierSentences,
+  withoutSupplierKeywords,
+  cleanCustomerText,
+  cleanCustomerHtml,
+};

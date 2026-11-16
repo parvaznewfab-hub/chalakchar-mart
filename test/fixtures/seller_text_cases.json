@@ -1,0 +1,62 @@
+{
+  "_comment": "Seller boilerplate removed from product text at display time (Overview, Description, SEO); Firestore is not changed. Snippets from the live catalog 2026-11-16. Checked by test/customer_text_test.dart AND functions/test/customerText.test.js: lib/utils/customer_text.dart and functions/catalog/customerText.js must stay in step.",
+  "text": [
+    {
+      "label": "dispute + bad review + contact us at the end",
+      "in": "Strictly tested before delivery,100% working well. 3. If you have any questions,please contact us. Do not leave a bad review and do not open a dispute. We will handle your issue immediately after confirming the problem.",
+      "out": "Strictly tested before delivery,100% working well. 3. We will handle your issue immediately after confirming the problem."
+    },
+    {
+      "label": "broken characters before Tips:, model numbers kept",
+      "in": "for iPhone 12 Pro Max：A2411,A2342,A2410,A2412 ��Tips: Please check the appearance of the product for damage after receiving it. If there is any damage,please contact us in time. If there is no damage,please test it according to the following process before installation: 1. Turn off the phone.",
+      "out": "for iPhone 12 Pro Max：A2411,A2342,A2410,A2412 If there is no damage,please test it according to the following process before installation: 1. Turn off the phone."
+    },
+    {
+      "label": "emoji bullet before Tips:, HTML entity decoded",
+      "in": "Screen Digitizer Assembly 🔈Tips: Please check the appearance of the product. 2. Use tools to disassemble the phone parts. (If you don&#x27;t know how to disassemble,please find a professional repair shop to replace it. )",
+      "out": "Screen Digitizer Assembly 2. Use tools to disassemble the phone parts. (If you don't know how to disassemble,please find a professional repair shop to replace it. )"
+    },
+    {
+      "label": "supplier and origin still removed",
+      "in": "Fast 2.5 inch SSD. We mainly ship via AliExpress standard shipping. Items cannot be tracked after they leave China! 3 year warranty.",
+      "out": "Fast 2.5 inch SSD. 3 year warranty."
+    },
+    {
+      "label": "dear buyer and customer service",
+      "in": "Main Board Flex Cable Replacement Dear buyer , please pay attention to it before you place the order : 1. Please check the model. (Please ask customer service for details) Good quality.",
+      "out": "Please check the model."
+    },
+    {
+      "label": "clean spec list keeps its lines exactly",
+      "in": "1.Model ：Netac N530S Internal Solid State Drive\n2.Capacity ：128GB, 256GB\n9.Warranty : 3 year",
+      "out": "1.Model ：Netac N530S Internal Solid State Drive\n2.Capacity ：128GB, 256GB\n9.Warranty : 3 year"
+    },
+    {
+      "label": "only the line with seller text changes",
+      "in": "AMOLED display\nIf you have any problem, please contact me. Fast delivery.\n6.5 inch",
+      "out": "AMOLED display\nFast delivery.\n6.5 inch"
+    },
+    {
+      "label": "Bangla text untouched",
+      "in": "এই উচ্চমানের LCD ডিসপ্লে iPhone 12 এবং 12 Pro মডেলের জন্য।",
+      "out": "এই উচ্চমানের LCD ডিসপ্লে iPhone 12 এবং 12 Pro মডেলের জন্য।"
+    },
+    {
+      "label": "negative feedback",
+      "in": "Please test before installing. Before leaving negative feedback, talk to us first! Thank you.",
+      "out": "Please test before installing. Thank you."
+    }
+  ],
+  "html": [
+    {
+      "label": "tags kept, offending text runs cleaned",
+      "in": "<p>Great display.</p><p>��Tips: Please check the product. Use tools to open the phone.</p><p>Do not open a dispute.</p><img src=\"a.jpg\">",
+      "out": "<p>Great display.</p><p>Use tools to open the phone.</p><p></p><img src=\"a.jpg\">"
+    },
+    {
+      "label": "clean HTML unchanged",
+      "in": "<table><tr><td>Size</td><td>2.5 inch</td></tr></table>",
+      "out": "<table><tr><td>Size</td><td>2.5 inch</td></tr></table>"
+    }
+  ]
+}

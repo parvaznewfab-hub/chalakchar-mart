@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:chalakchar_mart/utils/customer_text.dart';
 import 'package:chalakchar_mart/utils/variant_display_name.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -31,4 +34,13 @@ void main() {
     expect(cleanVariantDisplayName('OEM No Frame / China Mainland'), 'OEM No Frame');
     expect(cleanVariantDisplayName('128GB'), '128GB');
   });
+
+  // Shared with functions/test/customerText.test.js (JS mirror).
+  final fixture = jsonDecode(File('test/fixtures/seller_text_cases.json').readAsStringSync()) as Map<String, dynamic>;
+  for (final c in (fixture['text'] as List).cast<Map<String, dynamic>>()) {
+    test('cleanCustomerText: ${c['label']}', () => expect(cleanCustomerText(c['in'] as String), c['out']));
+  }
+  for (final c in (fixture['html'] as List).cast<Map<String, dynamic>>()) {
+    test('cleanCustomerHtml: ${c['label']}', () => expect(cleanCustomerHtml(c['in'] as String), c['out']));
+  }
 }

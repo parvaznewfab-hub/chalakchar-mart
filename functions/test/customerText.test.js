@@ -23,3 +23,15 @@ test("origin specs hidden, keywords filtered", () => {
   assert.deepEqual(withoutSupplierKeywords(["ssd", "aliexpress", "china", "netac"]), ["ssd", "netac"]);
   assert.equal(mentionsSupplier("Machinery"), false, "whole words only");
 });
+
+// Shared with test/customer_text_test.dart (Dart mirror).
+{
+  const fixture = require(require("path").join(__dirname, "..", "..", "test", "fixtures", "seller_text_cases.json"));
+  const { cleanCustomerText, cleanCustomerHtml } = require("../catalog/customerText");
+  for (const c of fixture.text) {
+    test(`cleanCustomerText: ${c.label}`, () => assert.equal(cleanCustomerText(c.in), c.out));
+  }
+  for (const c of fixture.html) {
+    test(`cleanCustomerHtml: ${c.label}`, () => assert.equal(cleanCustomerHtml(c.in), c.out));
+  }
+}
