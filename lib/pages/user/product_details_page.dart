@@ -4,6 +4,7 @@ import 'package:flutter_html_table/flutter_html_table.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../../widgets/related_products_section.dart';
 import '../../widgets/global_web_header.dart';
 import '../../widgets/global_web_footer.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
@@ -1045,6 +1046,10 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
                                 padding: const EdgeInsets.all(14),
                                 child: tabContent,
                               ),
+                              RelatedProductsSection(
+                                key: ValueKey('related-${ProductService.productIdFrom(data)}'),
+                                product: {...data, 'id': ProductService.productIdFrom(data)},
+                              ),
                             ],
                           )
                         : Column(
@@ -1114,7 +1119,12 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
                                     const EdgeInsets.symmetric(vertical: 20),
                                 child: tabContent,
                               ),
-                              const SizedBox(height: 40),
+                              RelatedProductsSection(
+                                key: ValueKey('related-${ProductService.productIdFrom(data)}'),
+                                product: {...data, 'id': ProductService.productIdFrom(data)},
+                                isDesktop: true,
+                              ),
+                              const SizedBox(height: 20),
                               const GlobalWebFooter(),
                             ],
                           ),
