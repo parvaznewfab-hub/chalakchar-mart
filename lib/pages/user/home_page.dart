@@ -27,6 +27,7 @@ import '../../utils/image_url.dart';
 import '../../widgets/all_products_section.dart';
 import '../../utils/contact_info.dart';
 import '../../services/app_settings_service.dart';
+import '../../widgets/customer_notifications.dart';
 
 
 
@@ -579,10 +580,14 @@ class _ProductHomePageState extends State<ProductHomePage> {
           else
             _buildMobileLayout(primaryColor),
 
+          // Round buttons stacked right above the chat button (56px FAB at
+          // right/bottom 16, see MainNavigation), in the right-hand gutter
+          // the web layout keeps free, so they cover neither each other nor
+          // the page ("View Wallet").
           if (isDesktopWeb)
             Positioned(
-              right: 18,
-              bottom: 22,
+              right: 16 + (56 - _floatingButtonSize) / 2,
+              bottom: 16 + 56 + 12,
               child: Column(
                 children: [
                   _floatingChatButton(
@@ -602,7 +607,8 @@ class _ProductHomePageState extends State<ProductHomePage> {
                     label: "Messenger",
                     color: Colors.blue,
                     onTap: () {
-                      _openUrl("https://m.me/parvaz.newfab");
+                      final link = AppSettingsService.cached.messengerLink.trim();
+                      _openUrl(link.isNotEmpty ? link : "https://m.me/parvaz.newfab");
                     },
                   ),
                 ],
@@ -621,49 +627,47 @@ class _ProductHomePageState extends State<ProductHomePage> {
     );
   }
 
+  static const double _floatingButtonSize = 48;
+
   Widget _floatingChatButton({
     required IconData icon,
     required String label,
     required Color color,
     required VoidCallback onTap,
   }) {
-    return InkWell(
-      onTap: () async {
-        FocusScope.of(context).unfocus();
-        await Future.delayed(const Duration(milliseconds: 80));
+    // Icon only (name in the tooltip/semantics): a labelled pill was wider
+    // than the gutter and the chat button cut "Messenger" to "Mes".
+    return Tooltip(
+      message: label,
+      child: Semantics(
+        button: true,
+        label: label,
+        child: InkWell(
+          onTap: () async {
+            FocusScope.of(context).unfocus();
+            await Future.delayed(const Duration(milliseconds: 80));
 
-        if (context.mounted) {
-          onTap();
-        }
-      },
-      borderRadius: BorderRadius.circular(30),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(30),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.18),
-              blurRadius: 12,
-              offset: const Offset(0, 5),
+            if (context.mounted) {
+              onTap();
+            }
+          },
+          customBorder: const CircleBorder(),
+          child: Container(
+            width: _floatingButtonSize,
+            height: _floatingButtonSize,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.18),
+                  blurRadius: 12,
+                  offset: const Offset(0, 5),
+                ),
+              ],
             ),
-          ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: Colors.white, size: 22),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-              ),
-            ),
-          ],
+            child: Icon(icon, color: Colors.white, size: 24),
+          ),
         ),
       ),
     );
@@ -692,7 +696,8 @@ class _ProductHomePageState extends State<ProductHomePage> {
           Expanded(
             child: SingleChildScrollView(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 30, 40, 30),
+                // Right gutter: room for the floating WhatsApp/Messenger/chat buttons.
+                padding: const EdgeInsets.fromLTRB(24, 30, 96, 30),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1182,7 +1187,13 @@ if (featureEnabled(fs, Feature.health)) ...[
                     10,
                     searchBottomPadding,
                   ),
-                  child: _buildStickyMobileSearchBar(),
+                  // Signed in: bell with unread badge next to search.
+                  child: Row(
+                    children: [
+                      Expanded(child: _buildStickyMobileSearchBar()),
+                      const NotificationBellButton(),
+                    ],
+                  ),
                 ),
               ),
             ),

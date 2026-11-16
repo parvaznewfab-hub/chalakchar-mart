@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../utils/customer_notification_view.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../utils/price_format.dart';
@@ -65,11 +66,31 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
   }
 
   String _displayStatus(String status, String deliveryStatus) {
-    if (status == 'cancelled') return 'Cancelled';
+    const map = CustomerNotificationView.orderStatusBn;
+    if (status == 'cancelled') return map['cancelled']!;
     if (deliveryStatus.isNotEmpty && deliveryStatus != 'not_assigned') {
-      return deliveryStatus.replaceAll('_', ' ').toUpperCase();
+      return map[deliveryStatus] ?? deliveryStatus.replaceAll('_', ' ');
     }
-    return status.replaceAll('_', ' ').toUpperCase();
+    return map[status] ?? status.replaceAll('_', ' ');
+  }
+
+  String _paymentStatusBn(String status) {
+    switch (status.toLowerCase()) {
+      case 'paid':
+        return 'পরিশোধিত';
+      case 'unpaid':
+        return 'অপরিশোধিত';
+      case 'refunded':
+        return 'ফেরত দেওয়া হয়েছে';
+      default:
+        return status;
+    }
+  }
+
+  String _paymentMethodBn(String method) {
+    final m = method.trim();
+    if (m.toLowerCase() == 'cod' || m.toLowerCase() == 'cash on delivery') return 'ক্যাশ অন ডেলিভারি';
+    return m;
   }
 
   @override
@@ -77,7 +98,7 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
-        title: const Text('Track Order'),
+        title: const Text('অর্ডার ট্র্যাক'),
         backgroundColor: const Color(0xFF32A8C7),
         foregroundColor: Colors.white,
       ),
@@ -89,7 +110,7 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
           }
 
           if (!snap.hasData || !snap.data!.exists) {
-            return const Center(child: Text('Order not found'));
+            return const Center(child: Text('অর্ডারটি পাওয়া যায়নি'));
           }
 
           final data = snap.data!.data() ?? {};
@@ -129,7 +150,7 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
     final display = _displayStatus(status, deliveryStatus);
     final color = _statusColor(deliveryStatus != 'not_assigned' ? deliveryStatus : status);
 
-    String date = 'N/A';
+    String date = '-';
     final createdAt = data['createdAt'];
     if (createdAt is Timestamp) {
       final d = createdAt.toDate();
@@ -151,7 +172,7 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
             children: [
               Expanded(
                 child: Text(
-                  'Order #${widget.orderId.substring(0, 8)}',
+                  'অর্ডার #${widget.orderId.substring(0, 8)}',
                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
                 ),
               ),
@@ -169,10 +190,10 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
             ],
           ),
           const SizedBox(height: 8),
-          Text('Placed: $date', style: TextStyle(color: Colors.grey.shade700)),
+          Text('অর্ডারের সময়: $date', style: TextStyle(color: Colors.grey.shade700)),
           const SizedBox(height: 4),
           Text(
-            'Total: ৳${_toDouble(data['grandTotal'] ?? data['finalTotal'] ?? data['total']).toStringAsFixed(0)}',
+            'মোট: ৳${_toDouble(data['grandTotal'] ?? data['finalTotal'] ?? data['total']).toStringAsFixed(0)}',
             style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w900, fontSize: 16),
           ),
         ],
@@ -182,25 +203,25 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
 
   Widget _progressCard(int currentIndex, String status) {
     final steps = [
-      {'title': 'Order Placed', 'icon': Icons.receipt_long},
-      {'title': 'Ready', 'icon': Icons.inventory_2_outlined},
-      {'title': 'Rider Assigned', 'icon': Icons.delivery_dining},
-      {'title': 'Picked Up', 'icon': Icons.shopping_bag_outlined},
-      {'title': 'On The Way', 'icon': Icons.directions_bike},
-      {'title': 'Delivered', 'icon': Icons.verified},
+      {'title': 'অর্ডার করা হয়েছে', 'icon': Icons.receipt_long},
+      {'title': 'প্রস্তুত', 'icon': Icons.inventory_2_outlined},
+      {'title': 'ডেলিভারি কর্মী নির্ধারিত', 'icon': Icons.delivery_dining},
+      {'title': 'সংগ্রহ করা হয়েছে', 'icon': Icons.shopping_bag_outlined},
+      {'title': 'পথে আছে', 'icon': Icons.directions_bike},
+      {'title': 'ডেলিভারি হয়েছে', 'icon': Icons.verified},
     ];
 
     if (status == 'cancelled') {
       return _simpleCard(
-        title: 'Order Cancelled',
+        title: 'অর্ডার বাতিল',
         icon: Icons.cancel,
         iconColor: Colors.red,
-        child: const Text('This order has been cancelled.'),
+        child: const Text('এই অর্ডারটি বাতিল করা হয়েছে।'),
       );
     }
 
     return _simpleCard(
-      title: 'Delivery Progress',
+      title: 'ডেলিভারির অগ্রগতি',
       icon: Icons.timeline,
       iconColor: const Color(0xFF32A8C7),
       child: Column(
@@ -255,15 +276,15 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
 
     if (riderName.isEmpty && riderPhone.isEmpty) {
       return _simpleCard(
-        title: 'Delivery Partner',
+        title: 'ডেলিভারি কর্মী',
         icon: Icons.delivery_dining,
         iconColor: Colors.indigo,
-        child: Text('Delivery partner not assigned yet.', style: TextStyle(color: Colors.grey.shade700)),
+        child: Text('এখনো ডেলিভারি কর্মী নির্ধারণ করা হয়নি।', style: TextStyle(color: Colors.grey.shade700)),
       );
     }
 
     return _simpleCard(
-      title: 'Delivery Partner',
+      title: 'ডেলিভারি কর্মী',
       icon: Icons.delivery_dining,
       iconColor: Colors.indigo,
       child: Row(
@@ -277,7 +298,7 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(riderName.isEmpty ? 'Delivery Partner' : riderName,
+                Text(riderName.isEmpty ? 'ডেলিভারি কর্মী' : riderName,
                     style: const TextStyle(fontWeight: FontWeight.w900)),
                 if (vehicle.isNotEmpty) Text(vehicle, style: TextStyle(color: Colors.grey.shade600)),
                 if (riderPhone.isNotEmpty) Text(riderPhone, style: TextStyle(color: Colors.grey.shade600)),
@@ -288,7 +309,7 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
             ElevatedButton.icon(
               onPressed: () => _callPhone(riderPhone),
               icon: const Icon(Icons.call, size: 18),
-              label: const Text('Call'),
+              label: const Text('কল করুন'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green,
                 foregroundColor: Colors.white,
@@ -316,7 +337,7 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
           const Icon(Icons.pin, color: Colors.deepPurple),
           const SizedBox(width: 10),
           const Expanded(
-            child: Text('Delivery OTP', style: TextStyle(fontWeight: FontWeight.w900)),
+            child: Text('ডেলিভারি OTP', style: TextStyle(fontWeight: FontWeight.w900)),
           ),
           SelectableText(
             otp,
@@ -329,15 +350,15 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
 
   Widget _addressCard(Map<String, dynamic> address, Map<String, dynamic> data) {
     return _simpleCard(
-      title: 'Delivery Address',
+      title: 'ডেলিভারির ঠিকানা',
       icon: Icons.location_on_outlined,
       iconColor: Colors.redAccent,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(_text(address['name'] ?? data['userName'], 'Customer'), style: const TextStyle(fontWeight: FontWeight.bold)),
+          Text(_text(address['name'] ?? data['userName'], 'গ্রাহক'), style: const TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
-          Text(_text(address['phone'] ?? data['phone'] ?? data['userPhone'], 'N/A')),
+          Text(_text(address['phone'] ?? data['phone'] ?? data['userPhone'], '-')),
           const SizedBox(height: 4),
           Text(_text(address['address'] ?? data['addressText'], 'N/A')),
           if (_text(address['upazila']).isNotEmpty || _text(address['district']).isNotEmpty)
@@ -349,7 +370,7 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
 
   Widget _itemsCard(List items) {
     return _simpleCard(
-      title: 'Order Items',
+      title: 'অর্ডারের পণ্য',
       icon: Icons.shopping_bag_outlined,
       iconColor: Colors.orange,
       child: Column(
@@ -381,7 +402,7 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    '${_text(item['name'], 'Product')} ${_text(item['unit']).isNotEmpty ? '(${cleanVariantDisplayName(_text(item['unit']))})' : ''}\nQty: $qty',
+                    '${_text(item['name'], 'পণ্য')} ${_text(item['unit']).isNotEmpty ? '(${cleanVariantDisplayName(_text(item['unit']))})' : ''}\nপরিমাণ: $qty',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -397,26 +418,26 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
 
   Widget _paymentCard(Map<String, dynamic> data) {
     return _simpleCard(
-      title: 'Payment Summary',
+      title: 'পেমেন্টের হিসাব',
       icon: Icons.payments_outlined,
       iconColor: Colors.green,
       child: Column(
         children: [
-          _amountRow('Subtotal', _toDouble(data['subtotal'])),
-          _amountRow('Delivery Charge', _toDouble(data['deliveryCharge'])),
-          if (_toDouble(data['couponDiscount']) > 0) _amountRow('Coupon Discount', -_toDouble(data['couponDiscount'])),
+          _amountRow('পণ্যের দাম', _toDouble(data['subtotal'])),
+          _amountRow('ডেলিভারি চার্জ', _toDouble(data['deliveryCharge'])),
+          if (_toDouble(data['couponDiscount']) > 0) _amountRow('কুপন ছাড়', -_toDouble(data['couponDiscount'])),
           if (_toDouble(data['ChalakCharCashUsed'] ?? data['chalakcharCashUsed']) > 0)
             _amountRow(
-              'ChalakChar Cash Used',
+              'ChalakChar Cash ব্যবহার',
               -_toDouble(data['ChalakCharCashUsed'] ?? data['chalakcharCashUsed']),
             ),
           const Divider(),
-          _amountRow('Grand Total', _toDouble(data['grandTotal'] ?? data['finalTotal'] ?? data['total']), bold: true),
+          _amountRow('সর্বমোট', _toDouble(data['grandTotal'] ?? data['finalTotal'] ?? data['total']), bold: true),
           const SizedBox(height: 6),
           Row(
             children: [
-              Expanded(child: Text('Payment Method: ${_text(data['paymentMethod'], 'COD')}')),
-              Text(_text(data['paymentStatus'], 'unpaid').toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold)),
+              Expanded(child: Text('পেমেন্ট পদ্ধতি: ${_paymentMethodBn(_text(data['paymentMethod'], 'COD'))}')),
+              Text(_paymentStatusBn(_text(data['paymentStatus'], 'unpaid')), style: const TextStyle(fontWeight: FontWeight.bold)),
             ],
           ),
         ],

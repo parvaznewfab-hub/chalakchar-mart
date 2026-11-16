@@ -9,6 +9,7 @@ import 'user/help_center_page.dart';
 import 'user/chat_screen.dart' show ChatPanel;
 import 'user/home_page.dart';
 import 'user/my_lists_page.dart';
+import 'user/notifications_page.dart';
 import 'user/profile/my_address_page.dart';
 import 'user/profile/profile_page.dart';
 import 'user/user_order_page.dart';
@@ -277,6 +278,12 @@ class _MainNavigationState extends State<MainNavigation> {
                           title: 'My Orders',
                           subtitle: 'Track orders and order history',
                           onTap: () => _openPage(const OrderPage()),
+                        ),
+                        _menuTile(
+                          icon: Icons.notifications_none_rounded,
+                          title: 'Notifications',
+                          subtitle: 'Order updates, new products and offers',
+                          onTap: () => _openPage(const NotificationsPage()),
                         ),
                         HealthGate(
                           feature: Feature.listOrder,
