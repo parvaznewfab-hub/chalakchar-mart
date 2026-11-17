@@ -1174,7 +1174,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
   Widget _buildDescriptionHtml(Map<String, dynamic> data) {
     final html = _text(data['overviewHtml']);
     if (html.isEmpty) {
-      final overviewText = stripSupplierSentences(_text(data['overview']));
+      final overviewText = cleanCustomerText(_text(data['overview']));
       final hasContent = overviewText.isNotEmpty;
       return Text(
         hasContent
@@ -1189,7 +1189,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
       );
     }
     return Html(
-      data: stripSupplierSentencesHtml(_sanitizeOverviewHtmlForRender(html)),
+      data: cleanCustomerHtml(_sanitizeOverviewHtmlForRender(html)),
       extensions: const [TableHtmlExtension()],
       style: {
         'body': Style(
@@ -1373,7 +1373,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
   }
 
   Widget _buildOverviewTabContent(Map<String, dynamic> data) {
-    final aiOverview = stripSupplierSentences(_text(data['overview']));
+    final aiOverview = cleanCustomerText(_text(data['overview']));
     final hasOverview = aiOverview.isNotEmpty;
 
     // Always rendered — regardless of product source (AliExpress-imported

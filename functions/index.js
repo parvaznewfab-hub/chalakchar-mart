@@ -84,7 +84,7 @@ const { displayPriceFields, productDisplayPrice } = require("./catalog/displayPr
 const { marketingBlockReason, autoMarketingBlockReason } = require("./marketing/eligibility");
 const { isRelevantTitle } = require("./messaging/productMatch");
 const { classifyHealthProduct, isHealthQuery } = require("./catalog/healthProduct");
-const { mentionsSupplier, stripSupplierSentences } = require("./catalog/customerText");
+const { mentionsSupplier, cleanCustomerText } = require("./catalog/customerText");
 const { isMarketingType, allowsMarketing, linkFields, templates: customerTemplates } = require("./notifications/customerNotifications");
 const { modelKeysUpdate, isModelKeysWrite } = require("./catalog/deviceModel");
 const { pickRelatedRows, modelKeysOf, modelSeriesOf } = require("./catalog/relatedProducts");
@@ -6702,8 +6702,8 @@ exports.productSeo = onRequest(
       // Seller text can name the supplier/origin ("ships via AliExpress
       // standard shipping"): those sentences never reach the page meta.
       const description = limitText(
-        stripSupplierSentences(product.metaDescription) ||
-          stripSupplierSentences(product.overview) ||
+        cleanCustomerText(product.metaDescription) ||
+          cleanCustomerText(product.overview) ||
           `Buy ${productName} online from ChalakChar Mart.`,
         155
       );
