@@ -10,13 +10,22 @@
 তখন এই কপি আর repo-র `firestore.rules` / `storage.rules` হুবহু এক ছিল।
 
 ## Firestore rules আগের অবস্থায় ফেরানো
-hosting rollback rules ফেরায় না। rules ফেরাতে:
+hosting rollback rules ফেরায় না।
+
+**কোন ফাইল দিয়ে:**
+- চাবি সরানোর script (`functions/scripts/moveSocialSecrets.js --apply`) চলার
+  **আগে**: `firestore.rules.live-2026-11-17`।
+- script চলার **পরে**: সবসময় `firestore.rules.rollback-keep-secrets`।
+  পুরোনো rules-এ `settings/{docId}` সবাই লগইন ছাড়া পড়তে পারত। তাই পুরোনো
+  ফাইল ফেরালে `settings/app_secrets`-এর চাবিও খোলা হয়ে যাবে। এই ফাইলটা
+  পুরোনো rules-ই, শুধু `app_secrets`-এ তালা দেওয়া (emulator test:
+  `node tools/rules-test/run.js docs/security/rules-backup/firestore.rules.rollback-keep-secrets`)।
 
 ```sh
-cp docs/security/rules-backup/firestore.rules.live-2026-11-17 firestore.rules
+cp docs/security/rules-backup/firestore.rules.rollback-keep-secrets firestore.rules
 firebase deploy --only firestore:rules --project chalakchar-mart
 git checkout firestore.rules   # repo-র ফাইল আবার নতুন rules-এ
 ```
 
-অথবা Firebase Console → Firestore → Rules → History থেকে ruleset
-`ab0bcacc-472b-4897-a1fa-f14cff043e3b` বেছে "Restore"।
+Console থেকে ruleset `ab0bcacc-472b-4897-a1fa-f14cff043e3b` "Restore" করা চলবে
+শুধু script চলার আগে।
