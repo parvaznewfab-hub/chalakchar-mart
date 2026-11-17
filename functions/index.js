@@ -85,6 +85,7 @@ const { marketingBlockReason, autoMarketingBlockReason } = require("./marketing/
 const { isRelevantTitle } = require("./messaging/productMatch");
 const { classifyHealthProduct, isHealthQuery } = require("./catalog/healthProduct");
 const { mentionsSupplier, cleanCustomerText } = require("./catalog/customerText");
+const { isMarketingType, allowsMarketing, linkFields, templates: customerTemplates } = require("./notifications/customerNotifications");
 const { modelKeysUpdate, isModelKeysWrite } = require("./catalog/deviceModel");
 const { pickRelatedRows, modelKeysOf, modelSeriesOf } = require("./catalog/relatedProducts");
 const { searchImportPublishOptions } = require("./aliexpress/searchImportPublish");
@@ -880,11 +881,17 @@ async function notifyUser(userId, title, body, data = {}) {
   const doc = await db.collection("users").doc(userId).get();
   if (!doc.exists) return;
 
+  // Marketing types honour the user's "নতুন পণ্য ও অফার" switch; order
+  // updates and replies to the user's own search always go out.
+  if (isMarketingType(data.type) && !allowsMarketing(doc.data())) return;
+
+  const link = linkFields(data);
+
   await sendToTokens(
     getTokensFromUser(doc.data()),
     title,
     body,
-    data
+    { ...data, ...link }
   );
 
   await db.collection("notifications").add({
@@ -893,6 +900,7 @@ async function notifyUser(userId, title, body, data = {}) {
     title,
     body,
     data,
+    ...link,
     isRead: false,
     pushSent: true,
     pushedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1140,6 +1148,8 @@ async function notifyCustomersAboutNewProduct(productId, product) {
   userSnap.forEach((doc) => {
     const user = doc.data() || {};
     if (user.isActive === false || user.isBanned === true) return;
+    // Settings -> "নতুন পণ্য ও অফার" off: no push, no in-app doc.
+    if (!allowsMarketing(user)) return;
 
     userCount += 1;
     tokens.push(...getTokensFromUser(user));
@@ -1152,6 +1162,7 @@ async function notifyCustomersAboutNewProduct(productId, product) {
       body: payload.body,
       type: "new_product",
       data,
+      ...linkFields(data),
       isRead: false,
       pushSent: true,
       pushedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1251,6 +1262,7 @@ async function sendNotificationDocumentsToUsers(userIds, title, body, type, data
 
     const user = userDoc.data() || {};
     if (user.isActive === false || user.isBanned === true) continue;
+    if (isMarketingType(type) && !allowsMarketing(user)) continue;
 
     tokens.push(...getTokensFromUser(user));
 
@@ -1261,6 +1273,7 @@ async function sendNotificationDocumentsToUsers(userIds, title, body, type, data
       body,
       type,
       data,
+      ...linkFields({ ...data, type }),
       isRead: false,
       pushSent: true,
       pushedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -4266,11 +4279,25 @@ exports.aliexpressSearchImport = onRequest(
       const finalSnap = await logRef.get();
       const waitingUserIds = Array.isArray(finalSnap.data()?.waitingUserIds) ? finalSnap.data().waitingUserIds : [];
 
+      // Name the product(s) and link the first one (notifyUser adds
+      // productId/route from productIds[0]).
+      const foundNames = [];
+      for (const id of productIds.slice(0, 5)) {
+        try {
+          const snap = await db.collection("products").doc(String(id)).get();
+          if (snap.exists) foundNames.push(cleanPushText(snap.data()?.name || "", 80));
+        } catch (nameError) {
+          logger.warn("AliExpress search-import: product name read failed", { id, message: nameError.message });
+        }
+      }
+      const found = customerTemplates.searchImportFound(foundNames, query);
+
       await Promise.all(waitingUserIds.map((waitingUid) =>
-        notifyUser(waitingUid, "Product found! 🎉", "The product you searched for is now available.", {
+        notifyUser(waitingUid, found.title, found.body, {
           type: "search_import_done",
           query,
           productIds,
+          productName: foundNames[0] || "",
         }).catch((notifyError) => {
           logger.warn("AliExpress search-import: notifyUser failed", { query, uid: waitingUid, message: notifyError.message });
         })
@@ -4591,8 +4618,8 @@ exports.onOrderStatusUpdated = onDocumentUpdated("orders/{orderId}", async (even
 
   await notifyUser(
     after.userId,
-    "Order Update",
-    `Your order #${orderId.substring(0, 8)} is now ${newStatus}`,
+    customerTemplates.orderStatus(orderId, newStatus).title,
+    customerTemplates.orderStatus(orderId, newStatus).body,
     {
       type: "order_status",
       orderId,
@@ -4626,8 +4653,8 @@ exports.onOrderStatusUpdated = onDocumentUpdated("orders/{orderId}", async (even
   if (newStatus === "picked_up") {
     await notifyUser(
       after.userId,
-      "Order Picked Up 🚚",
-      `Your order #${orderId.substring(0, 8)} is on the way.`,
+      customerTemplates.orderPickedUp(orderId).title,
+      customerTemplates.orderPickedUp(orderId).body,
       {
         type: "picked_up",
         orderId,
@@ -4648,8 +4675,8 @@ exports.onOrderStatusUpdated = onDocumentUpdated("orders/{orderId}", async (even
 
     await notifyUser(
       after.userId,
-      "Order Delivered ✅",
-      `Your order #${orderId.substring(0, 8)} has been delivered successfully.`,
+      customerTemplates.orderDelivered(orderId).title,
+      customerTemplates.orderDelivered(orderId).body,
       {
         type: "order_delivered",
         orderId,
@@ -4819,8 +4846,8 @@ exports.onProductStockUpdated = onDocumentUpdated("products/{productId}", async 
       productId,
       after,
       "back_in_stock",
-      "Wishlist product back in stock 📦",
-      `${after.name || "Your wishlist product"} is available again.`,
+      customerTemplates.backInStock(after.name).title,
+      customerTemplates.backInStock(after.name).body,
       { stock: afterStock }
     );
 
@@ -4851,8 +4878,8 @@ exports.onProductStockUpdated = onDocumentUpdated("products/{productId}", async 
         productId,
         after,
         "wishlist_discount",
-        "Wishlist product discount 🏷️",
-        `${after.name || "Your wishlist product"} now has ${afterDiscount}% discount.`,
+        customerTemplates.wishlistDiscount(after.name, afterDiscount).title,
+        customerTemplates.wishlistDiscount(after.name, afterDiscount).body,
         { discountPercent: afterDiscount }
       );
 

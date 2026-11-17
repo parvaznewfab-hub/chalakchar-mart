@@ -8,6 +8,7 @@ import '../../services/auth_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/referral_service.dart';
 import '../../utils/web_recaptcha_helper.dart';
+import '../../utils/auth_error_text.dart';
 import '../main_navigation_page.dart';
 import 'package:firebase_auth_platform_interface/firebase_auth_platform_interface.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -38,6 +39,14 @@ class _LoginPageState extends State<LoginPage> {
   /// Shown under the phone field inside the login card (audit #23: a
   /// snackbar appeared behind the modal, at the bottom of the screen).
   String? _phoneError;
+
+  /// Google/Facebook errors, shown under the social buttons in Bangla.
+  String? _socialError;
+
+  /// Set when the email already has an account with another method: the
+  /// card then offers those methods and links the new one afterwards.
+  AccountExistsException? _accountExists;
+  final FocusNode _phoneFocus = FocusNode();
   final TextEditingController referralCodeController = TextEditingController();
 
   final AuthService _authService = AuthService();
@@ -63,6 +72,7 @@ class _LoginPageState extends State<LoginPage> {
   void dispose() {
     phoneController.dispose();
     referralCodeController.dispose();
+    _phoneFocus.dispose();
     if (kIsWeb) {
       setRecaptchaVisible(false);
     }
@@ -108,9 +118,13 @@ class _LoginPageState extends State<LoginPage> {
 
     final user = _auth.currentUser;
     if (user == null) {
-      _showMessage('Login failed. Please try again.');
+      _showMessage(authErrorBn('unknown'));
       return;
     }
+
+    // Facebook/Google kept from an "account already exists" attempt is
+    // linked now, so it opens this same account next time.
+    final link = await _authService.linkPendingCredentialIfAny();
 
     String role = 'user';
 
@@ -152,8 +166,15 @@ class _LoginPageState extends State<LoginPage> {
       await FirebaseAuth.instance.signOut();
 
       if (!mounted) return;
-      _showMessage('Login failed: $e');
+      _showMessage(authErrorBn('unknown'));
       return;
+    }
+
+    if (link.linked) {
+      final name = providerNameBn(link.providerId!);
+      _showMessage('$name আপনার অ্যাকাউন্টে যুক্ত হয়েছে। এখন থেকে $name দিয়েও লগইন করতে পারবেন।');
+    } else if (link.failed) {
+      _showMessage('${providerNameBn(link.providerId!)} যুক্ত করা যায়নি। ${authErrorBn(link.errorCode!)}');
     }
 
     // 2) Notification permission is NOT critical for login. Logging in is
@@ -185,7 +206,7 @@ class _LoginPageState extends State<LoginPage> {
     final digits = rawPhone.replaceAll(RegExp(r'[^0-9]'), '');
 
     if (digits.length != 11 || !digits.startsWith('01')) {
-      setState(() => _phoneError = 'Please enter a valid 11 digit Bangladeshi mobile number (01XXXXXXXXX)');
+      setState(() => _phoneError = authErrorBn('invalid-phone-format'));
       return;
     }
     if (_phoneError != null) setState(() => _phoneError = null);
@@ -224,14 +245,14 @@ class _LoginPageState extends State<LoginPage> {
               await _auth.signInWithCredential(credential);
               await _afterLogin();
             } catch (e) {
-              _showMessage('Auto verification failed: $e');
+              _showMessage(authErrorBn(e is FirebaseAuthException ? e.code : 'unknown'));
             }
           },
           verificationFailed: (FirebaseAuthException e) {
             if (!mounted) return;
             setState(() {
               loading = false;
-              _phoneError = _otpErrorText(e.code, e.message);
+              _phoneError = authErrorBn(e.code);
             });
           },
           codeSent: (String verId, int? resendToken) {
@@ -255,30 +276,16 @@ class _LoginPageState extends State<LoginPage> {
         setRecaptchaVisible(false);
       }
 
-      setState(() => _phoneError = _otpErrorText(e is FirebaseAuthException ? e.code : '', '$e'));
-    }
-  }
-
-  /// Short, readable reason for a failed OTP send, shown under the phone field.
-  String _otpErrorText(String code, String? raw) {
-    switch (code) {
-      case 'invalid-phone-number':
-        return 'This mobile number is not valid. Please check it (01XXXXXXXXX).';
-      case 'too-many-requests':
-      case 'quota-exceeded':
-        return 'Too many attempts. Please wait a few minutes and try again.';
-      case 'network-request-failed':
-        return 'No internet connection. Please check your connection and try again.';
-      case 'captcha-check-failed':
-        return 'Verification failed. Please reload the page and try again.';
-      default:
-        return 'Could not send the OTP. Please try again.';
+      setState(() => _phoneError = authErrorBn(
+            e is FirebaseAuthException ? e.code : (e is TimeoutException ? 'timeout' : 'unknown'),
+          ));
     }
   }
 
   Future<void> _showWebOTPDialog(ConfirmationResult confirmationResult) async {
     final otpController = TextEditingController();
     bool verifying = false;
+    String? otpError;
 
     await showDialog(
       context: context,
@@ -290,11 +297,14 @@ class _LoginPageState extends State<LoginPage> {
               final otp = otpController.text.trim();
 
               if (otp.length != 6) {
-                _showMessage('Enter valid 6 digit OTP');
+                setDialogState(() => otpError = authErrorBn('otp-length'));
                 return;
               }
 
-              setDialogState(() => verifying = true);
+              setDialogState(() {
+                verifying = true;
+                otpError = null;
+              });
 
               try {
                 await confirmationResult.confirm(otp);
@@ -302,7 +312,11 @@ class _LoginPageState extends State<LoginPage> {
                 if (ctx.mounted) Navigator.pop(ctx);
                 await _afterLogin();
               } catch (e) {
-                _showMessage('Invalid OTP');
+                if (ctx.mounted) {
+                  setDialogState(() => otpError = authErrorBn(
+                        e is FirebaseAuthException ? e.code : 'invalid-verification-code',
+                      ));
+                }
               } finally {
                 if (ctx.mounted) setDialogState(() => verifying = false);
               }
@@ -314,10 +328,12 @@ class _LoginPageState extends State<LoginPage> {
                 controller: otpController,
                 keyboardType: TextInputType.number,
                 maxLength: 6,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   hintText: '6-digit code',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
                   counterText: '',
+                  errorText: otpError,
+                  errorMaxLines: 3,
                 ),
                 onSubmitted: (_) => verify(),
               ),
@@ -349,6 +365,7 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _showOTPDialog() async {
     final otpController = TextEditingController();
     bool verifying = false;
+    String? otpError;
 
     await showDialog(
       context: context,
@@ -360,11 +377,14 @@ class _LoginPageState extends State<LoginPage> {
               final otp = otpController.text.trim();
 
               if (otp.length != 6 || verificationId == null) {
-                _showMessage('Enter valid 6 digit OTP');
+                setDialogState(() => otpError = authErrorBn('otp-length'));
                 return;
               }
 
-              setDialogState(() => verifying = true);
+              setDialogState(() {
+                verifying = true;
+                otpError = null;
+              });
 
               try {
                 final credential = PhoneAuthProvider.credential(
@@ -377,7 +397,11 @@ class _LoginPageState extends State<LoginPage> {
                 if (ctx.mounted) Navigator.pop(ctx);
                 await _afterLogin();
               } catch (e) {
-                _showMessage('Invalid OTP');
+                if (ctx.mounted) {
+                  setDialogState(() => otpError = authErrorBn(
+                        e is FirebaseAuthException ? e.code : 'invalid-verification-code',
+                      ));
+                }
               } finally {
                 if (ctx.mounted) setDialogState(() => verifying = false);
               }
@@ -389,10 +413,12 @@ class _LoginPageState extends State<LoginPage> {
                 controller: otpController,
                 keyboardType: TextInputType.number,
                 maxLength: 6,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   hintText: '6-digit code',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
                   counterText: '',
+                  errorText: otpError,
+                  errorMaxLines: 3,
                 ),
                 onSubmitted: (_) => verify(),
               ),
@@ -421,53 +447,144 @@ class _LoginPageState extends State<LoginPage> {
     otpController.dispose();
   }
 
-  Future<void> _facebookLogin() async {
+  Future<void> _facebookLogin() => _socialLogin(_authService.signInWithFacebook);
+
+  Future<void> _googleLogin() => _socialLogin(_authService.signInWithGoogle);
+
+  Future<void> _socialLogin(Future<User?> Function() signIn) async {
     if (loading) return;
 
-    setState(() => loading = true);
+    setState(() {
+      loading = true;
+      _socialError = null;
+      _accountExists = null;
+    });
 
     try {
-      await _authService.signInWithFacebook();
-
-      final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser != null) {
+      final user = await signIn();
+      if (user != null && FirebaseAuth.instance.currentUser != null) {
         await _afterLogin();
-        return;
       }
-
-      _showMessage('Facebook login cancelled or failed');
+      // null: the customer closed it; nothing to report.
+    } on AccountExistsException catch (e) {
+      if (mounted) setState(() => _accountExists = e);
+    } on FirebaseAuthException catch (e) {
+      if (mounted) setState(() => _socialError = authErrorBn(e.code));
     } catch (e) {
-      _showMessage('Facebook login failed: $e');
+      debugPrint('Social login error: $e');
+      if (mounted) setState(() => _socialError = authErrorBn('unknown'));
     } finally {
-      if (mounted) {
-        setState(() => loading = false);
-      }
+      if (mounted) setState(() => loading = false);
     }
   }
 
-  Future<void> _googleLogin() async {
-    if (loading) return;
+  /// "Account already exists": names the other methods and offers them.
+  Widget _accountExistsPanel(AccountExistsException e) {
+    final tried = providerNameBn(e.providerId);
+    final others = e.existingMethods.isNotEmpty
+        ? e.existingMethods
+        : <String>[
+            if (e.providerId != 'google.com') 'google.com',
+            if (e.providerId != 'facebook.com') 'facebook.com',
+            'phone',
+          ];
+    final shown = others.where((m) => m == 'google.com' || m == 'facebook.com' || m == 'phone').toList();
+    final names = shown.map(providerNameBn).join(' / ');
+    final message = e.canLink
+        ? '$accountExistsBn আগের পদ্ধতিতে ($names) লগইন করুন, তাহলে $tried-ও আপনার অ্যাকাউন্টে যুক্ত হয়ে যাবে।'
+        : '$accountExistsBn আগের পদ্ধতিতে ($names) লগইন করুন।';
 
-    setState(() => loading = true);
-
-    try {
-      await _authService.signInWithGoogle();
-
-      final currentUser = FirebaseAuth.instance.currentUser;
-
-      if (currentUser != null) {
-        await _afterLogin();
-        return;
-      }
-
-      _showMessage('Google login failed');
-    } catch (e) {
-      _showMessage('Google login failed: $e');
-    } finally {
-      if (mounted) {
-        setState(() => loading = false);
+    Widget button(String method) {
+      switch (method) {
+        case 'google.com':
+          return OutlinedButton.icon(
+            onPressed: loading ? null : _googleLogin,
+            icon: const Icon(Icons.g_mobiledata_rounded, size: 26),
+            label: const Text('Google দিয়ে লগইন'),
+          );
+        case 'facebook.com':
+          return OutlinedButton.icon(
+            onPressed: loading ? null : _facebookLogin,
+            icon: const Icon(Icons.facebook, color: Color(0xFF1877F2)),
+            label: const Text('Facebook দিয়ে লগইন'),
+          );
+        default:
+          return OutlinedButton.icon(
+            onPressed: loading
+                ? null
+                : () {
+                    setState(() => _accountExists = null);
+                    _phoneFocus.requestFocus();
+                  },
+            icon: const Icon(Icons.sms_outlined),
+            label: const Text('ফোন OTP দিয়ে লগইন'),
+          );
       }
     }
+
+    return Container(
+      key: const Key('login-account-exists'),
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 14),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFBBF24)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.info_outline, color: Color(0xFFD97706), size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  message,
+                  style: const TextStyle(color: Color(0xFF1F2937), fontSize: 13.5, height: 1.45, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: shown.map(button).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _socialErrorBox(String text) {
+    return Container(
+      key: const Key('login-social-error'),
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF1F1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFF87171)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 18),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(color: Color(0xFFB91C1C), fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _closeLogin() {
@@ -650,6 +767,7 @@ class _LoginPageState extends State<LoginPage> {
                             Expanded(
                               child: TextField(
                                 controller: phoneController,
+                                focusNode: _phoneFocus,
                                 enabled: !loading,
                                 cursorColor: primaryColor,
                                 style: const TextStyle(
@@ -873,6 +991,9 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ],
                       ),
+
+                      if (_accountExists != null) _accountExistsPanel(_accountExists!),
+                      if (_socialError != null) _socialErrorBox(_socialError!),
                     ],
                   ),
                 ),

@@ -19,6 +19,7 @@ import '../pages/user/user_order_page.dart';
 import '../services/auth_service.dart';
 import 'cart_badge.dart';
 import '../pages/user/notifications_page.dart';
+import 'customer_notifications.dart';
 import '../deferred/staff.dart';
 
 class GlobalWebHeader extends StatefulWidget implements PreferredSizeWidget {
@@ -970,7 +971,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Notifications',
+                          'নোটিফিকেশন',
                           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
                         ),
                         const SizedBox(height: 10),
@@ -996,29 +997,22 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
                             if (docs.isEmpty) {
                               return const Padding(
                                 padding: EdgeInsets.symmetric(vertical: 16),
-                                child: Text('No notifications'),
+                                child: Text('এখনও কোনো নোটিফিকেশন নেই'),
                               );
                             }
 
                             return Column(
                               children: latestDocs.map((doc) {
-                                final d = doc.data();
-                                return ListTile(
-                                  dense: true,
-                                  contentPadding: EdgeInsets.zero,
-                                  leading: Icon(
-                                    Icons.notifications_active_rounded,
-                                    color: d['isRead'] == true ? Colors.grey : primary,
-                                  ),
-                                  title: Text(
-                                    _text(d['title'], 'Notification'),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  subtitle: Text(
-                                    _text(d['body']),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: NotificationListItem(
+                                    doc: doc,
+                                    compact: true,
+                                    onTap: () {
+                                      // Close the dropdown, then mark read and open.
+                                      Navigator.pop(context);
+                                      NotificationActions.open(context, doc);
+                                    },
                                   ),
                                 );
                               }).toList(),
@@ -1031,7 +1025,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
                           child: const Padding(
                             padding: EdgeInsets.symmetric(vertical: 8),
                             child: Text(
-                              'View all notifications',
+                              'সব নোটিফিকেশন দেখুন',
                               style: TextStyle(
                                 color: primary,
                                 fontWeight: FontWeight.w900,

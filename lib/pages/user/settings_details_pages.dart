@@ -72,46 +72,42 @@ class PermissionsPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // Must match android/app/src/main/AndroidManifest.xml (merged):
+          // the only runtime permission is POST_NOTIFICATIONS. No location,
+          // camera, storage/media or phone permission is declared.
           const Text(
-            "We request only necessary permissions to provide better service.",
-            style: TextStyle(fontSize: 14, color: Colors.black54),
+            "The app asks for only one permission. Other features use your phone's own apps and need no permission.",
+            style: TextStyle(fontSize: 14, color: Colors.black54, height: 1.4),
           ),
 
           const SizedBox(height: 16),
 
           _permissionItem(
-            icon: Icons.call,
-            title: "Phone Permission",
+            icon: Icons.notifications,
+            title: "Notifications (permission asked)",
             description:
-            "Used to call customer support directly from the app when needed.",
-          ),
-
-          _permissionItem(
-            icon: Icons.location_on,
-            title: "Location Permission (Optional)",
-            description:
-            "Used to help provide accurate delivery services. You can still use the app without enabling this.",
+            "Used to send order updates and, if you keep them on in Settings, new products and offers. You can turn this off at any time in your phone settings.",
           ),
 
           _permissionItem(
             icon: Icons.camera_alt,
-            title: "Camera Permission",
+            title: "Camera (no permission needed)",
             description:
-            "Used to take a photo to search for a product (image search).",
+            "Image search opens your phone's camera only when you tap the camera button. Only the photo you take is used.",
           ),
 
           _permissionItem(
             icon: Icons.photo_library,
-            title: "Storage / Gallery",
+            title: "Photos (no permission needed)",
             description:
-            "Used to pick a photo from your gallery for image search.",
+            "Image search uses your phone's photo picker. The app sees only the photo you choose, not your gallery.",
           ),
 
           _permissionItem(
-            icon: Icons.notifications,
-            title: "Notification",
+            icon: Icons.call,
+            title: "Phone calls (no permission needed)",
             description:
-            "Used to send updates about orders, delivery status, and important alerts.",
+            "Call buttons open your phone's dialer with our support number. You place the call yourself.",
           ),
 
           const SizedBox(height: 20),

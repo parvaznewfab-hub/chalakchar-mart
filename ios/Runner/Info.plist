@@ -43,6 +43,11 @@
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- image_picker (image search): iOS requires these or the app closes. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Take a photo to search for a product.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choose a photo to search for a product.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 
@@ -51,6 +56,11 @@
 	<string>2182052695913841</string>
 	<key>FacebookClientToken</key>
 	<string>08b9bebb7bcf5e8963c0451290768a55</string>
+	<!-- Facebook SDK is used for login only: no app events, no advertiser ID. -->
+	<key>FacebookAutoLogAppEventsEnabled</key>
+	<false/>
+	<key>FacebookAdvertiserIDCollectionEnabled</key>
+	<false/>
 	<key>FacebookDisplayName</key>
 	<string>Chalakchar Mart</string>
 	<key>CFBundleURLTypes</key>

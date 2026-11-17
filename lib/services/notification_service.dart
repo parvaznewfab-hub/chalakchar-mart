@@ -99,12 +99,16 @@ class NotificationService {
     String type = 'general',
     Map<String, dynamic>? data,
   }) async {
+    final orderId = (data?['orderId'] ?? '').toString();
     await _db.collection('notifications').add({
       'userId': userId,
       'title': title,
       'body': body,
       'type': type,
       'data': data ?? {},
+      // Lets the app open the order when the notification is tapped.
+      if (orderId.isNotEmpty) 'orderId': orderId,
+      if (orderId.isNotEmpty) 'category': 'order',
       'isRead': false,
       'createdAt': FieldValue.serverTimestamp(),
     });
@@ -173,8 +177,8 @@ class NotificationService {
   }) async {
     await sendNotification(
       userId: userId,
-      title: 'Order placed',
-      body: 'Your order #${orderId.substring(0, 8)} has been placed.',
+      title: 'অর্ডার করা হয়েছে 🛒',
+      body: 'আপনার অর্ডার #${orderId.substring(0, 8)} গ্রহণ করা হয়েছে।',
       type: 'order',
       data: {'orderId': orderId},
     );

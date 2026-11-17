@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../utils/order_status_bn.dart';
+import '../../utils/customer_notification_view.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -48,7 +50,7 @@ class OrderPage extends StatelessWidget {
     final PreferredSizeWidget? mobileAppBar = isDesktop
         ? null
         : AppBar(
-      title: const Text('My Orders'),
+      title: const Text('আমার অর্ডার'),
       backgroundColor: Colors.white,
       foregroundColor: Colors.black,
       elevation: 0,
@@ -61,7 +63,7 @@ class OrderPage extends StatelessWidget {
         slivers: [
           const SliverFillRemaining(
             hasScrollBody: false,
-            child: Center(child: Text('Please login to view your orders')),
+            child: Center(child: Text('অর্ডার দেখতে লগইন করুন')),
           ),
           if (isDesktop)
             const SliverToBoxAdapter(child: GlobalWebFooter()),
@@ -183,7 +185,7 @@ class OrderPage extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                'Order #${_shortId(orderId)}',
+                'অর্ডার #${_shortId(orderId)}',
                 style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
               ),
             ),
@@ -205,8 +207,10 @@ class OrderPage extends StatelessWidget {
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               _statusChip(status),
-              _miniChip(orderType == 'marketplace' ? 'Marketplace' : 'Best Selling', orderType == 'marketplace' ? Colors.deepPurple : Colors.green),
-              _miniChip('${items.length} items', Colors.blueGrey),
+              // Marketplace orders only; the old "Best Selling" tag on every
+              // other order meant nothing to shoppers.
+              if (orderType == 'marketplace') _miniChip('বিক্রেতার পণ্য', Colors.deepPurple),
+              _miniChip('${bnNumber(items.length)}টি পণ্য', Colors.blueGrey),
               Text(dateStr, style: const TextStyle(fontSize: 12, color: Colors.grey)),
             ],
           ),
@@ -218,37 +222,37 @@ class OrderPage extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Divider(height: 20),
-                _sectionTitle('ORDER TRACKING'),
+                _sectionTitle('অর্ডার ট্র্যাকিং'),
                 const SizedBox(height: 10),
-                _statusTimeline(status),
+                _statusTimeline(status, _text(data['deliveryStatus'])),
                 const SizedBox(height: 18),
 
-                _sectionTitle('ORDER ITEMS'),
+                _sectionTitle('অর্ডারের পণ্য'),
                 const SizedBox(height: 8),
                 ...items.map((item) => _itemRow(item)),
 
                 const Divider(height: 24),
-                _sectionTitle('PAYMENT BREAKDOWN'),
+                _sectionTitle('পেমেন্টের হিসাব'),
                 const SizedBox(height: 10),
-                _paymentRow('Subtotal', formatTaka(totals['totalMrp']!)),
+                _paymentRow('পণ্যের দাম', formatTaka(totals['totalMrp']!)),
                 if (totals['productDiscount']! > 0)
-                  _paymentRow('Product Discount', '-${formatTaka(totals['productDiscount']!)}', valueColor: Colors.red),
+                  _paymentRow('পণ্যে ছাড়', '-${formatTaka(totals['productDiscount']!)}', valueColor: Colors.red),
                 if (totals['couponDiscount']! > 0)
-                  _paymentRow('Coupon Discount', '-${formatTaka(totals['couponDiscount']!)}', valueColor: Colors.red),
+                  _paymentRow('কুপন ছাড়', '-${formatTaka(totals['couponDiscount']!)}', valueColor: Colors.red),
                 if (totals['chalakCharCashUsed']! > 0)
-                  _paymentRow('ChalakChar Cash Used', '-${formatTaka(totals['chalakCharCashUsed']!)}', valueColor: Colors.red),
-                _paymentRow('After Discount', formatTaka(totals['subtotalAfterDiscount']!)),
-                _paymentRow('Delivery Charge', '+${formatTaka(totals['deliveryCharge']!)}', valueColor: Colors.green),
+                  _paymentRow('ChalakChar Cash ব্যবহার', '-${formatTaka(totals['chalakCharCashUsed']!)}', valueColor: Colors.red),
+                _paymentRow('ছাড়ের পর', formatTaka(totals['subtotalAfterDiscount']!)),
+                _paymentRow('ডেলিভারি চার্জ', '+${formatTaka(totals['deliveryCharge']!)}', valueColor: Colors.green),
                 const Divider(height: 18),
                 _paymentRow(
-                  'Grand Total',
+                  'সর্বমোট',
                   formatTaka(totals['grandTotal']!),
                   isBold: true,
                   valueColor: const Color(0xFF32A8C7),
                 ),
 
                 const Divider(height: 24),
-                _sectionTitle('DELIVERY ADDRESS'),
+                _sectionTitle('ডেলিভারির ঠিকানা'),
                 const SizedBox(height: 8),
                 _addressBox(address),
 
@@ -358,7 +362,7 @@ class OrderPage extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${_text(item['name'], 'Product')} ${_text(item['strength'])}',
+                  '${_text(item['name'], 'পণ্য')} ${_text(item['strength'])}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.w800),
@@ -368,7 +372,7 @@ class OrderPage extends StatelessWidget {
                   spacing: 6,
                   runSpacing: 4,
                   children: [
-                    _miniChip('Qty: $qty${unit.isNotEmpty ? ' • $unit' : ''}', Colors.blueGrey),
+                    _miniChip('পরিমাণ: $qty${unit.isNotEmpty ? ' • $unit' : ''}', Colors.blueGrey),
                     _miniChip(
                       isMarketplace ? vendorName : 'ChalakChar Mart',
                       isMarketplace ? Colors.deepPurple : Colors.green,
@@ -400,11 +404,11 @@ class OrderPage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Name: ${_text(address['name'], 'N/A')}'),
-          Text('Phone: ${_text(address['phone'], 'N/A')}'),
-          Text('Address: ${_text(address['address'], 'N/A')}'),
+          Text('নাম: ${_text(address['name'], '-')}'),
+          Text('ফোন: ${_text(address['phone'], '-')}'),
+          Text('ঠিকানা: ${_text(address['address'], '-')}'),
           Text(
-            'Area: ${_text(address['division'])} → ${_text(address['district'])} → ${_text(address['upazila'])}',
+            'এলাকা: ${_text(address['division'])} → ${_text(address['district'])} → ${_text(address['upazila'])}',
           ),
         ],
       ),
@@ -428,7 +432,7 @@ class OrderPage extends StatelessWidget {
               );
             },
             icon: const Icon(Icons.local_shipping_outlined),
-            label: const Text('TRACK ORDER'),
+            label: const Text('অর্ডার ট্র্যাক করুন'),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF32A8C7),
               foregroundColor: Colors.white,
@@ -447,7 +451,7 @@ class OrderPage extends StatelessWidget {
             child: OutlinedButton.icon(
               onPressed: () => _showCancelConfirmation(context, orderId),
               icon: const Icon(Icons.cancel_outlined),
-              label: const Text('CANCEL ORDER'),
+              label: const Text('অর্ডার বাতিল করুন'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.red,
                 side: const BorderSide(color: Colors.red),
@@ -462,8 +466,8 @@ class OrderPage extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             status == 'cancelled'
-                ? 'This order was cancelled'
-                : 'Order is being processed',
+                ? 'এই অর্ডারটি বাতিল করা হয়েছে'
+                : 'অর্ডারটি প্রক্রিয়াধীন আছে',
             style: const TextStyle(
               fontStyle: FontStyle.italic,
               color: Colors.grey,
@@ -477,27 +481,21 @@ class OrderPage extends StatelessWidget {
 
 
 
-  Widget _statusTimeline(String status) {
-    final steps = [
-      ['pending', 'Placed'],
-      ['confirmed', 'Confirmed'],
-      ['ready_for_pickup', 'Ready'],
-      ['assigned_to_rider', 'On delivery'],
-      ['delivered', 'Delivered'],
-    ];
+  Widget _statusTimeline(String status, String deliveryStatus) {
+    // Same steps and words as the Track Order page (order_status_bn.dart).
+    final steps = orderStepsBn;
 
-    if (status == 'cancelled') {
+    if (status == 'cancelled' || status == 'rejected') {
       return Row(
         children: [
           _timelineDot(true, Colors.red),
           const SizedBox(width: 8),
-          const Text('Cancelled', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+          const Text('বাতিল করা হয়েছে', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
         ],
       );
     }
 
-    final currentIndex = steps.indexWhere((e) => e[0] == status);
-    final activeIndex = currentIndex < 0 ? 0 : currentIndex;
+    final activeIndex = orderStepIndex(status, deliveryStatus);
 
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -509,7 +507,7 @@ class OrderPage extends StatelessWidget {
               _timelineDot(active, active ? const Color(0xFF32A8C7) : Colors.grey),
               const SizedBox(width: 6),
               Text(
-                steps[i][1],
+                steps[i],
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: active ? FontWeight.bold : FontWeight.w500,
@@ -572,7 +570,7 @@ class OrderPage extends StatelessWidget {
 
   Widget _statusChip(String status) {
     Color color = Colors.orange;
-    String label = status.toUpperCase();
+    String label = CustomerNotificationView.orderStatusBn[status] ?? status;
 
     if (status == 'delivered') {
       color = Colors.green;
@@ -618,12 +616,12 @@ class OrderPage extends StatelessWidget {
           Icon(Icons.shopping_bag_outlined, size: 80, color: Colors.grey.shade300),
           const SizedBox(height: 16),
           const Text(
-            'No orders yet',
+            'এখনো কোনো অর্ডার নেই',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           const Text(
-            'Start shopping to see your orders here.',
+            'কেনাকাটা শুরু করুন, আপনার অর্ডারগুলো এখানে দেখাবে।',
             style: TextStyle(color: Colors.grey),
           ),
         ],
@@ -635,19 +633,19 @@ class OrderPage extends StatelessWidget {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Cancel Order?'),
-        content: const Text('Are you sure you want to cancel this order? This action cannot be undone.'),
+        title: const Text('অর্ডার বাতিল করবেন?'),
+        content: const Text('আপনি কি এই অর্ডারটি বাতিল করতে চান? বাতিল করলে আর ফেরানো যাবে না।'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('NO, KEEP IT'),
+            child: const Text('না, রাখুন'),
           ),
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
               await _cancelOrder(context, orderId);
             },
-            child: const Text('YES, CANCEL', style: TextStyle(color: Colors.red)),
+            child: const Text('হ্যাঁ, বাতিল করুন', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -684,13 +682,13 @@ class OrderPage extends StatelessWidget {
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Order cancelled successfully')),
+          const SnackBar(content: Text('অর্ডারটি বাতিল করা হয়েছে')),
         );
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to cancel order: $e')),
+          const SnackBar(content: Text('অর্ডারটি বাতিল করা যায়নি। পেজ রিফ্রেশ করে আবার চেষ্টা করুন।')),
         );
       }
     }
