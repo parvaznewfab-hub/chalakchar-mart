@@ -6,6 +6,14 @@
 - ইচ্ছা করে দেওয়া হয়নি: `aliexpressScheduledDiscover`। deploy করলে বন্ধ রাখা Scheduler আবার চালু হয়ে যাবে।
 - এতে আছে: নোটিফিকেশন (চাপলে খোলে, বাংলা, মোবাইলে ঘণ্টা, পছন্দের অপশন), লগইন (নিজের হোস্টে authDomain, F4 ঠিক, COOP, account linking, বাংলা error), Play-র permission ঠিক করা, My Orders আর Track Order বাংলায়, Related products, seller-text filter।
 
+## লাইভে গেছে, ১৭ নভেম্বর ২০২৬
+- **04:18 UTC:** hosting আর `productSeo`, commit `cfb3c87`। এতে seller-text ফিল্টার। release `1794889137159000`, version `839ee55692e46666`। আগেরটা ছিল `2e00227653efefe9`।
+- **16:14 UTC:** শুধু hosting, commit `ed6859a` (`53a9e36`, `fd1be87`, `ed6859a`)। release `1794932050383000`, version `847c033e7daffde8`। rollback: `firebase hosting:clone chalakchar-mart@839ee55692e46666 chalakchar-mart:live`।
+  - সার্চ, সাজেশন, vendor shop, marketplace, category পেজ আর হোমের category সারি এখন একটাই নিয়ম মানে (`lib/utils/shop_visibility.dart`)।
+  - সাজেশন সব দেখানোযোগ্য পণ্যের মধ্যে খোঁজে। vendor shop-এ "আরও দেখুন"। category-র তালিকা ১০ মিনিট cache-এ থাকে।
+  - AliExpress import-এর সিদ্ধান্ত এখন শুধু সার্ভারের তালিকা দিয়ে হয়।
+  - লাইভে যাচাই: খালি সার্চে 83, "motorola" সাজেশন আসে, category পেজ 52 / 25 / 6, `/category/cooking` খুললে "not found", পণ্যের পেজ খোলে।
+
 ## প্রথমে করতে হবে
 1. **`wip/audit-step1` এগিয়ে আনা।** এই branch লাইভের চেয়ে পিছিয়ে আছে, শেষ commit `0f16c45`। লাইভ চলছে `afff7c3`-এ। এখান থেকে deploy করলে আজকের সব বদল লাইভ থেকে হারিয়ে যাবে।
    - `afff7c3`-এ `wip/audit-step1`-এর সবকিছু আছে, তাই শুধু fast-forward করলেই হবে: `git merge --ff-only wip/notifications`।
