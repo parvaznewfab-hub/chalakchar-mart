@@ -45,6 +45,27 @@ class CategoryService {
     return list;
   }
 
+  static Future<List<String>>? _activeNamesCache;
+
+  /// Names of the switched-on categories, as written on the category docs.
+  /// Read once per app session and cached (like the subcategories); a
+  /// failed read is not cached, so the next caller retries.
+  static Future<List<String>> activeCategoryNames() {
+    return _activeNamesCache ??= getActiveCategoriesOnce()
+        .then((list) => [
+              for (final c in list)
+                if (c.name.trim().isNotEmpty) c.name.trim(),
+            ])
+        .catchError((Object e) {
+      _activeNamesCache = null;
+      throw e;
+    });
+  }
+
+  /// [activeCategoryNames] lower-cased, for isShopVisibleProduct.
+  static Future<Set<String>> activeCategoryNamesLower() =>
+      activeCategoryNames().then((names) => {for (final n in names) n.toLowerCase()});
+
   /// URL slug for a category name — the same rule the /category/{slug}
   /// route and the home page have always used.
   static String slugOf(String value) {

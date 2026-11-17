@@ -10,6 +10,7 @@ import '../../services/category_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/product_service.dart';
 import '../../utils/search_import_guard.dart';
+import '../../utils/shop_visibility.dart';
 import '../../widgets/product_card.dart';
 import '../../widgets/global_web_header.dart';
 import '../../widgets/global_web_footer.dart';
@@ -67,9 +68,22 @@ class _SearchPageState extends State<SearchPage> {
   bool _onlyMarketplace = false;
   bool _onlyPharmacy = false;
 
+  // Switched-on categories (lower-cased), from CategoryService's session
+  // cache: results only list what the shop shows (isShopVisibleProduct).
+  Set<String>? _activeCategoriesLower;
+  Object? _activeCategoriesError;
+
   @override
   void initState() {
     super.initState();
+    CategoryService.activeCategoryNamesLower().then(
+      (names) {
+        if (mounted) setState(() => _activeCategoriesLower = names);
+      },
+      onError: (Object e) {
+        if (mounted) setState(() => _activeCategoriesError = e);
+      },
+    );
     _query = widget.initialQuery.trim();
     _searchController.text = _query;
     // Opening the page with a query (from the header or home search box) is
@@ -114,11 +128,6 @@ class _SearchPageState extends State<SearchPage> {
     if (matchCount == 0 && isImportableSearchQuery(query)) {
       _triggerSearchImport(normalizeSearchQuery(query));
     }
-  }
-
-  String _text(dynamic value, [String fallback = '']) {
-    final text = (value ?? '').toString().trim();
-    return text.isEmpty ? fallback : text;
   }
 
   // Field set must match the search_logs create rule in firestore.rules.
@@ -187,140 +196,21 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
-  // Same "from" price as the cards (cheapest in-stock variant).
-  double _priceOf(Map<String, dynamic> data) =>
-      ProductService.getDisplayPrice(data);
-
-  int _stockOf(Map<String, dynamic> data) {
-    final variants = data['variants'];
-
-    if (variants is List && variants.isNotEmpty) {
-      int total = 0;
-      for (final v in variants) {
-        if (v is Map) {
-          total += int.tryParse((v['stock'] ?? 0).toString()) ?? 0;
-        }
-      }
-      return total;
-    }
-
-    return int.tryParse((data['stock'] ?? 0).toString()) ?? 0;
-  }
-
-  DateTime _dateOf(Map<String, dynamic> data) {
-    final value = data['createdAt'];
-    if (value is Timestamp) return value.toDate();
-    return DateTime(2000);
-  }
-
-  bool _isMarketplace(Map<String, dynamic> data) {
-    final vendorId = _text(data['vendorId']);
-    return vendorId.isNotEmpty && vendorId != 'super_admin';
-  }
-
-  int _searchScore(Map<String, dynamic> data, String q) {
-    if (q.trim().isEmpty) return 0;
-
-    final query = q.toLowerCase().trim();
-    final name = _text(data['name']).toLowerCase();
-    final generic = _text(data['generic']).toLowerCase();
-    final manufacturer = _text(data['manufacturer']).toLowerCase();
-    final brand = _text(data['brand']).toLowerCase();
-    final category = _text(data['category']).toLowerCase();
-    final type = _text(data['type']).toLowerCase();
-    final strength = _text(data['strength']).toLowerCase();
-    final vendorName = _text(data['vendorName'] ?? data['shopName']).toLowerCase();
-
-    int score = 0;
-
-    if (name == query) score += 100;
-    if (name.startsWith(query)) score += 60;
-    if (name.contains(query)) score += 40;
-    if (generic.contains(query)) score += 30;
-    if (manufacturer.contains(query)) score += 20;
-    if (brand.contains(query)) score += 20;
-    if (category.contains(query)) score += 15;
-    if (type.contains(query)) score += 10;
-    if (strength.contains(query)) score += 10;
-    if (vendorName.contains(query)) score += 8;
-
-    final terms = query.split(RegExp(r'\s+')).where((e) => e.isNotEmpty);
-    final haystack = [
-      name,
-      generic,
-      manufacturer,
-      brand,
-      category,
-      type,
-      strength,
-      vendorName,
-    ].join(' ');
-
-    for (final term in terms) {
-      if (haystack.contains(term)) score += 5;
-    }
-
-    return score;
-  }
-
-  bool _matches(Map<String, dynamic> data, String q) {
-    if (q.trim().isEmpty) return true;
-
-    final query = q.toLowerCase().trim();
-    final terms = query.split(RegExp(r'\s+')).where((e) => e.isNotEmpty);
-
-    final haystack = [
-      data['name'],
-      data['generic'],
-      data['manufacturer'],
-      data['brand'],
-      data['category'],
-      data['type'],
-      data['strength'],
-      data['vendorName'],
-      data['shopName'],
-      data['overview'],
-    ].where((e) => e != null).join(' ').toLowerCase();
-
-    return terms.every(haystack.contains);
-  }
-
-  List<QueryDocumentSnapshot> _filterSort(List<QueryDocumentSnapshot> docs) {
-    final list = docs.where((doc) {
-      final data = doc.data() as Map<String, dynamic>;
-
-      if (data['isActive'] == false) return false;
-      if (_selectedCategory != 'All' && _text(data['category']) != _selectedCategory) return false;
-      if (_onlyInStock && _stockOf(data) <= 0) return false;
-      if (_onlyMarketplace && !_isMarketplace(data)) return false;
-      if (_onlyPharmacy && _isMarketplace(data)) return false;
-
-      return _matches(data, _query);
-    }).toList();
-
-    list.sort((a, b) {
-      final ad = a.data() as Map<String, dynamic>;
-      final bd = b.data() as Map<String, dynamic>;
-
-      switch (_sort) {
-        case 'price_low':
-          return _priceOf(ad).compareTo(_priceOf(bd));
-        case 'price_high':
-          return _priceOf(bd).compareTo(_priceOf(ad));
-        case 'stock':
-          return _stockOf(bd).compareTo(_stockOf(ad));
-        case 'newest':
-          return _dateOf(bd).compareTo(_dateOf(ad));
-        case 'relevance':
-        default:
-          final bScore = _searchScore(bd, _query);
-          final aScore = _searchScore(ad, _query);
-          if (aScore != bScore) return bScore.compareTo(aScore);
-          return _dateOf(bd).compareTo(_dateOf(ad));
-      }
-    });
-
-    return list;
+  List<QueryDocumentSnapshot> _filterSort(
+    List<QueryDocumentSnapshot> docs,
+    Set<String> activeCategoriesLower,
+  ) {
+    return searchResults(
+      docs,
+      (doc) => doc.data() as Map<String, dynamic>,
+      activeCategoriesLower: activeCategoriesLower,
+      query: _query,
+      category: _selectedCategory,
+      onlyInStock: _onlyInStock,
+      onlyMarketplace: _onlyMarketplace,
+      onlyPharmacy: _onlyPharmacy,
+      sort: _sort,
+    );
   }
 
   void _clearFilters() {
@@ -363,15 +253,17 @@ class _SearchPageState extends State<SearchPage> {
             .where('approvalStatus', isEqualTo: 'approved')
             .snapshots(),
         builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(child: Text('Search failed: ${snapshot.error}'));
+          final error = snapshot.error ?? _activeCategoriesError;
+          if (error != null) {
+            return Center(child: Text('Search failed: $error'));
           }
 
-          if (!snapshot.hasData) {
+          final activeCategories = _activeCategoriesLower;
+          if (!snapshot.hasData || activeCategories == null) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final products = _filterSort(snapshot.data!.docs);
+          final products = _filterSort(snapshot.data!.docs, activeCategories);
 
           final settled = _pendingSettledQuery;
           if (settled != null) {
@@ -379,9 +271,13 @@ class _SearchPageState extends State<SearchPage> {
             // one-shot marker, and the work runs after this frame.
             _pendingSettledQuery = null;
             if (settled == _query) {
+              // Counted over every active, approved product, hidden ones
+              // too (as before): a query that only finds hidden items (old
+              // grocery) is not a "search miss" and must not start an
+              // AliExpress import.
               final matchCount = snapshot.data!.docs.where((doc) {
                 final data = doc.data() as Map<String, dynamic>;
-                return data['isActive'] != false && _matches(data, settled);
+                return data['isActive'] != false && searchMatches(data, settled);
               }).length;
               WidgetsBinding.instance.addPostFrameCallback(
                 (_) => _handleSettledQuery(settled, matchCount),
@@ -777,4 +673,158 @@ class _SearchPageState extends State<SearchPage> {
     }
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
+}
+
+
+// -----------------------------------------------------------------------------
+// Search results (pure, so the rules can be tested)
+// -----------------------------------------------------------------------------
+
+String _searchText(dynamic value, [String fallback = '']) {
+  final text = (value ?? '').toString().trim();
+  return text.isEmpty ? fallback : text;
+}
+
+// Same "from" price as the cards (cheapest in-stock variant).
+double _searchPriceOf(Map<String, dynamic> data) =>
+    ProductService.getDisplayPrice(data);
+
+int _searchStockOf(Map<String, dynamic> data) {
+  final variants = data['variants'];
+
+  if (variants is List && variants.isNotEmpty) {
+    int total = 0;
+    for (final v in variants) {
+      if (v is Map) {
+        total += int.tryParse((v['stock'] ?? 0).toString()) ?? 0;
+      }
+    }
+    return total;
+  }
+
+  return int.tryParse((data['stock'] ?? 0).toString()) ?? 0;
+}
+
+DateTime _searchDateOf(Map<String, dynamic> data) {
+  final value = data['createdAt'];
+  if (value is Timestamp) return value.toDate();
+  return DateTime(2000);
+}
+
+bool _searchIsMarketplace(Map<String, dynamic> data) {
+  final vendorId = _searchText(data['vendorId']);
+  return vendorId.isNotEmpty && vendorId != 'super_admin';
+}
+
+int _searchScore(Map<String, dynamic> data, String q) {
+  if (q.trim().isEmpty) return 0;
+
+  final query = q.toLowerCase().trim();
+  final name = _searchText(data['name']).toLowerCase();
+  final generic = _searchText(data['generic']).toLowerCase();
+  final manufacturer = _searchText(data['manufacturer']).toLowerCase();
+  final brand = _searchText(data['brand']).toLowerCase();
+  final category = _searchText(data['category']).toLowerCase();
+  final type = _searchText(data['type']).toLowerCase();
+  final strength = _searchText(data['strength']).toLowerCase();
+  final vendorName = _searchText(data['vendorName'] ?? data['shopName']).toLowerCase();
+
+  int score = 0;
+
+  if (name == query) score += 100;
+  if (name.startsWith(query)) score += 60;
+  if (name.contains(query)) score += 40;
+  if (generic.contains(query)) score += 30;
+  if (manufacturer.contains(query)) score += 20;
+  if (brand.contains(query)) score += 20;
+  if (category.contains(query)) score += 15;
+  if (type.contains(query)) score += 10;
+  if (strength.contains(query)) score += 10;
+  if (vendorName.contains(query)) score += 8;
+
+  final terms = query.split(RegExp(r'\s+')).where((e) => e.isNotEmpty);
+  final haystack = [
+    name,
+    generic,
+    manufacturer,
+    brand,
+    category,
+    type,
+    strength,
+    vendorName,
+  ].join(' ');
+
+  for (final term in terms) {
+    if (haystack.contains(term)) score += 5;
+  }
+
+  return score;
+}
+
+bool searchMatches(Map<String, dynamic> data, String q) {
+  if (q.trim().isEmpty) return true;
+
+  final query = q.toLowerCase().trim();
+  final terms = query.split(RegExp(r'\s+')).where((e) => e.isNotEmpty);
+
+  final haystack = [
+    data['name'],
+    data['generic'],
+    data['manufacturer'],
+    data['brand'],
+    data['category'],
+    data['type'],
+    data['strength'],
+    data['vendorName'],
+    data['shopName'],
+    data['overview'],
+  ].where((e) => e != null).join(' ').toLowerCase();
+
+  return terms.every(haystack.contains);
+}
+
+/// The search page's list: only products the shop shows
+/// ([isShopVisibleProduct]), then the shopper's category / stock / vendor
+/// filters and the query, sorted by [sort].
+List<T> searchResults<T>(
+  Iterable<T> items,
+  Map<String, dynamic> Function(T item) dataOf, {
+  required Set<String> activeCategoriesLower,
+  String query = '',
+  String category = 'All',
+  bool onlyInStock = false,
+  bool onlyMarketplace = false,
+  bool onlyPharmacy = false,
+  String sort = 'relevance',
+}) {
+  final list = shopVisibleOnly(items, activeCategoriesLower, dataOf).where((item) {
+    final data = dataOf(item);
+    if (category != 'All' && _searchText(data['category']) != category) return false;
+    if (onlyInStock && _searchStockOf(data) <= 0) return false;
+    if (onlyMarketplace && !_searchIsMarketplace(data)) return false;
+    if (onlyPharmacy && _searchIsMarketplace(data)) return false;
+    return searchMatches(data, query);
+  }).toList();
+
+  list.sort((a, b) {
+    final ad = dataOf(a);
+    final bd = dataOf(b);
+    switch (sort) {
+      case 'price_low':
+        return _searchPriceOf(ad).compareTo(_searchPriceOf(bd));
+      case 'price_high':
+        return _searchPriceOf(bd).compareTo(_searchPriceOf(ad));
+      case 'stock':
+        return _searchStockOf(bd).compareTo(_searchStockOf(ad));
+      case 'newest':
+        return _searchDateOf(bd).compareTo(_searchDateOf(ad));
+      case 'relevance':
+      default:
+        final bScore = _searchScore(bd, query);
+        final aScore = _searchScore(ad, query);
+        if (aScore != bScore) return bScore.compareTo(aScore);
+        return _searchDateOf(bd).compareTo(_searchDateOf(ad));
+    }
+  });
+  return list;
 }

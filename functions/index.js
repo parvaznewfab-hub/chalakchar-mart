@@ -6512,7 +6512,7 @@ async function relatedProductsHtml(productId, product) {
         ? products.where("subcategoryId", "==", subcategoryId).limit(60).get().then(docs)
         : category ? products.where("category", "==", category).limit(60).get().then(docs) : none,
     ]);
-    // Same rule as the shop (lib/utils/related_products.dart isShopVisibleProduct).
+    // Same rule as the shop (lib/utils/shop_visibility.dart isShopVisibleProduct).
     const isVisible = (p) => p.isActive === true && p.approvalStatus === "approved" &&
       p.isVisible !== false && p.isPublished !== false && !cleanText(p.hiddenReason) &&
       activeCategories.has(cleanText(p.category).toLowerCase());

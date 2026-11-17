@@ -14,20 +14,14 @@
 
 import '../services/product_service.dart';
 import 'device_model.dart';
+import 'shop_visibility.dart';
+
+export 'shop_visibility.dart' show isShopVisibleProduct;
 
 const int relatedRowMax = 12;
 const int relatedModelRowMin = 2;
 
 String _text(dynamic v) => (v ?? '').toString().trim();
-
-/// Same rule as the home "all products" grid and the sitemap.
-bool isShopVisibleProduct(Map<String, dynamic> p, Set<String> activeCategoriesLower) {
-  if (p['isActive'] != true) return false;
-  if (p['approvalStatus'] != 'approved') return false;
-  if (p['isVisible'] == false || p['isPublished'] == false) return false;
-  if (_text(p['hiddenReason']).isNotEmpty) return false;
-  return activeCategoriesLower.contains(_text(p['category']).toLowerCase());
-}
 
 /// "iphone 12" -> "iPhone 12", "samsung a52" -> "Samsung A52",
 /// "huawei nova 4" -> "Huawei Nova 4", "iphone x" -> "iPhone X".

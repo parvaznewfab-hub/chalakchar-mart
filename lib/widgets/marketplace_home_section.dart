@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../services/category_service.dart';
 import '../utils/image_url.dart';
+import '../utils/shop_visibility.dart';
 
 class MarketplaceHomeSection extends StatelessWidget {
   const MarketplaceHomeSection({super.key});
@@ -9,15 +11,26 @@ class MarketplaceHomeSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final db = FirebaseFirestore.instance;
 
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: db
+    // Only what the shop shows (isShopVisibleProduct); the query keeps to
+    // switched-on categories so the 12 are not used up by hidden items.
+    final stream = Stream.fromFuture(CategoryService.activeCategoryNames()).asyncExpand((names) {
+      if (names.isEmpty) return Stream.value(const <QueryDocumentSnapshot<Map<String, dynamic>>>[]);
+      final active = {for (final n in names) n.toLowerCase()};
+      return db
           .collection('products')
           .where('isActive', isEqualTo: true)
           .where('isMarketplace', isEqualTo: true)
+          .where('approvalStatus', isEqualTo: 'approved')
+          .where('category', whereIn: names.take(30).toList())
           .limit(12)
-          .snapshots(),
+          .snapshots()
+          .map((snap) => shopVisibleOnly(snap.docs, active, (d) => d.data()));
+    });
+
+    return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+      stream: stream,
       builder: (context, snap) {
-        final docs = snap.data?.docs ?? [];
+        final docs = snap.data ?? const [];
         if (docs.isEmpty) return const SizedBox.shrink();
 
         return Column(

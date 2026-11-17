@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/app_settings_service.dart';
 import '../services/category_service.dart';
+import '../utils/shop_visibility.dart';
 import 'product_card.dart';
 
 /// End of the home page: a row of reasons to trust the shop, then every
@@ -26,13 +27,7 @@ class _AllProductsSectionState extends State<AllProductsSection> {
   static const Color _accent = Color(0xFF32A8C7);
 
   int _shown = _pageSize;
-  late final Future<List<String>> _categoryNames = CategoryService.getActiveCategoriesOnce()
-      .then((list) => list.map((c) => c.name.trim()).where((n) => n.isNotEmpty).toList());
-
-  static bool _visible(Map<String, dynamic> p) =>
-      p['isVisible'] != false &&
-      p['isPublished'] != false &&
-      (p['hiddenReason'] ?? '').toString().trim().isEmpty;
+  late final Future<List<String>> _categoryNames = CategoryService.activeCategoryNames();
 
   static int _createdMs(Map<String, dynamic> p) {
     final v = p['createdAt'];
@@ -63,9 +58,10 @@ class _AllProductsSectionState extends State<AllProductsSection> {
                   .snapshots(),
               builder: (context, snap) {
                 final docs = snap.data?.docs ?? const [];
+                final active = {for (final n in names) n.toLowerCase()};
                 final products = <Map<String, dynamic>>[
-                  for (final d in docs)
-                    if (_visible(d.data())) {...d.data(), 'id': d.id},
+                  for (final d in shopVisibleOnly(docs, active, (d) => d.data()))
+                    {...d.data(), 'id': d.id},
                 ]..sort((a, b) => _createdMs(b).compareTo(_createdMs(a)));
                 if (products.isEmpty) return const SizedBox.shrink();
                 final visible = products.take(_shown).toList();

@@ -66,8 +66,7 @@ class _RelatedProductsSectionState extends State<RelatedProductsSection> {
     }
 
     final results = await Future.wait([
-      CategoryService.getActiveCategoriesOnce()
-          .then((list) => {for (final c in list) c.name.trim().toLowerCase()})
+      CategoryService.activeCategoryNamesLower()
           .catchError((Object e, StackTrace st) {
         _log('active categories', e, st);
         return <String>{};

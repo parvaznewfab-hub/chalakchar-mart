@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/app_settings_service.dart';
+import '../services/category_service.dart';
+import '../utils/shop_visibility.dart';
 import '../services/image_search_service.dart';
 import '../pages/auth/login_page.dart';
 import '../pages/settings_page.dart';
@@ -293,31 +295,20 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
       return Stream.value(const <Map<String, dynamic>>[]);
     }
 
-    return db
-        .collection('products')
-        .where('isActive', isEqualTo: true)
-        .limit(40)
-        .snapshots()
-        .map((snap) {
-      final results = <Map<String, dynamic>>[];
-
-      for (final doc in snap.docs) {
-        final data = doc.data();
-        final name = _text(data['name']);
-        final category = _text(data['category']);
-        final generic = _text(data['generic']);
-        final haystack = '$name $category $generic'.toLowerCase();
-
-        if (haystack.contains(q)) {
-          results.add({
-            'title': name,
-            'subtitle': category,
-            'type': 'Product',
-          });
-        }
-      }
-
-      return results.take(8).toList();
+    // Only what the shop shows: the query keeps to switched-on categories
+    // (so the 40 are not used up by hidden items), the shared rule does
+    // the rest.
+    return Stream.fromFuture(CategoryService.activeCategoryNames()).asyncExpand((names) {
+      if (names.isEmpty) return Stream.value(const <Map<String, dynamic>>[]);
+      final active = {for (final n in names) n.toLowerCase()};
+      return db
+          .collection('products')
+          .where('isActive', isEqualTo: true)
+          .where('approvalStatus', isEqualTo: 'approved')
+          .where('category', whereIn: names.take(30).toList())
+          .limit(40)
+          .snapshots()
+          .map((snap) => headerSuggestions(snap.docs.map((d) => d.data()), q, active));
     });
   }
 
@@ -1417,4 +1408,26 @@ class _HoverBoxState extends State<_HoverBox> {
       ),
     );
   }
+}
+
+/// Header search box suggestions: products the shop shows whose name,
+/// category or generic name contains [query], at most 8.
+List<Map<String, dynamic>> headerSuggestions(
+  Iterable<Map<String, dynamic>> products,
+  String query,
+  Set<String> activeCategoriesLower,
+) {
+  final q = query.toLowerCase().trim();
+  if (q.isEmpty) return const [];
+  String text(dynamic v) => (v ?? '').toString().trim();
+  final results = <Map<String, dynamic>>[];
+  for (final data in shopVisibleOnly(products, activeCategoriesLower, (p) => p)) {
+    final name = text(data['name']);
+    final category = text(data['category']);
+    final haystack = '$name $category ${text(data['generic'])}'.toLowerCase();
+    if (!haystack.contains(q)) continue;
+    results.add({'title': name, 'subtitle': category, 'type': 'Product'});
+    if (results.length == 8) break;
+  }
+  return results;
 }

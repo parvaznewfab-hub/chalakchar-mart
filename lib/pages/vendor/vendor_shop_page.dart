@@ -1,6 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../services/category_service.dart';
+import '../../utils/shop_visibility.dart';
+
 class VendorShopPage extends StatelessWidget {
   final String vendorId;
 
@@ -180,14 +183,28 @@ class VendorShopPage extends StatelessWidget {
     );
   }
 
-  Widget _productsGrid() {
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: db
+  /// Only what customers would see in the shop (isShopVisibleProduct): the
+  /// query keeps to switched-on categories so the 60 are not used up by
+  /// hidden items, the shared rule does the rest.
+  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _shopProducts() {
+    return Stream.fromFuture(CategoryService.activeCategoryNames()).asyncExpand((names) {
+      if (names.isEmpty) return Stream.value(const <QueryDocumentSnapshot<Map<String, dynamic>>>[]);
+      final active = {for (final n in names) n.toLowerCase()};
+      return db
           .collection('products')
           .where('vendorId', isEqualTo: vendorId)
           .where('isActive', isEqualTo: true)
+          .where('approvalStatus', isEqualTo: 'approved')
+          .where('category', whereIn: names.take(30).toList())
           .limit(60)
-          .snapshots(),
+          .snapshots()
+          .map((snap) => shopVisibleOnly(snap.docs, active, (d) => d.data()));
+    });
+  }
+
+  Widget _productsGrid() {
+    return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+      stream: _shopProducts(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const SliverToBoxAdapter(
@@ -200,7 +217,7 @@ class VendorShopPage extends StatelessWidget {
           );
         }
 
-        final docs = snap.data?.docs ?? [];
+        final docs = snap.data ?? const [];
 
         if (docs.isEmpty) {
           return const SliverToBoxAdapter(
