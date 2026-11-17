@@ -10,6 +10,7 @@ import '../../services/category_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/product_service.dart';
 import '../../utils/search_import_guard.dart';
+import '../../utils/settled_search_gate.dart';
 import '../../utils/shop_visibility.dart';
 import '../../widgets/product_card.dart';
 import '../../widgets/global_web_header.dart';
@@ -57,7 +58,7 @@ class _SearchPageState extends State<SearchPage> {
 
   // A settled query waiting for the next build, which has the product list
   // needed to know whether it found anything.
-  String? _pendingSettledQuery;
+  final SettledSearchGate _settled = SettledSearchGate();
 
   // Normalized queries already logged / sent for import in this app session.
   // Static so it outlives this page: leaving and reopening search with the
@@ -67,6 +68,15 @@ class _SearchPageState extends State<SearchPage> {
   bool _onlyInStock = false;
   bool _onlyMarketplace = false;
   bool _onlyPharmacy = false;
+
+  // One listener for the page's life (not a new one per rebuild). Metadata
+  // changes are included so the server's confirmation of a cached list
+  // arrives even when no product changed.
+  late final Stream<QuerySnapshot> _products = db
+      .collection('products')
+      .where('isActive', isEqualTo: true)
+      .where('approvalStatus', isEqualTo: 'approved')
+      .snapshots(includeMetadataChanges: true);
 
   // Switched-on categories (lower-cased), from CategoryService's session
   // cache: results only list what the shop shows (isShopVisibleProduct).
@@ -88,7 +98,7 @@ class _SearchPageState extends State<SearchPage> {
     _searchController.text = _query;
     // Opening the page with a query (from the header or home search box) is
     // a submit.
-    if (_query.isNotEmpty) _pendingSettledQuery = _query;
+    _settled.settle(_query);
   }
 
   @override
@@ -104,7 +114,7 @@ class _SearchPageState extends State<SearchPage> {
     if (_query.isEmpty) return;
     _settleTimer = Timer(_settleDelay, () {
       if (!mounted) return;
-      setState(() => _pendingSettledQuery = _query);
+      setState(() => _settled.settle(_query));
     });
   }
 
@@ -113,7 +123,7 @@ class _SearchPageState extends State<SearchPage> {
     final next = value.trim();
     setState(() {
       _query = next;
-      if (next.isNotEmpty) _pendingSettledQuery = next;
+      _settled.settle(next);
     });
   }
 
@@ -125,7 +135,7 @@ class _SearchPageState extends State<SearchPage> {
     if (key.isEmpty || !_handledQueryKeys.add(key)) return;
 
     _logSearch(query, matchCount);
-    if (matchCount == 0 && isImportableSearchQuery(query)) {
+    if (shouldImportSearch(query, matchCount)) {
       _triggerSearchImport(normalizeSearchQuery(query));
     }
   }
@@ -216,7 +226,7 @@ class _SearchPageState extends State<SearchPage> {
   void _clearFilters() {
     _settleTimer?.cancel();
     setState(() {
-      _pendingSettledQuery = null;
+      _settled.clear();
       _query = '';
       _searchController.clear();
       _sort = 'relevance';
@@ -247,12 +257,12 @@ class _SearchPageState extends State<SearchPage> {
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: pageAppBar,
       body: StreamBuilder<QuerySnapshot>(
-        stream: db
-            .collection('products')
-            .where('isActive', isEqualTo: true)
-            .where('approvalStatus', isEqualTo: 'approved')
-            .snapshots(),
+        stream: _products,
         builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            // No server list: a settled query is dropped, never imported.
+            _settled.clear();
+          }
           final error = snapshot.error ?? _activeCategoriesError;
           if (error != null) {
             return Center(child: Text('Search failed: $error'));
@@ -265,24 +275,25 @@ class _SearchPageState extends State<SearchPage> {
 
           final products = _filterSort(snapshot.data!.docs, activeCategories);
 
-          final settled = _pendingSettledQuery;
+          // Decided only on a list the server confirmed (see
+          // SettledSearchGate); the work runs after this frame.
+          final settled = _settled.take(
+            currentQuery: _query,
+            fromCache: snapshot.data!.metadata.isFromCache,
+            failed: false,
+          );
           if (settled != null) {
-            // Cleared during build without setState on purpose: it is a
-            // one-shot marker, and the work runs after this frame.
-            _pendingSettledQuery = null;
-            if (settled == _query) {
-              // Counted over every active, approved product, hidden ones
-              // too (as before): a query that only finds hidden items (old
-              // grocery) is not a "search miss" and must not start an
-              // AliExpress import.
-              final matchCount = snapshot.data!.docs.where((doc) {
-                final data = doc.data() as Map<String, dynamic>;
-                return data['isActive'] != false && searchMatches(data, settled);
-              }).length;
-              WidgetsBinding.instance.addPostFrameCallback(
-                (_) => _handleSettledQuery(settled, matchCount),
-              );
-            }
+            // Counted over every active, approved product, hidden ones
+            // too (as before): a query that only finds hidden items (old
+            // grocery) is not a "search miss" and must not start an
+            // AliExpress import.
+            final matchCount = searchMatchCount(
+              snapshot.data!.docs.map((doc) => doc.data() as Map<String, dynamic>),
+              settled,
+            );
+            WidgetsBinding.instance.addPostFrameCallback(
+              (_) => _handleSettledQuery(settled, matchCount),
+            );
           }
 
           return LayoutBuilder(
@@ -782,6 +793,11 @@ bool searchMatches(Map<String, dynamic> data, String q) {
 
   return terms.every(haystack.contains);
 }
+
+/// Products matching a settled query, for the search-miss decision: every
+/// active, approved product, hidden ones too.
+int searchMatchCount(Iterable<Map<String, dynamic>> products, String query) =>
+    products.where((p) => p['isActive'] != false && searchMatches(p, query)).length;
 
 /// The search page's list: only products the shop shows
 /// ([isShopVisibleProduct]), then the shopper's category / stock / vendor
