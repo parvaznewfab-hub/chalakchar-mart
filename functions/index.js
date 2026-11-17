@@ -26,6 +26,7 @@ const db = admin.firestore();
 // Required after admin.initializeApp() so the tiktok modules' own
 // admin.firestore() calls never race the app's initialization.
 const { tiktokOAuthStart, tiktokOAuthCallback, tiktokGetOAuthConfig } = require("./tiktok/oauth");
+const { mergeSocialApiSecrets } = require("./settings/socialSecrets");
 const { tiktokTokenRefreshSweep } = require("./tiktok/tokenRefresh");
 const { tiktokConnectionStatusProjection } = require("./tiktok/connectionStatusProjection");
 const { tiktokDisconnect } = require("./tiktok/disconnect");
@@ -162,10 +163,17 @@ async function loadMarketingSettings(force = false) {
     return marketingSettingsCache;
   }
 
-  const doc = await db.collection("settings").doc("app").get();
+  // Tokens live in settings/app_secrets (not public); see settings/socialSecrets.js.
+  const [doc, secretsDoc] = await Promise.all([
+    db.collection("settings").doc("app").get(),
+    db.collection("settings").doc("app_secrets").get(),
+  ]);
   const data = doc.data() || {};
   const marketingDefaults = mapValue(data.marketingDefaults);
-  const socialApi = mapValue(data.socialApi);
+  const socialApi = mergeSocialApiSecrets(
+    mapValue(data.socialApi),
+    mapValue((secretsDoc.data() || {}).socialApi)
+  );
 
   const settings = {
     enabled: boolValue(marketingDefaults.enabled ?? data.autoMarketingEnabled, true),
