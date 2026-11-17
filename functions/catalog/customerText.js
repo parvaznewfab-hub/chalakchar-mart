@@ -48,7 +48,23 @@ function withoutSupplierKeywords(list) {
 // characters (U+FFFD "��") and HTML entities left as text ("don&#x27;t").
 // Removed sentence by sentence at display time; Firestore is not changed.
 // -----------------------------------------------------------------------------
-const SELLER_SENTENCE = /\bdisputes?\b|\b(?:bad|negative|neutral|poor)\s+(?:reviews?|feedbacks?|ratings?)\b|\bcontact\s+(?:us|me)\b|\bcustomer\s+service\b|\bdear\s+(?:buyers?|customers?|friends?)\b|^\s*tips?\s*[:：]/i;
+const SELLER_SENTENCE = new RegExp([
+  // Marketplace rules aimed at the seller's own buyers.
+  /\bdisputes?\b|\b(?:bad|negative|neutral|poor)\s+(?:reviews?|feedbacks?|ratings?)\b/,
+  /|\bcontact\s+(?:us|me)\b|\bcustomer\s+service\b|\bdear\s+(?:buyers?|customers?|friends?)\b|^\s*tips?\s*[:：]/,
+  // The seller speaking as themselves ("send them to me", "our store",
+  // "we will handle your issue"): ChalakChar Mart's own policies apply.
+  /|\b(?:to|contact|message|tell|ask|inform)\s+me\b|\bme\s+(?:immediately|first|directly)\b|\b(?:my|our)\s+(?:store|shop)\b/,
+  /|\bwe\s+will\s+(?:handle|solve|resolve|refund|replace|reship|resend)\b/,
+  // Delivery-time claims: imported items follow the delivery date on the
+  // product page, not the seller's promise.
+  /|\b(?:deliver\w*|ship\w*|dispatch\w*|send\w*|arriv\w*)\b[^.]*?\b\d+(?:\s*(?:-|–|~|to)\s*\d+)?\s*(?:working\s+|business\s+)?(?:days?|hours?|hrs?|weeks?)\b/,
+  /|\bafter\s+(?:payment|you\s+pay)\b|\bshipping\s+method\b/,
+  // "about 15-45 working days", "7 business days": a span of days is a
+  // delivery claim even without a ship word before it.
+  /|\b\d+\s*(?:-|–|~|to)\s*\d+\s*(?:working\s+|business\s+)?days?\b|\b\d+\s*(?:working|business)\s+days?\b/,
+].map((r) => r.source).join(""), "i");
+const BARE_LIST_NUMBER = /^\d{1,2}\.$/;
 // Broken characters and emoji bullets mark where a new sentence starts.
 const SENTENCE_MARK = /�+|[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]️?/gu;
 const LINE_SENTENCE_END = /(?<=[!?।])\s+|(?<=\.)(?!\d)\s*|\u0000+\s*|(?=\btips?\s*[:：])/i;
@@ -70,15 +86,39 @@ function lineNeedsCleaning(line) {
   return SENTENCE_MARK.test(line) || isDroppedSentence(line) || /\btips?\s*[:：]/i.test(line);
 }
 
+/**
+ * Brackets left half-open by a removed sentence: a ")" with no "(" before
+ * it, and empty "( )" pairs, go (with the space in front of them).
+ */
+function tidyBrackets(text) {
+  let depth = 0;
+  let out = "";
+  for (const ch of text) {
+    if (ch === "(") depth++;
+    if (ch === ")") {
+      if (depth === 0) {
+        out = out.replace(/\s+$/, "");
+        continue;
+      }
+      depth--;
+    }
+    out += ch;
+  }
+  return out.replace(/\s*\(\s*\)/g, "").replace(/\s{2,}/g, " ").trim();
+}
+
 function cleanLine(line) {
   if (!lineNeedsCleaning(line)) return line;
-  return line
+  const parts = line
     .replace(SENTENCE_MARK, "\u0000")
     .split(LINE_SENTENCE_END)
     .map((part) => (part || "").trim())
-    .filter((part) => part && !isDroppedSentence(part))
-    .join(" ")
-    .trim();
+    .filter(Boolean);
+  const dropped = parts.map(isDroppedSentence);
+  // A list number ("3.") whose sentence was removed goes with it.
+  const kept = parts.filter((part, i) =>
+    !dropped[i] && !(BARE_LIST_NUMBER.test(part) && (i + 1 >= parts.length || dropped[i + 1])));
+  return tidyBrackets(kept.join(" "));
 }
 
 /**
@@ -93,7 +133,8 @@ function cleanCustomerText(text) {
     const cleaned = cleanLine(line);
     if (cleaned || !line.trim()) out.push(cleaned);
   }
-  return out.join("\n").trim();
+  // A removed line leaves no extra gap: at most one blank line in a row.
+  return out.join("\n").replace(/\n\s*\n(\s*\n)+/g, "\n\n").trim();
 }
 
 /** [cleanCustomerText] for each text run of an HTML description; tags stay. */

@@ -4,7 +4,7 @@
     {
       "label": "dispute + bad review + contact us at the end",
       "in": "Strictly tested before delivery,100% working well. 3. If you have any questions,please contact us. Do not leave a bad review and do not open a dispute. We will handle your issue immediately after confirming the problem.",
-      "out": "Strictly tested before delivery,100% working well. 3. We will handle your issue immediately after confirming the problem."
+      "out": "Strictly tested before delivery,100% working well."
     },
     {
       "label": "broken characters before Tips:, model numbers kept",
@@ -45,6 +45,46 @@
       "label": "negative feedback",
       "in": "Please test before installing. Before leaving negative feedback, talk to us first! Thank you.",
       "out": "Please test before installing. Thank you."
+    },
+    {
+      "label": "delivery-time claim with stray bracket",
+      "in": "4. Strictly tested before delivery,100% working well.\n5. Delivery within 1-2 working days after payment confirmation. )\nPackage includes:",
+      "out": "4. Strictly tested before delivery,100% working well.\nPackage includes:"
+    },
+    {
+      "label": "ship-within claim; next list item kept",
+      "in": "Usually ship within 3 days after you pay for the order. 4. Free gifts:waterproof sticker.",
+      "out": "4. Free gifts:waterproof sticker."
+    },
+    {
+      "label": "seller first person",
+      "in": "1. If the package you received is damaged,please take photos of the damage and send them to me immediately.\n2. Please test the screen before installation.",
+      "out": "2. Please test the screen before installation."
+    },
+    {
+      "label": "removed sentence inside brackets leaves no stray bracket",
+      "in": "3. Connect the new screen,restart the phone,and test whether it works.(If it cannot be used normally,please contact us and do not install it directly. )",
+      "out": "3. Connect the new screen,restart the phone,and test whether it works."
+    },
+    {
+      "label": "our store / shipping method",
+      "in": "Welcome to our store. Shipping Method\nScreen *1",
+      "out": "Screen *1"
+    },
+    {
+      "label": "product facts with numbers and brackets stay",
+      "in": "Size: 2.5 inch (6.35 cm). Battery lasts 2 days. 1. Turn off the phone.",
+      "out": "Size: 2.5 inch (6.35 cm). Battery lasts 2 days. 1. Turn off the phone."
+    },
+    {
+      "label": "span of days without a ship word first",
+      "in": "By Air Mail: Generally,about 15-45 working days(Free Shipping). Battery lasts 2 days.",
+      "out": "Battery lasts 2 days."
+    },
+    {
+      "label": "removed line leaves at most one blank line",
+      "in": "Tool *1\n\n1. If the package is damaged,please send them to me immediately.\n\n2. Please test the screen before installation.",
+      "out": "Tool *1\n\n2. Please test the screen before installation."
     }
   ],
   "html": [
