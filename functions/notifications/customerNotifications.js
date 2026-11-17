@@ -21,6 +21,7 @@ const ORDER_STATUS_BN = {
   delivered: "ডেলিভারি হয়েছে",
   cancelled: "বাতিল করা হয়েছে",
   returned: "ফেরত এসেছে",
+  rejected: "বাতিল করা হয়েছে",
 };
 
 const ORDER_TYPES = new Set(["order", "order_status", "picked_up", "order_delivered", "order_placed"]);

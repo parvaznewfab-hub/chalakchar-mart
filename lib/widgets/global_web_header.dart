@@ -971,7 +971,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Notifications',
+                          'নোটিফিকেশন',
                           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
                         ),
                         const SizedBox(height: 10),
@@ -1025,7 +1025,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
                           child: const Padding(
                             padding: EdgeInsets.symmetric(vertical: 8),
                             child: Text(
-                              'View all notifications',
+                              'সব নোটিফিকেশন দেখুন',
                               style: TextStyle(
                                 color: primary,
                                 fontWeight: FontWeight.w900,

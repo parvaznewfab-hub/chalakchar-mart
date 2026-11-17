@@ -46,6 +46,7 @@ class CustomerNotificationView {
     'delivered': 'ডেলিভারি হয়েছে',
     'cancelled': 'বাতিল করা হয়েছে',
     'returned': 'ফেরত এসেছে',
+    'rejected': 'বাতিল করা হয়েছে',
   };
 
   static final RegExp _bangla = RegExp(r'[ঀ-৿]');
