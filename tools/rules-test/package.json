@@ -1,0 +1,9 @@
+{
+  "name": "chalakchar-rules-test",
+  "private": true,
+  "description": "Firestore security rules tests against the emulator, no npm dependencies. Run from the repo root: node tools/rules-test/run.js [rules-file]",
+  "scripts": {
+    "test": "node run.js",
+    "test:old": "node run.js docs/security/rules-backup/firestore.rules.live-2026-11-17"
+  }
+}

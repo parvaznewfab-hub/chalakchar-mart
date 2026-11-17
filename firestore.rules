@@ -69,7 +69,11 @@ service cloud.firestore {
     }
 
     function adminDefault(permission) {
-      return permission in [
+      return permission in adminDefaultList();
+    }
+
+    function adminDefaultList() {
+      return [
         'dashboard.view',
         'analytics.view',
 
@@ -140,6 +144,47 @@ service cloud.firestore {
 
         'settings.view'
       ];
+    }
+
+    // Same meaning as can(), for a list of permissions at once, but reads the
+    // user doc once instead of re-running hasRole()/notBanned() per check.
+    // The newer rules use it so a request stays under Firestore's limit of
+    // 1000 evaluated expressions.
+    function canAnyOf(perms) {
+      return request.auth != null
+        && exists(userPath(request.auth.uid))
+        && userCanAnyOf(userDoc(request.auth.uid).data, perms);
+    }
+
+    function userCanAnyOf(u, perms) {
+      let role = u.get('role', '');
+      let roles = u.get('roles', []);
+      let granted = u.get('permissions', []);
+      return u.get('isActive', true) != false
+        && u.get('isBanned', false) != true
+        && (
+          role in ['superAdmin', 'super_admin']
+          || (roles is list && roles.hasAny(['superAdmin', 'super_admin']))
+          || (granted is list && granted.hasAny(perms))
+          || (granted is map && mapGrantsAny(granted, perms))
+          || (
+            (role == 'admin' || (roles is list && 'admin' in roles))
+            && adminDefaultList().hasAny(perms)
+          )
+        );
+    }
+
+    // permissions stored as {"orders.view": true, ...}; perms lists here
+    // have at most 8 entries.
+    function mapGrantsAny(granted, perms) {
+      return (perms.size() > 0 && granted.get(perms[0], false) == true)
+        || (perms.size() > 1 && granted.get(perms[1], false) == true)
+        || (perms.size() > 2 && granted.get(perms[2], false) == true)
+        || (perms.size() > 3 && granted.get(perms[3], false) == true)
+        || (perms.size() > 4 && granted.get(perms[4], false) == true)
+        || (perms.size() > 5 && granted.get(perms[5], false) == true)
+        || (perms.size() > 6 && granted.get(perms[6], false) == true)
+        || (perms.size() > 7 && granted.get(perms[7], false) == true);
     }
 
     function hasExplicitPermission(permission) {
@@ -316,6 +361,76 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).changedKeys().hasAny(fields);
     }
 
+    function canReadAllOrders() {
+      return canAnyOf(['orders.view', 'orders.edit', 'analytics.view', 'vendors.view', 'delivery.view']);
+    }
+
+    function canEditOrders() {
+      return canAnyOf([
+        'orders.edit', 'orders.confirm', 'orders.assign_rider',
+        'orders.settle_cod', 'orders.invoice', 'orders.discount'
+      ]);
+    }
+
+    // Light version of vendorInOrder() for orders: the vendor's own vendor id
+    // (users/{uid}.vendorId) or their uid is in the order's vendorIds, or
+    // their uid is in vendorOwnerIds. Matches how cart_page.dart writes them.
+    function vendorSeesOrder(data) {
+      return request.auth != null
+        && exists(userPath(request.auth.uid))
+        && userSeesOrderAsVendor(userDoc(request.auth.uid).data, data);
+    }
+
+    function userSeesOrderAsVendor(u, data) {
+      let vid = u.get('vendorId', '');
+      let vendorIds = data.get('vendorIds', []);
+      return u.get('isActive', true) != false
+        && u.get('isBanned', false) != true
+        && (
+          (vid is string && vid != '' && vid in vendorIds)
+          || request.auth.uid in vendorIds
+          || request.auth.uid in data.get('vendorOwnerIds', [])
+        );
+    }
+
+    function riderNextStep(current, next) {
+      return (current == 'assigned' && next == 'picked_up')
+        || (current == 'picked_up' && next == 'on_the_way')
+        || (current == 'on_the_way' && next == 'delivered');
+    }
+
+    function secretSocialApiKeys() {
+      return [
+        'facebookPageAccessToken',
+        'instagramAccessToken',
+        'whatsappAccessToken',
+        'messengerPageAccessToken',
+        'tiktokClientSecret'
+      ];
+    }
+
+    // No new or changed token may be written into the public settings doc:
+    // each secret key must be empty/absent, or untouched (a value left over
+    // from before the move script ran; older admin builds re-send it).
+    function noSecretsInPublicSettings() {
+      let api = request.resource.data.get('socialApi', {});
+      let oldApi = resource == null ? {} : resource.data.get('socialApi', {});
+      let keys = secretSocialApiKeys();
+      return !(api is map)
+        || (
+          secretUnchangedOrEmpty(api, oldApi, keys[0])
+          && secretUnchangedOrEmpty(api, oldApi, keys[1])
+          && secretUnchangedOrEmpty(api, oldApi, keys[2])
+          && secretUnchangedOrEmpty(api, oldApi, keys[3])
+          && secretUnchangedOrEmpty(api, oldApi, keys[4])
+        );
+    }
+
+    function secretUnchangedOrEmpty(api, oldApi, key) {
+      return api.get(key, '') == ''
+        || (oldApi is map && api.get(key, '') == oldApi.get(key, ''));
+    }
+
     function validPositiveAmount(value) {
       return value is number && value > 0 && value <= 1000000;
     }
@@ -377,6 +492,10 @@ service cloud.firestore {
           'updatedAt'
         ])
         && deliveryOrderReadyForEarning(request.resource.data.lastSyncedOrderId)
+        // The earning doc for this order must exist and not be synced yet, so
+        // the same delivery cannot be added to the totals twice.
+        && exists(/databases/$(database)/documents/deliveryEarnings/$(request.auth.uid + '_' + request.resource.data.lastSyncedOrderId))
+        && get(/databases/$(database)/documents/deliveryEarnings/$(request.auth.uid + '_' + request.resource.data.lastSyncedOrderId)).data.partnerSynced == false
         && (
           !resource.data.keys().hasAny(['lastSyncedOrderId'])
           || resource.data.lastSyncedOrderId != request.resource.data.lastSyncedOrderId
@@ -405,10 +524,16 @@ service cloud.firestore {
           'updatedAt'
         ])
         && request.resource.data.lastWithdrawRequestId is string
-        && exists(/databases/$(database)/documents/deliveryWithdraws/$(request.resource.data.lastWithdrawRequestId))
-        && get(/databases/$(database)/documents/deliveryWithdraws/$(request.resource.data.lastWithdrawRequestId)).data.deliveryPartnerId == request.auth.uid
-        && get(/databases/$(database)/documents/deliveryWithdraws/$(request.resource.data.lastWithdrawRequestId)).data.status == 'pending'
-        && request.resource.data.pendingAmount == resource.data.pendingAmount + get(/databases/$(database)/documents/deliveryWithdraws/$(request.resource.data.lastWithdrawRequestId)).data.amount;
+        && (
+          !resource.data.keys().hasAny(['lastWithdrawRequestId'])
+          || resource.data.lastWithdrawRequestId != request.resource.data.lastWithdrawRequestId
+        )
+        // The rider app writes the withdraw doc and this update in one batch,
+        // so the withdraw doc only exists "after" the batch.
+        && existsAfter(/databases/$(database)/documents/deliveryWithdraws/$(request.resource.data.lastWithdrawRequestId))
+        && getAfter(/databases/$(database)/documents/deliveryWithdraws/$(request.resource.data.lastWithdrawRequestId)).data.deliveryPartnerId == request.auth.uid
+        && getAfter(/databases/$(database)/documents/deliveryWithdraws/$(request.resource.data.lastWithdrawRequestId)).data.status == 'pending'
+        && request.resource.data.pendingAmount == resource.data.pendingAmount + getAfter(/databases/$(database)/documents/deliveryWithdraws/$(request.resource.data.lastWithdrawRequestId)).data.amount;
     }
 
     /* =========================
@@ -767,12 +892,21 @@ service cloud.firestore {
     }
 
     match /vendorWithdrawRequests/{requestId} {
-      allow read: if signedIn();
+      // Own vendor (by owner uid or vendor id) and payout staff only.
+      allow read: if (signedIn() && resource.data.vendorOwnerId == request.auth.uid)
+        || ownsVendorId(resource.data.vendorId)
+        || canAnyOf(['vendors.view', 'vendors.edit', 'vendors.approve', 'vendors.payouts']);
 
-      allow create: if signedIn()
+      // A vendor may only ask for their own vendor account, as themselves,
+      // in "pending" state. Amount/status changes are staff-only (below).
+      allow create: if ownsVendorId(request.resource.data.vendorId)
+        && request.resource.data.vendorOwnerId == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'vendorId', 'vendorOwnerId', 'vendorName', 'vendorEmail', 'vendorPhone',
+          'amount', 'status', 'note', 'payoutAccount', 'createdAt', 'updatedAt'
+        ])
         && request.resource.data.status == 'pending'
-        && request.resource.data.amount is number
-        && request.resource.data.amount > 0;
+        && validPositiveAmount(request.resource.data.amount);
 
       allow update, delete: if isSuperAdmin()
         || hasRole('admin')
@@ -808,37 +942,66 @@ service cloud.firestore {
     ========================= */
 
     match /deliveryPartners/{partnerId} {
-      allow read: if signedIn();
+      // The rider themselves, and staff who manage riders or assign orders.
+      // Holds phone, address, NID number and NID image links.
+      allow read: if (signedIn() && request.auth.uid == partnerId)
+        || canAnyOf([
+          'delivery.view', 'delivery.approve', 'delivery.block',
+          'delivery.withdraw', 'delivery.settle_cod', 'orders.assign_rider'
+        ]);
 
+      // Application: always starts pending, inactive, with zero balances.
       allow create: if signedIn()
-        && request.auth.uid == partnerId;
+        && request.auth.uid == partnerId
+        && request.resource.data.status == 'pending'
+        && request.resource.data.isActive == false
+        && request.resource.data.get('totalDeliveries', 0) == 0
+        && request.resource.data.get('totalEarning', 0) == 0
+        && request.resource.data.get('withdrawnAmount', 0) == 0
+        && request.resource.data.get('pendingAmount', 0) == 0
+        && request.resource.data.get('codDue', 0) == 0;
 
+      allow update: if hasRole('admin')
+        || canAnyOf(['delivery.approve', 'delivery.block', 'delivery.withdraw', 'delivery.settle_cod']);
+
+      // The rider: never their own approval or money fields directly...
       allow update: if signedIn()
-        && (
-          request.auth.uid == partnerId
-          || isSuperAdmin()
-          || hasRole('admin')
-          || can('delivery.approve')
-          || can('delivery.block')
-          || can('delivery.withdraw')
-          || can('delivery.settle_cod')
-        );
+        && request.auth.uid == partnerId
+        && !changedAny([
+          'uid', 'status', 'isActive', 'isVerified', 'documentStatus',
+          'nidNumber', 'nidFrontUrl', 'nidBackUrl', 'nidFrontPath', 'nidBackPath',
+          'approvedAt', 'approvedBy', 'rejectedAt', 'blockedAt',
+          'totalDeliveries', 'totalEarning', 'withdrawnAmount', 'pendingAmount', 'codDue',
+          'lastEarningSyncedAt', 'lastSyncedOrderId', 'lastWithdrawRequestId', 'lastCodSettlementAt'
+        ]);
+
+      // ...only through these two checked steps of the rider app.
+      allow update: if validRiderMoneySync(partnerId)
+        || validRiderWithdrawPending(partnerId);
 
       allow delete: if isSuperAdmin();
     }
-    match /deliveryEarnings/{docId} {
-      allow read: if signedIn();
 
-      // Easy safe earning rule:
-      // rider can create/update only own earning document.
-      allow create: if signedIn()
-        && request.resource.data.deliveryPartnerId == request.auth.uid;
+    match /deliveryEarnings/{earningId} {
+      // Earning ids are "<riderUid>_<orderId>". The rider app reads its own id
+      // before the doc exists, so allow that get by id prefix.
+      allow get: if signedIn()
+        && earningId.matches(request.auth.uid + '_.+');
 
+      allow read: if (signedIn() && resource.data.deliveryPartnerId == request.auth.uid)
+        || canAnyOf(['delivery.view', 'delivery.withdraw', 'delivery.settle_cod']);
+
+      // No free-form amounts: the rider can only record the earning of an
+      // order assigned to them and already delivered, with the amount copied
+      // from that order.
+      allow create: if validRiderEarningCreate()
+        && earningId == request.auth.uid + '_' + request.resource.data.orderId;
+
+      // Afterwards the rider may only mark it synced (never back to unsynced).
       allow update: if signedIn()
-        && (
-          resource.data.deliveryPartnerId == request.auth.uid
-          || request.resource.data.deliveryPartnerId == request.auth.uid
-        );
+        && resource.data.deliveryPartnerId == request.auth.uid
+        && changedOnly(['partnerSynced', 'updatedAt'])
+        && (request.resource.data.partnerSynced == true || resource.data.partnerSynced == false);
 
       allow delete: if can('delivery.approve')
         || can('delivery.settle_cod')
@@ -986,12 +1149,63 @@ match /products/{productId} {
     }
 
     match /orders/{orderId} {
-      allow create: if signedIn();
+      // Customers place their own orders, always starting as pending.
+      // Staff can create orders for customers (e.g. from shopping lists).
+      allow create: if (
+          signedIn()
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.status == 'pending'
+        )
+        || canAnyOf(['orders.edit']);
 
-      allow get: if signedIn();
-      allow list: if signedIn();
+      // Read: the customer, a vendor with items in it, the assigned rider,
+      // and staff. Holds names, phones and delivery addresses.
+      allow read: if (signedIn() && resource.data.get('userId', '') == request.auth.uid)
+        || vendorSeesOrder(resource.data)
+        || assignedDeliveryPartner(resource.data)
+        || canReadAllOrders();
 
-      allow update: if signedIn();
+      allow update: if canEditOrders();
+
+      // Customer: cancel own order while it is still pending. Nothing else.
+      allow update: if signedIn()
+        && resource.data.userId == request.auth.uid
+        && resource.data.get('status', 'pending') == 'pending'
+        && request.resource.data.status == 'cancelled'
+        && request.resource.data.get('cancelledBy', '') == 'customer'
+        && changedOnly(['status', 'cancelledBy', 'cancelledAt', 'updatedAt']);
+
+      // Vendor: only their own entry of vendorStatusUpdates and vendorStatus,
+      // pending -> confirmed -> ready_for_pickup.
+      allow update: if changedOnly(['vendorStatusUpdates', 'vendorStatus', 'updatedAt'])
+        && request.resource.data.vendorStatus in ['confirmed', 'ready_for_pickup']
+        && vendorSeesOrder(resource.data)
+        && request.resource.data.vendorStatusUpdates is map
+        && request.resource.data.vendorStatusUpdates
+             .diff(resource.data.get('vendorStatusUpdates', {}))
+             .affectedKeys()
+             .hasOnly([request.auth.uid, me().get('vendorId', request.auth.uid)]);
+
+      // Rider: only delivery progress of an order assigned to them, one step
+      // forward at a time: assigned -> picked_up -> on_the_way -> delivered.
+      allow update: if changedOnly([
+          'deliveryStatus', 'status', 'updatedAt', 'deliveryTimeline',
+          'pickedUpAt', 'onTheWayAt', 'deliveredAt', 'paymentStatus'
+        ])
+        && resource.data.get('deliveryPartnerId', '') == request.auth.uid
+        && riderNextStep(
+             resource.data.get('deliveryStatus', 'assigned'),
+             request.resource.data.get('deliveryStatus', '')
+           )
+        && request.resource.data.status == request.resource.data.deliveryStatus
+        && (
+          request.resource.data.get('paymentStatus', '') == resource.data.get('paymentStatus', '')
+          || (
+            request.resource.data.deliveryStatus == 'delivered'
+            && request.resource.data.paymentStatus == 'paid'
+          )
+        )
+        && assignedDeliveryPartner(resource.data);
 
       allow delete: if isSuperAdmin();
     }
@@ -1128,29 +1342,27 @@ match /products/{productId} {
       allow create, update, delete: if can('doctors.edit') || can('settings.edit');
     }
 
+    // Pharmacy-era doctor booking, no longer offered. It held patient
+    // details and was world-readable, so it is closed completely.
     match /doctor_appointments/{appointmentId} {
-      // Public slot availability needs to read existing booked appointments.
-      // Booking/create/update/delete are still protected below.
-      allow read: if true;
-
-      allow create: if signedIn()
-        && request.resource.data.userId == request.auth.uid
-        && request.resource.data.bookedByUserId == request.auth.uid;
-
-      allow update: if can('doctors.edit')
-        || (
-          signedIn()
-          && resource.data.userId == request.auth.uid
-          && changedOnly(['status', 'cancelledAt', 'updatedAt'])
-        );
-
-      allow delete: if can('doctors.edit') || isSuperAdmin();
+      allow read, write: if false;
     }
 
+    // API access tokens for Facebook/Instagram/WhatsApp/Messenger and the
+    // legacy TikTok client secret. Server functions read them with the Admin
+    // SDK; in the app only settings editors may see or change them.
+    match /settings/app_secrets {
+      allow read, write: if canAnyOf(['settings.edit']);
+    }
+
+    // Everything else in settings (delivery charges, links, footer text...)
+    // is public. Secrets must never be written back into it.
     match /settings/{docId} {
-      allow read: if true;
-      allow create, update: if can('settings.edit');
-      allow delete: if isSuperAdmin();
+      allow read: if docId != 'app_secrets';
+      allow create, update: if docId != 'app_secrets'
+        && canAnyOf(['settings.edit'])
+        && noSecretsInPublicSettings();
+      allow delete: if docId != 'app_secrets' && isSuperAdmin();
     }
 
     /* =========================
@@ -1160,7 +1372,11 @@ match /products/{productId} {
     // Analytics staff/admin needs to read multiple collections for totals/charts.
     // Write remains denied here; write permissions are controlled above.
     match /{document=**} {
-      allow read: if signedIn()
+      // Never the API tokens, which have their own rule above.
+      allow read: if request.path != /databases/$(database)/documents/settings/app_secrets
+        // Nor the closed pharmacy-era appointments.
+        && document[0] != 'doctor_appointments'
+        && signedIn()
         && userExists(request.auth.uid)
         && (can('analytics.view') || hasRole('staff'));
 
