@@ -52,6 +52,7 @@ function toValue(v) {
   }
   if (typeof v === 'string') return { stringValue: v };
   if (v instanceof Date) return { timestampValue: v.toISOString() };
+  if (v.__timestamp) return { timestampValue: v.__timestamp }; // exact value read back
   if (Array.isArray(v)) return { arrayValue: { values: v.map(toValue) } };
   return { mapValue: { fields: toFields(v) } };
 }
@@ -74,7 +75,7 @@ function fromValue(v) {
   if ('integerValue' in v) return Number(v.integerValue);
   if ('doubleValue' in v) return v.doubleValue;
   if ('stringValue' in v) return v.stringValue;
-  if ('timestampValue' in v) return v.timestampValue;
+  if ('timestampValue' in v) return { __timestamp: v.timestampValue };
   if ('arrayValue' in v) return (v.arrayValue.values || []).map(fromValue);
   if ('mapValue' in v) return fromFields(v.mapValue.fields || {});
   return undefined;

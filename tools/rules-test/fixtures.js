@@ -6,6 +6,8 @@ const { loadRules, clearData, seed } = require('./emu');
 const REPO = path.resolve(__dirname, '..', '..');
 const RULES_FILE = path.resolve(REPO, process.env.RULES_FILE || 'firestore.rules');
 const OLD_RULES = /rules-backup/.test(RULES_FILE);
+// The rollback file = old rules with only settings/app_secrets locked.
+const KEEP_SECRETS = /keep-secrets/.test(RULES_FILE);
 
 // Cast:
 //   cust1, cust2          ordinary customers
@@ -26,6 +28,7 @@ const users = {
   'users/vendU2': u('vendor', { vendorId: 'vend2' }),
   'users/rider1': u('deliveryPartner'),
   'users/rider2': u('user'),
+  'users/rider3': u('deliveryPartner'),
   'users/admin': u('admin'),
   'users/boss': u('superAdmin'),
   'users/analyst': u('staff', { permissions: ['analytics.view'] }),
@@ -43,6 +46,11 @@ function baseDocs() {
       uid: 'rider1', name: 'Rider One', phone: '01800000001', nidNumber: '1234567890',
       nidFrontUrl: 'https://example.invalid/r?token=y', status: 'approved', isActive: true,
       totalDeliveries: 2, totalEarning: 120, withdrawnAmount: 0, pendingAmount: 0, codDue: 500,
+    },
+    // A second approved rider, to try someone else's deliveries.
+    'deliveryPartners/rider3': {
+      uid: 'rider3', name: 'Rider Three', status: 'approved', isActive: true,
+      totalDeliveries: 0, totalEarning: 0, withdrawnAmount: 0, pendingAmount: 0, codDue: 0,
     },
     'deliveryPartners/rider2': {
       uid: 'rider2', name: 'Rider Two', status: 'pending', isActive: false,
@@ -68,6 +76,11 @@ function baseDocs() {
       userId: 'cust2', status: 'delivered', deliveryStatus: 'delivered', paymentStatus: 'paid',
       paymentMethod: 'COD', deliveryPartnerId: 'rider1', grandTotal: 500, deliveryCharge: 60,
     },
+    // Delivered by rider1, paid online (not COD): codDue must not grow.
+    'orders/o5': {
+      userId: 'cust1', status: 'delivered', deliveryStatus: 'delivered', paymentStatus: 'paid',
+      paymentMethod: 'online', deliveryPartnerId: 'rider1', grandTotal: 700, deliveryCharge: 80,
+    },
     'vendorWithdrawRequests/w1': {
       vendorId: 'vend1', vendorOwnerId: 'vendU1', amount: 150, status: 'pending', payoutAccount: 'bkash 017',
     },
@@ -87,4 +100,4 @@ async function resetWorld() {
   await seed(baseDocs());
 }
 
-module.exports = { resetWorld, RULES_FILE, OLD_RULES };
+module.exports = { resetWorld, RULES_FILE, OLD_RULES, KEEP_SECRETS };

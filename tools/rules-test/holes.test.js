@@ -7,15 +7,23 @@
 
 const { test, beforeEach } = require('node:test');
 const { db, allowed, denied, SERVER_TS } = require('./emu');
-const { resetWorld, OLD_RULES } = require('./fixtures');
+const { resetWorld, OLD_RULES, KEEP_SECRETS } = require('./fixtures');
 
 const expectHole = OLD_RULES ? allowed : denied;
 const label = OLD_RULES ? '[OLD rules: hole open]' : '[NEW rules: closed]';
 
 beforeEach(resetWorld);
 
-test(`${label} no login: read the social media tokens doc`, async () => {
-  expectHole(await db(null).get('settings/app_secrets'));
+// The rollback file keeps app_secrets locked even on the old rules.
+const expectSecretsHole = KEEP_SECRETS ? denied : expectHole;
+const secretsLabel = KEEP_SECRETS ? '[ROLLBACK rules: tokens stay locked]' : label;
+
+test(`${secretsLabel} no login: read the social media tokens doc`, async () => {
+  expectSecretsHole(await db(null).get('settings/app_secrets'));
+});
+
+test(`${secretsLabel} customer: read the social media tokens doc`, async () => {
+  expectSecretsHole(await db('cust1').get('settings/app_secrets'));
 });
 
 test(`${label} no login: read doctor appointments (patient data)`, async () => {
@@ -86,9 +94,9 @@ test(`${label} customer lists every withdraw request (payout accounts)`, async (
   expectHole(await db('cust1').query('vendorWithdrawRequests'));
 });
 
-test(`${label} analytics staff reads the tokens doc via the catch-all`, async () => {
+test(`${secretsLabel} analytics staff reads the tokens doc via the catch-all`, async () => {
   // Old rules: allowed through the public settings rule anyway.
-  expectHole(await db('analyst').get('settings/app_secrets'));
+  expectSecretsHole(await db('analyst').get('settings/app_secrets'));
 });
 
 test('[both] vendors are still readable without login (closed in step B)', async () => {

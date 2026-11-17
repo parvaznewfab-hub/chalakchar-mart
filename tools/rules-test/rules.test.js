@@ -83,7 +83,7 @@ describe('orders: customer', opts, () => {
   test('can read own order and own order list (user_order_page.dart:75, tracking page)', async () => {
     allowed(await db('cust1').get('orders/o1'));
     const r = allowed(await db('cust1').query('orders', [['userId', '==', 'cust1']]));
-    if (r.docs.length !== 2) throw new Error(`expected 2 own orders, got ${r.docs.length}`);
+    if (r.docs.length !== 3) throw new Error(`expected 3 own orders, got ${r.docs.length}`);
   });
   test("cannot read another customer's order or list theirs", async () => {
     denied(await db('cust1').get('orders/o2'));
@@ -156,6 +156,82 @@ describe('orders + earnings + partner: rider', opts, () => {
     denied(await db('rider1').get('orders/o2'));
     denied(await db('rider1').query('orders'));
   });
+  // The app does NOT use a batch or transaction for "delivered": it sends
+  // these separate writes one after another (delivery_partner_dashboard_page.dart):
+  //   1. orders/{id}.update(...)                     :131  (_updateDeliveryStatus)
+  //   2. deliveryEarnings/{rider_order}.get()         :167  (_createEarning)
+  //   3. deliveryEarnings/{rider_order}.set(merge)    :178
+  //   4. deliveryPartners/{rider}.set(increments, merge) :207
+  //   5. deliveryEarnings/{rider_order}.set({partnerSynced:true}, merge) :210
+  // The "Sync earning" button (:216, _syncEarning) re-runs steps 2-5.
+  const earningDoc = (orderId, amount, grandTotal, paymentMethod = 'cod') => ({
+    deliveryPartnerId: 'rider1', orderId, amount, paymentMethod, status: 'pending',
+    grandTotal, deliveryCharge: amount, partnerSynced: false, createdAt: SERVER_TS, updatedAt: SERVER_TS,
+  });
+  const totals = (orderId, earning, cod) => ({
+    totalDeliveries: inc(1), totalEarning: inc(earning), ...(cod === null ? {} : { codDue: inc(cod) }),
+    updatedAt: SERVER_TS, lastEarningSyncedAt: SERVER_TS, lastSyncedOrderId: orderId,
+  });
+
+  test('app write order 1-5 for a COD order, totals wrong in each way are refused', async () => {
+    const r = db('rider1');
+    allowed(await r.update('orders/o1', step('picked_up', { pickedUpAt: SERVER_TS })));
+    allowed(await r.update('orders/o1', step('on_the_way', { onTheWayAt: SERVER_TS })));
+    allowed(await r.update('orders/o1', step('delivered', { paymentStatus: 'paid', deliveredAt: SERVER_TS })), '1 delivered');
+    if ((await r.get('deliveryEarnings/rider1_o1')).status !== 404) throw new Error('2: expected 404');
+    allowed(await r.set('deliveryEarnings/rider1_o1', earningDoc('o1', 60, 500), { merge: true }), '3 earning');
+    // 4 with wrong numbers
+    denied(await r.set('deliveryPartners/rider1', totals('o1', 600, 500), { merge: true }), 'earning x10');
+    denied(await r.set('deliveryPartners/rider1', totals('o1', 60, 0), { merge: true }), 'COD not added');
+    denied(await r.set('deliveryPartners/rider1', totals('o1', 60, 50), { merge: true }), 'COD too small');
+    denied(await r.set('deliveryPartners/rider1', { ...totals('o1', 60, 500), totalDeliveries: inc(2) }, { merge: true }), '2 deliveries');
+    denied(await r.set('deliveryPartners/rider1', { ...totals('o1', 60, 500), withdrawnAmount: 9999 }, { merge: true }), 'extra money field');
+    // 4 right, then 5
+    allowed(await r.set('deliveryPartners/rider1', totals('o1', 60, 500), { merge: true }), '4 totals');
+    allowed(await r.set('deliveryEarnings/rider1_o1', { partnerSynced: true, updatedAt: SERVER_TS }, { merge: true }), '5 synced');
+    const after = allowed(await r.get('deliveryPartners/rider1')).data;
+    if (after.totalEarning !== 180 || after.codDue !== 1000 || after.totalDeliveries !== 3) {
+      throw new Error(`totals wrong: ${JSON.stringify(after)}`);
+    }
+  });
+
+  test('non-COD order: COD due must stay the same', async () => {
+    const r = db('rider1');
+    allowed(await r.set('deliveryEarnings/rider1_o5', earningDoc('o5', 80, 700, 'online'), { merge: true }));
+    denied(await r.set('deliveryPartners/rider1', totals('o5', 80, 700), { merge: true }));
+    allowed(await r.set('deliveryPartners/rider1', totals('o5', 80, null), { merge: true }));
+  });
+
+  test("another approved rider cannot record, sync or move rider 1's orders", async () => {
+    const r3 = db('rider3');
+    denied(await r3.set('deliveryEarnings/rider3_o4', { ...earningDoc('o4', 60, 500), deliveryPartnerId: 'rider3' }, { merge: true }), 'own id');
+    denied(await r3.set('deliveryEarnings/rider1_o4', earningDoc('o4', 60, 500), { merge: true }), "rider1's id");
+    denied(await r3.set('deliveryPartners/rider3', totals('o4', 60, 500), { merge: true }), 'totals from o4');
+    denied(await r3.set('deliveryPartners/rider1', totals('o4', 60, 500), { merge: true }), "rider1's totals");
+    denied(await r3.update('orders/o1', step('picked_up')), "rider1's order");
+    denied(await r3.get('orders/o4'), 'read');
+    denied(await r3.get('deliveryEarnings/rider1_old'), 'read earning');
+  });
+
+  test('writing the same earning twice: totals once only, amount cannot change', async () => {
+    const r = db('rider1');
+    allowed(await r.set('deliveryEarnings/rider1_o4', earningDoc('o4', 60, 500), { merge: true }));
+    // "Sync earning" pressed again before step 5: step 3 again is a no-op, allowed
+    // (the app re-sends the old createdAt it just read: dashboard:189-191)
+    const old = allowed(await r.get('deliveryEarnings/rider1_o4')).data;
+    allowed(await r.set('deliveryEarnings/rider1_o4', { ...earningDoc('o4', 60, 500), createdAt: old.createdAt }, { merge: true }));
+    denied(await r.set('deliveryEarnings/rider1_o4', { amount: 600, deliveryCharge: 600 }, { merge: true }), 'raise amount');
+    allowed(await r.set('deliveryPartners/rider1', totals('o4', 60, 500), { merge: true }), 'first totals');
+    allowed(await r.set('deliveryEarnings/rider1_o4', { partnerSynced: true, updatedAt: SERVER_TS }, { merge: true }));
+    // Sync pressed again after it completed
+    denied(await r.set('deliveryPartners/rider1', totals('o4', 60, 500), { merge: true }), 'same order again');
+    // ...or alternating with another order to dodge the "same as last" check
+    allowed(await r.set('deliveryEarnings/rider1_o5', earningDoc('o5', 80, 700, 'online'), { merge: true }));
+    allowed(await r.set('deliveryPartners/rider1', totals('o5', 80, null), { merge: true }));
+    allowed(await r.set('deliveryEarnings/rider1_o5', { partnerSynced: true, updatedAt: SERVER_TS }, { merge: true }));
+    denied(await r.set('deliveryPartners/rider1', totals('o4', 60, 500), { merge: true }), 'o4 again after o5');
+  });
+
   test('pending applicant rider cannot read assigned orders', async () => {
     denied(await db('rider2').query('orders', [['deliveryPartnerId', '==', 'rider2']]));
   });
