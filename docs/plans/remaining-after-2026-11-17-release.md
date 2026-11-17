@@ -48,3 +48,14 @@
 ## গুছিয়ে রাখা
 - `chalakchar_mart_notif` worktree আর `wip/notifications` branch ff-এর পরে মুছে ফেলা যায়।
 - পুরনো hosting চ্যানেল: notif, related, preview, release (প্রতিটার মেয়াদ ৭ দিন)।
+
+## পরে করার তালিকা (মালিক, ১৭ নভেম্বর; এখন কিছু নয়)
+- **সার্চে AliExpress import-এর race (লাইভে দেওয়ার আগে ঠিক করা ভালো):** সার্চ পেজ প্রথমে Firestore-এর নিজের cache থেকে আংশিক তালিকা পায় (`fromCache`)। সেটা দিয়েই "কিছু মিলল কি না" গোনা হয় ([search_page.dart](../../lib/pages/user/search_page.dart), `_handleSettledQuery`)। ফলে লুকানো grocery-র সাথে মেলে এমন শব্দেও ("gas") মাঝে মাঝে import চলে যায়। সমাধান: `snapshot.metadata.isFromCache` হলে গোনা পিছিয়ে দেওয়া।
+- সার্চ শব্দের ভেতরে খোঁজে ("rice" লিখলে "price" আসে)। শব্দের শুরু থেকে মেলানো দরকার।
+- সার্চ কার্ডে সবচেয়ে কম দামের variant দেখায় (যেমন ৳2,599), কিন্তু পণ্যের পেজে সবচেয়ে দামি variant বাছাই থাকে (৳13,668)। পেজ খুললে কার্ডের দামের variant-টাই বাছাই থাকা উচিত।
+- Overview-তে seller-এর after-sales কথা থেকে যায় ("you cannot use it to apply for after-sales service", "100% working well")।
+- ছবির ভেতরের লেখা ("Fast Ship in 24 Hours") লেখার ফিল্টার ধরতে পারে না।
+- grocery-র ১১৩টা পণ্য ডেটায় `isActive:false` করা হবে কি না, মালিক পরে জানাবেন।
+- ChalakChar Mart-এর vendorId `super_admin`, `vendors`-এ কোনো ডকুমেন্ট নেই, তাই vendor shop "Vendor shop not found" দেখায়।
+- marketplace section (`MarketplaceHomeSection`) কোথাও বসানো নেই, `/marketplace` route-ও নেই। রাখা হবে না মোছা হবে, সিদ্ধান্ত পরে।
+- category পেজের সাব-ক্যাটাগরি গণনা (`liveProductCountsBySubcategory`) এখনো শুধু isActive আর approved দেখে, isShopVisibleProduct দেখে না। এখন পার্থক্য নেই (এমন লুকানো পণ্য ০টা)।
