@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../utils/social_secrets.dart';
+
 /// Enterprise-ready marketing settings reader for ChalakChar Mart.
 ///
 /// This service reads settings/app and normalizes:
@@ -171,7 +173,7 @@ class MarketingSettingsService {
     try {
       final doc = await _db.collection('settings').doc('app').get();
       final settings = doc.exists
-          ? MarketingSettings.fromAppSettings(doc.data() ?? {})
+          ? MarketingSettings.fromAppSettings(await _withSecrets(doc.data() ?? {}))
           : MarketingSettings.defaults();
 
       _cache = settings;
@@ -179,6 +181,23 @@ class MarketingSettingsService {
       return settings;
     } catch (_) {
       return _cache ?? MarketingSettings.defaults();
+    }
+  }
+
+  // Adds the tokens from settings/app_secrets when this admin may read them,
+  // so the "API ready" checks still see them after they left settings/app.
+  static Future<Map<String, dynamic>> _withSecrets(Map<String, dynamic> data) async {
+    try {
+      final secrets = await _db.collection('settings').doc(kAppSecretsDocId).get();
+      return {
+        ...data,
+        'socialApi': mergeSocialApiSecrets(
+          socialApiMap(data['socialApi']),
+          socialApiMap(secrets.data()?['socialApi']),
+        ),
+      };
+    } catch (_) {
+      return data;
     }
   }
 

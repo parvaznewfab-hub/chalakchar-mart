@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../services/auth_service.dart';
 import '../../services/image_upload_service.dart';
 import '../../services/tiktok_connection_service.dart';
+import '../../utils/social_secrets.dart';
 
 
 class AppSettingsPage extends StatefulWidget {
@@ -341,9 +342,16 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       youtubeController.text = _text(data['youtubeLink'] ?? socialLinks['youtube']);
       tiktokController.text = _text(data['tiktokLink'] ?? socialLinks['tiktok']);
 
-      final socialApi = data['socialApi'] is Map
-          ? Map<String, dynamic>.from(data['socialApi'] as Map)
-          : <String, dynamic>{};
+      // Tokens are in settings/app_secrets (only settings editors can read
+      // it); a value still left in settings/app is used until it is moved.
+      var secretApi = <String, dynamic>{};
+      try {
+        final secretsDoc = await db.collection('settings').doc(kAppSecretsDocId).get();
+        secretApi = socialApiMap(secretsDoc.data()?['socialApi']);
+      } catch (_) {
+        // No permission (not a settings editor): token fields stay empty.
+      }
+      final socialApi = mergeSocialApiSecrets(socialApiMap(data['socialApi']), secretApi);
 
       final marketingDefaults = data['marketingDefaults'] is Map
           ? Map<String, dynamic>.from(data['marketingDefaults'] as Map)
@@ -426,6 +434,17 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     setState(() => saving = true);
 
     try {
+      // Tokens go to the private settings/app_secrets doc first...
+      await db.collection('settings').doc(kAppSecretsDocId).set({
+        'socialApi': {
+          'facebookPageAccessToken': facebookPageTokenController.text.trim(),
+          'instagramAccessToken': instagramAccessTokenController.text.trim(),
+          'whatsappAccessToken': whatsappAccessTokenController.text.trim(),
+        },
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      // ...and never into the public settings/app (any left there is removed).
       await db.collection('settings').doc('app').set({
         'pharmacyName': pharmacyNameController.text.trim(),
         'supportPhone': supportPhoneController.text.trim(),
@@ -497,11 +516,13 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
 
         'socialApi': {
           'facebookPageId': facebookPageIdController.text.trim(),
-          'facebookPageAccessToken': facebookPageTokenController.text.trim(),
           'instagramBusinessId': instagramBusinessIdController.text.trim(),
-          'instagramAccessToken': instagramAccessTokenController.text.trim(),
           'whatsappPhoneNumberId': whatsappPhoneNumberIdController.text.trim(),
-          'whatsappAccessToken': whatsappAccessTokenController.text.trim(),
+          // The three tokens edited on this page; the move script handles
+          // the rest (messenger token, legacy TikTok secret).
+          'facebookPageAccessToken': FieldValue.delete(),
+          'instagramAccessToken': FieldValue.delete(),
+          'whatsappAccessToken': FieldValue.delete(),
           'whatsappTemplateName': whatsappTemplateController.text.trim(),
           'tiktokClientKey': tiktokClientKeyController.text.trim(),
           // tiktokClientSecret intentionally not written here — see removal
