@@ -70,3 +70,14 @@
 
 ## মালিকের সিদ্ধান্ত (১৭ নভেম্বর ২০২৬)
 - **19:** এখনকার নিয়ম থাকবে। সার্চের শব্দ কোনো লুকানো পণ্যের সাথে মিললেও "মিলেছে" ধরা হবে, তাই AliExpress import চলবে না।
+
+## 14b নিরাপত্তা: ধাপ A-র পরে বাকি (মালিক, ১৭ নভেম্বর)
+- মালিক Meta-র নতুন চাবি বানানোর (rotate) পর `loadMarketingSettings`-এর
+  fallback সরানো: function তখন শুধু `settings/app_secrets` পড়বে, settings/app
+  থেকে না। (`functions/settings/socialSecrets.js`, `lib/utils/social_secrets.dart`)
+- deliveryEarnings লেখা আর rider-এর মোট আয় ও COD বাকি বাড়ানো function-এ সরানো।
+  এখন rider-অ্যাপ নিজে লেখে, rules যাচাই করে। পরে করা হবে।
+- জেনেবুঝে নেওয়া সিদ্ধান্ত: staff (পণ্যের কাজ) আর অর্ডার বদলাতে পারবেন না।
+  দরকার হলে তাঁকে `orders.edit` বা `orders.confirm` অনুমতি দিতে হবে।
+- ধাপ B: vendors আর deliveryPartners-এর সবার দেখার তথ্য আর গোপন তথ্য আলাদা করা।
+  ধাপ C: ছবির লিংকের বদলে path রাখা, আর পুরোনো download token বাতিল করা।
