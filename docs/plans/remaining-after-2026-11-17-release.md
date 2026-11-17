@@ -67,3 +67,6 @@
 - ChalakChar Mart-এর vendorId `super_admin`, `vendors`-এ কোনো ডকুমেন্ট নেই, তাই vendor shop "Vendor shop not found" দেখায়।
 - marketplace section (`MarketplaceHomeSection`) কোথাও বসানো নেই, `/marketplace` route-ও নেই। রাখা হবে না মোছা হবে, সিদ্ধান্ত পরে।
 - category পেজের সাব-ক্যাটাগরি গণনা (`liveProductCountsBySubcategory`) এখনো শুধু isActive আর approved দেখে, isShopVisibleProduct দেখে না। এখন পার্থক্য নেই (এমন লুকানো পণ্য ০টা)।
+
+## মালিকের সিদ্ধান্ত (১৭ নভেম্বর ২০২৬)
+- **19:** এখনকার নিয়ম থাকবে। সার্চের শব্দ কোনো লুকানো পণ্যের সাথে মিললেও "মিলেছে" ধরা হবে, তাই AliExpress import চলবে না।
