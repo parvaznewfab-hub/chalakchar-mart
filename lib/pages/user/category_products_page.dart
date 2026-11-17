@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../../services/category_service.dart';
+import '../../utils/shop_visibility.dart';
 import '../../services/product_service.dart';
 import '../../widgets/product_card.dart';
 import '../../widgets/global_web_header.dart';
@@ -137,18 +138,24 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
     return DateTime(2000);
   }
 
+  static Map<String, dynamic> _dataOf(QueryDocumentSnapshot doc) =>
+      doc.data() as Map<String, dynamic>;
+
   bool _isMarketplace(Map<String, dynamic> data) {
     final vendorId = (data['vendorId'] ?? '').toString().trim();
     return vendorId.isNotEmpty && vendorId != 'super_admin';
   }
 
-  /// isActive plus the In stock / Marketplace / Official Store filters —
-  /// everything except the subcategory and the sort.
-  List<QueryDocumentSnapshot> _applyFilters(List<QueryDocumentSnapshot> docs) {
-    return docs.where((doc) {
-      final data = doc.data() as Map<String, dynamic>;
+  /// What the shop shows (isShopVisibleProduct) plus the In stock /
+  /// Marketplace / Official Store filters — everything except the
+  /// subcategory and the sort.
+  List<QueryDocumentSnapshot> _applyFilters(
+    List<QueryDocumentSnapshot> docs,
+    Set<String> activeCategoriesLower,
+  ) {
+    return shopVisibleOnly(docs, activeCategoriesLower, _dataOf).where((doc) {
+      final data = _dataOf(doc);
 
-      if (data['isActive'] == false) return false;
       if (onlyInStock && _stockOf(data) <= 0) return false;
       if (onlyMarketplace && !_isMarketplace(data)) return false;
       if (onlyPharmacy && _isMarketplace(data)) return false;
@@ -238,6 +245,9 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
               matchedList.isNotEmpty ? matchedList.first : null;
 
           final exists = matchedCategory != null;
+          final activeLower = {
+            for (final c in activeCategories) c.name.trim().toLowerCase(),
+          };
 
           if (exists) {
             _syncCategoryUrl(matchedCategory.name);
@@ -280,7 +290,7 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
               // no chip row.
               final subcategories = subSnap.data?[matchedCategory.id] ??
                   const <SubcategoryModel>[];
-              return _productsView(matchedCategory, subcategories, isDesktop);
+              return _productsView(matchedCategory, subcategories, isDesktop, activeLower);
             },
           );
 
@@ -314,6 +324,7 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
     CategoryModel matchedCategory,
     List<SubcategoryModel> subcategories,
     bool isDesktop,
+    Set<String> activeLower,
   ) {
     return Column(
       children: [
@@ -340,11 +351,8 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
               // Chip visibility uses unfiltered counts (so In stock
               // can't make a chip vanish); chip numbers use the
               // filtered set, so they match what a click shows.
-              final liveProducts = allProducts
-                  .where((d) =>
-                      (d.data() as Map<String, dynamic>)['isActive'] != false)
-                  .toList();
-              final filtered = _applyFilters(allProducts);
+              final liveProducts = shopVisibleOnly(allProducts, activeLower, _dataOf);
+              final filtered = _applyFilters(allProducts, activeLower);
               int countIn(List<QueryDocumentSnapshot> docs, String subId) =>
                   docs
                       .where((d) =>

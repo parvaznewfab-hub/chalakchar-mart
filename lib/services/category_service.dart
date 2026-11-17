@@ -45,21 +45,48 @@ class CategoryService {
     return list;
   }
 
+  /// How long [activeCategoryNames] trusts its copy. A category the admin
+  /// switches off (or on) reaches lists opened after that, at most this late.
+  static const Duration activeCategoryNamesTtl = Duration(minutes: 10);
+
   static Future<List<String>>? _activeNamesCache;
+  static DateTime? _activeNamesReadAt;
+
+  /// Test hooks: replace the Firestore read and the clock.
+  @visibleForTesting
+  static Future<List<String>> Function()? debugActiveNamesLoader;
+  @visibleForTesting
+  static DateTime Function() debugNow = DateTime.now;
+  @visibleForTesting
+  static void debugClearActiveNamesCache() {
+    _activeNamesCache = null;
+    _activeNamesReadAt = null;
+  }
 
   /// Names of the switched-on categories, as written on the category docs.
-  /// Read once per app session and cached (like the subcategories); a
-  /// failed read is not cached, so the next caller retries.
+  /// Cached for [activeCategoryNamesTtl], so lists don't each re-read
+  /// `categories`; a failed read is not cached, so the next caller retries.
   static Future<List<String>> activeCategoryNames() {
-    return _activeNamesCache ??= getActiveCategoriesOnce()
-        .then((list) => [
-              for (final c in list)
-                if (c.name.trim().isNotEmpty) c.name.trim(),
+    final now = debugNow();
+    final readAt = _activeNamesReadAt;
+    final cached = _activeNamesCache;
+    if (cached != null && readAt != null && now.difference(readAt) < activeCategoryNamesTtl) {
+      return cached;
+    }
+    _activeNamesReadAt = now;
+    final load = debugActiveNamesLoader ??
+        () => getActiveCategoriesOnce().then((list) => [for (final c in list) c.name]);
+    late final Future<List<String>> future;
+    future = load()
+        .then((names) => [
+              for (final n in names)
+                if (n.trim().isNotEmpty) n.trim(),
             ])
         .catchError((Object e) {
-      _activeNamesCache = null;
+      if (identical(_activeNamesCache, future)) debugClearActiveNamesCache();
       throw e;
     });
+    return _activeNamesCache = future;
   }
 
   /// [activeCategoryNames] lower-cased, for isShopVisibleProduct.

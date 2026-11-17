@@ -1,4 +1,7 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../services/category_service.dart';
+import '../utils/shop_visibility.dart';
 import '../widgets/product_card.dart';
 import '../services/firebase_service.dart';
 
@@ -15,6 +18,16 @@ class CategorySection extends StatelessWidget {
     this.onAddToCart,
     this.limit = 10,
   });
+
+  /// This category's products, only what the shop shows
+  /// (isShopVisibleProduct, switched-on categories from CategoryService).
+  Stream<List<QueryDocumentSnapshot>> _shopProducts() {
+    return Stream.fromFuture(CategoryService.activeCategoryNamesLower()).asyncExpand(
+      (active) => FirebaseService.getProducts(title, limit: limit).map(
+        (snap) => shopVisibleOnly(snap.docs, active, (d) => d.data() as Map<String, dynamic>),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -58,18 +71,15 @@ class CategorySection extends StatelessWidget {
           // Exactly one card (computed from its content and text scale) plus
           // its margin, so there is no empty space under the price row.
           height: ProductCard.rowHeight(context),
-          child: StreamBuilder(
-            stream: FirebaseService.getProducts(title, limit: limit),
+          child: StreamBuilder<List<QueryDocumentSnapshot>>(
+            stream: _shopProducts(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
 
-              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                return const SizedBox.shrink();
-              }
-
-              var products = snapshot.data!.docs;
+              final products = snapshot.data ?? const [];
+              if (products.isEmpty) return const SizedBox.shrink();
 
               return ListView.builder(
                 scrollDirection: Axis.horizontal,

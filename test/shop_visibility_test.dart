@@ -6,6 +6,7 @@
 import 'dart:io';
 
 import 'package:chalakchar_mart/pages/user/search_page.dart';
+import 'package:chalakchar_mart/services/category_service.dart';
 import 'package:chalakchar_mart/utils/shop_visibility.dart';
 import 'package:chalakchar_mart/widgets/global_web_header.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -95,6 +96,19 @@ void main() {
       expect(s.first['subtitle'], 'Mobile Parts');
     });
 
+    test('searches every shop product, not just the first 40', () {
+      // 83 shop products like the live shop, plus the 113 hidden grocery
+      // items mixed in; the one wanted is number 70.
+      final catalog = [
+        for (var i = 0; i < 83; i++) product('p$i', 'Spare Part $i', i.isEven ? 'Mobile Parts' : 'Motherboard'),
+        for (var i = 0; i < 113; i++) product('g$i', 'Grocery Item $i', 'Cooking'),
+      ];
+      catalog[70] = product('p70', 'Xiaomi Redmi Note 13 Back Glass', 'Mobile Parts');
+      final s = headerSuggestions(catalog, 'redmi note 13', activeCategories);
+      expect(s.map((e) => e['title']), ['Xiaomi Redmi Note 13 Back Glass']);
+      expect(headerSuggestions(catalog, 'grocery', activeCategories), isEmpty);
+    });
+
     test('suggests by category name too, at most 8', () {
       final many = [for (var i = 0; i < 12; i++) product('p$i', 'Part $i', 'Mobile Parts')];
       expect(headerSuggestions(many, 'mobile parts', activeCategories), hasLength(8));
@@ -168,9 +182,14 @@ void main() {
       'lib/pages/vendor/vendor_shop_page.dart': 'shopVisibleOnly(',
       'lib/widgets/marketplace_home_section.dart': 'shopVisibleOnly(',
       'lib/widgets/all_products_section.dart': 'shopVisibleOnly(',
+      'lib/services/shop_catalog.dart': 'shopVisibleOnly(',
+      'lib/pages/user/category_products_page.dart': 'shopVisibleOnly(',
+      'lib/widgets/category_section.dart': 'shopVisibleOnly(',
     };
     for (final entry in places.entries) {
       test('${entry.key} uses the shared rule', () {
+        // (header suggestions read the shared catalog; headerSuggestions
+        // filters again through shopVisibleOnly)
         final src = File(entry.key).readAsStringSync();
         expect(src, contains("utils/shop_visibility.dart'"));
         expect(src, contains(entry.value));
@@ -178,5 +197,88 @@ void main() {
         expect(src, isNot(contains('bool isShopVisibleProduct(')), reason: 'no copy of the rule');
       });
     }
+  });
+
+  group('category page and home category rows', () {
+    // Both list one switched-on category's products; hidden ones in it
+    // (isVisible / isPublished false, hiddenReason) now stay out too.
+    final inCategory = [
+      display,
+      product('h1', 'iPhone 13 LCD', 'Mobile Parts', extra: {'isVisible': false}),
+      product('h2', 'iPhone 14 LCD', 'Mobile Parts', extra: {'isPublished': false}),
+      product('h3', 'iPhone 15 LCD', 'Mobile Parts', extra: {'hiddenReason': 'supplier text'}),
+      product('h4', 'iPhone 11 LCD', 'Mobile Parts', extra: {'approvalStatus': 'rejected'}),
+      partOnMarketplace,
+    ];
+
+    test('only visible products of the category are listed', () {
+      expect(ids(shopVisibleOnly(inCategory, activeCategories, (p) => p)), ['m1', 'm3']);
+    });
+
+    test('a category switched off shows nothing', () {
+      expect(shopVisibleOnly(inCategory, {'motherboard'}, (p) => p), isEmpty);
+    });
+  });
+
+  group('vendor shop paging', () {
+    test('has a "আরও দেখুন" button instead of a hard 60 cap', () {
+      final src = File('lib/pages/vendor/vendor_shop_page.dart').readAsStringSync();
+      expect(src, contains('আরও দেখুন'));
+      expect(src, contains('.limit(limit + 1)'));
+    });
+  });
+
+  group('active category cache', () {
+    var reads = 0;
+    var now = DateTime(2026, 11, 17, 10);
+    var names = ['Mobile Parts', 'Motherboard'];
+
+    setUp(() {
+      reads = 0;
+      now = DateTime(2026, 11, 17, 10);
+      names = ['Mobile Parts', 'Motherboard'];
+      CategoryService.debugClearActiveNamesCache();
+      CategoryService.debugNow = () => now;
+      CategoryService.debugActiveNamesLoader = () async {
+        reads++;
+        return List.of(names);
+      };
+    });
+
+    tearDown(() {
+      CategoryService.debugActiveNamesLoader = null;
+      CategoryService.debugNow = DateTime.now;
+      CategoryService.debugClearActiveNamesCache();
+    });
+
+    test('read once, then served from the cache for 10 minutes', () async {
+      expect(await CategoryService.activeCategoryNames(), ['Mobile Parts', 'Motherboard']);
+      now = now.add(const Duration(minutes: 9, seconds: 59));
+      names = ['Mobile Parts'];
+      expect(await CategoryService.activeCategoryNames(), ['Mobile Parts', 'Motherboard']);
+      expect(reads, 1);
+    });
+
+    test('a category switched off shows up after 10 minutes', () async {
+      await CategoryService.activeCategoryNames();
+      names = ['Mobile Parts'];
+      now = now.add(const Duration(minutes: 10));
+      expect(await CategoryService.activeCategoryNamesLower(), {'mobile parts'});
+      expect(reads, 2);
+    });
+
+    test('a failed read is not cached', () async {
+      CategoryService.debugActiveNamesLoader = () async {
+        reads++;
+        throw StateError('offline');
+      };
+      await expectLater(CategoryService.activeCategoryNames(), throwsStateError);
+      CategoryService.debugActiveNamesLoader = () async {
+        reads++;
+        return ['Mobile Parts'];
+      };
+      expect(await CategoryService.activeCategoryNames(), ['Mobile Parts']);
+      expect(reads, 2);
+    });
   });
 }

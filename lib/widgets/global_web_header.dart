@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/app_settings_service.dart';
-import '../services/category_service.dart';
+import '../services/shop_catalog.dart';
 import '../utils/shop_visibility.dart';
 import '../services/image_search_service.dart';
 import '../pages/auth/login_page.dart';
@@ -295,21 +295,11 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
       return Stream.value(const <Map<String, dynamic>>[]);
     }
 
-    // Only what the shop shows: the query keeps to switched-on categories
-    // (so the 40 are not used up by hidden items), the shared rule does
-    // the rest.
-    return Stream.fromFuture(CategoryService.activeCategoryNames()).asyncExpand((names) {
-      if (names.isEmpty) return Stream.value(const <Map<String, dynamic>>[]);
-      final active = {for (final n in names) n.toLowerCase()};
-      return db
-          .collection('products')
-          .where('isActive', isEqualTo: true)
-          .where('approvalStatus', isEqualTo: 'approved')
-          .where('category', whereIn: names.take(30).toList())
-          .limit(40)
-          .snapshots()
-          .map((snap) => headerSuggestions(snap.docs.map((d) => d.data()), q, active));
-    });
+    // Searches every product the shop shows, from the session's one shared
+    // catalog listener (no new Firestore query per keystroke).
+    return ShopCatalog.watch().map(
+      (catalog) => headerSuggestions(catalog.products, q, catalog.activeCategoriesLower),
+    );
   }
 
   @override

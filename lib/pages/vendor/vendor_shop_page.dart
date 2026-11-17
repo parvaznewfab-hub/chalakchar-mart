@@ -183,67 +183,10 @@ class VendorShopPage extends StatelessWidget {
     );
   }
 
-  /// Only what customers would see in the shop (isShopVisibleProduct): the
-  /// query keeps to switched-on categories so the 60 are not used up by
-  /// hidden items, the shared rule does the rest.
-  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _shopProducts() {
-    return Stream.fromFuture(CategoryService.activeCategoryNames()).asyncExpand((names) {
-      if (names.isEmpty) return Stream.value(const <QueryDocumentSnapshot<Map<String, dynamic>>>[]);
-      final active = {for (final n in names) n.toLowerCase()};
-      return db
-          .collection('products')
-          .where('vendorId', isEqualTo: vendorId)
-          .where('isActive', isEqualTo: true)
-          .where('approvalStatus', isEqualTo: 'approved')
-          .where('category', whereIn: names.take(30).toList())
-          .limit(60)
-          .snapshots()
-          .map((snap) => shopVisibleOnly(snap.docs, active, (d) => d.data()));
-    });
-  }
-
   Widget _productsGrid() {
-    return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
-      stream: _shopProducts(),
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const SliverToBoxAdapter(
-            child: Center(
-              child: Padding(
-                padding: EdgeInsets.all(30),
-                child: CircularProgressIndicator(),
-              ),
-            ),
-          );
-        }
-
-        final docs = snap.data ?? const [];
-
-        if (docs.isEmpty) {
-          return const SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.all(30),
-              child: Center(child: Text('No products found')),
-            ),
-          );
-        }
-
-        return SliverGrid(
-          delegate: SliverChildBuilderDelegate(
-                (context, index) {
-              final doc = docs[index];
-              return _productCard(context, doc.id, doc.data());
-            },
-            childCount: docs.length,
-          ),
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 190,
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            childAspectRatio: 0.66,
-          ),
-        );
-      },
+    return _VendorShopProducts(
+      vendorId: vendorId,
+      cardBuilder: _productCard,
     );
   }
 
@@ -342,4 +285,115 @@ class VendorShopPage extends StatelessWidget {
   }
 }
 
+/// The vendor's products, only what customers would see in the shop
+/// (isShopVisibleProduct), [vendorShopPageSize] at a time with "আরও দেখুন".
+/// The query keeps to switched-on categories, so a page is not used up by
+/// hidden items; the shared rule does the rest.
+const int vendorShopPageSize = 60;
 
+class _VendorShopProducts extends StatefulWidget {
+  const _VendorShopProducts({required this.vendorId, required this.cardBuilder});
+
+  final String vendorId;
+  final Widget Function(BuildContext context, String id, Map<String, dynamic> data) cardBuilder;
+
+  @override
+  State<_VendorShopProducts> createState() => _VendorShopProductsState();
+}
+
+typedef _VendorPage = ({List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, bool hasMore});
+
+class _VendorShopProductsState extends State<_VendorShopProducts> {
+  int _limit = vendorShopPageSize;
+  late Stream<_VendorPage> _stream = _query();
+
+  // One more than shown tells whether there is a next page.
+  Stream<_VendorPage> _query() {
+    final limit = _limit;
+    return Stream.fromFuture(CategoryService.activeCategoryNames()).asyncExpand((names) {
+      if (names.isEmpty) return Stream.value((docs: const <QueryDocumentSnapshot<Map<String, dynamic>>>[], hasMore: false));
+      final active = {for (final n in names) n.toLowerCase()};
+      return FirebaseFirestore.instance
+          .collection('products')
+          .where('vendorId', isEqualTo: widget.vendorId)
+          .where('isActive', isEqualTo: true)
+          .where('approvalStatus', isEqualTo: 'approved')
+          .where('category', whereIn: names.take(30).toList())
+          .limit(limit + 1)
+          .snapshots()
+          .map((snap) => (
+                docs: shopVisibleOnly(snap.docs.take(limit), active, (d) => d.data()),
+                hasMore: snap.docs.length > limit,
+              ));
+    });
+  }
+
+  void _showMore() {
+    setState(() {
+      _limit += vendorShopPageSize;
+      _stream = _query();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<_VendorPage>(
+      stream: _stream,
+      builder: (context, snap) {
+        final page = snap.data;
+        if (page == null) {
+          return const SliverToBoxAdapter(
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.all(30),
+                child: CircularProgressIndicator(),
+              ),
+            ),
+          );
+        }
+
+        final docs = page.docs;
+        if (docs.isEmpty) {
+          return const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.all(30),
+              child: Center(child: Text('No products found')),
+            ),
+          );
+        }
+
+        return SliverMainAxisGroup(
+          slivers: [
+            SliverGrid(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final doc = docs[index];
+                  return widget.cardBuilder(context, doc.id, doc.data());
+                },
+                childCount: docs.length,
+              ),
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 190,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: 0.66,
+              ),
+            ),
+            if (page.hasMore)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: Center(
+                    child: OutlinedButton(
+                      onPressed: _showMore,
+                      child: const Text('আরও দেখুন'),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
