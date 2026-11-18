@@ -14,7 +14,7 @@ test, scripts আর `.env` এই মেলানোয় ধরা হয়�
 | ৪ | onWhatsAppDeliveryCreated, processWhatsAppDeliveryRetries | 2026-11-11 19:09 / 19:23 | `780f82c` |
 
 deploy-এর মানগুলো (params) আসে `functions/.env.chalakchar-mart` থেকে। ফাইলটা git-এ
-নেই। এতে আছে `ALIEXPRESS_*`, `META_WEBHOOK_VERIFY_TOKEN`, `TIKTOK_REDIRECT_URI` ইত্যাদি।
+নেই। এতে আছে `META_WEBHOOK_VERIFY_TOKEN` আর `TIKTOK_REDIRECT_URI`।
 rollback-এর worktree-তে এই ফাইলটা কপি করতেই হবে। নইলে CLI মান চাইবে, অথবা ভুল মান
 নিয়ে deploy হবে। `functions/.env`-এ শুধু একটা comment আছে।
 
