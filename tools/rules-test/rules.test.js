@@ -213,6 +213,92 @@ describe('orders + earnings + partner: rider', opts, () => {
     denied(await r3.get('deliveryEarnings/rider1_old'), 'read earning');
   });
 
+  // "Sync earning" (_syncEarning -> _createEarning) as the app runs it:
+  //   2 get earning; stop if partnerSynced == true
+  //   3 set earning (re-sends old createdAt); 4 add totals; 5 mark synced.
+  // Any denied write throws and the app stops there.
+  async function appSync(r, orderId, amount, grandTotal) {
+    const g = await r.get(`deliveryEarnings/rider1_${orderId}`);
+    if (g.status === 200 && g.data.partnerSynced === true) return 'already synced';
+    const createdAt = g.status === 200 ? g.data.createdAt : SERVER_TS;
+    const s3 = await r.set(`deliveryEarnings/rider1_${orderId}`, { ...earningDoc(orderId, amount, grandTotal), createdAt }, { merge: true });
+    if (s3.status !== 200) return 'stopped at 3';
+    const s4 = await r.set('deliveryPartners/rider1', totals(orderId, amount, grandTotal), { merge: true });
+    if (s4.status !== 200) return 'stopped at 4';
+    const s5 = await r.set(`deliveryEarnings/rider1_${orderId}`, { partnerSynced: true, updatedAt: SERVER_TS }, { merge: true });
+    return s5.status === 200 ? 'synced' : 'stopped at 5';
+  }
+  const money = async (r) => {
+    const d = allowed(await r.get('deliveryPartners/rider1')).data;
+    return { n: d.totalDeliveries, earning: d.totalEarning, cod: d.codDue };
+  };
+  const start = { n: 2, earning: 120, cod: 500 };
+
+  test('network lost after step 4 (5 never sent), then "Sync earning": totals NOT added twice', async () => {
+    const r = db('rider1');
+    allowed(await r.set('deliveryEarnings/rider1_o4', earningDoc('o4', 60, 500), { merge: true }), '3');
+    allowed(await r.set('deliveryPartners/rider1', totals('o4', 60, 500), { merge: true }), '4');
+    // 5 lost.
+    const once = { n: 3, earning: 180, cod: 1000 };
+    if (JSON.stringify(await money(r)) !== JSON.stringify(once)) throw new Error('after 4');
+    const result = await appSync(r, 'o4', 60, 500);
+    if (JSON.stringify(await money(r)) !== JSON.stringify(once)) throw new Error(`added twice: ${JSON.stringify(await money(r))}`);
+    // Known app limitation (see docs/plans): the app does not skip step 4 when
+    // it was already done, so it stops at 4 and never sets the mark.
+    if (result !== 'stopped at 4') throw new Error(`unexpected: ${result}`);
+    if (allowed(await r.get('deliveryEarnings/rider1_o4')).data.partnerSynced !== false) throw new Error('mark');
+    // Setting the mark directly (what a fixed app would do) is allowed:
+    allowed(await r.set('deliveryEarnings/rider1_o4', { partnerSynced: true, updatedAt: SERVER_TS }, { merge: true }));
+    if ((await appSync(r, 'o4', 60, 500)) !== 'already synced') throw new Error('after mark');
+  });
+
+  test('network lost after step 3 (4 and 5 never sent), then "Sync earning": added exactly once and marked', async () => {
+    const r = db('rider1');
+    allowed(await r.set('deliveryEarnings/rider1_o4', earningDoc('o4', 60, 500), { merge: true }), '3');
+    if (JSON.stringify(await money(r)) !== JSON.stringify(start)) throw new Error('before');
+    if ((await appSync(r, 'o4', 60, 500)) !== 'synced') throw new Error('sync did not finish');
+    if (JSON.stringify(await money(r)) !== JSON.stringify({ n: 3, earning: 180, cod: 1000 })) throw new Error('not once');
+    if (allowed(await r.get('deliveryEarnings/rider1_o4')).data.partnerSynced !== true) throw new Error('mark');
+    if ((await appSync(r, 'o4', 60, 500)) !== 'already synced') throw new Error('third press');
+    if (JSON.stringify(await money(r)) !== JSON.stringify({ n: 3, earning: 180, cod: 1000 })) throw new Error('third press added');
+  });
+
+  test('step 5 lost on order A, another delivery B synced, then "Sync earning" on A', async () => {
+    const r = db('rider1');
+    allowed(await r.set('deliveryEarnings/rider1_o4', earningDoc('o4', 60, 500), { merge: true }));
+    allowed(await r.set('deliveryPartners/rider1', totals('o4', 60, 500), { merge: true })); // A counted, 5 lost
+    // B (o5, not COD) delivered and synced normally
+    allowed(await r.set('deliveryEarnings/rider1_o5', earningDoc('o5', 80, 700, 'online'), { merge: true }));
+    allowed(await r.set('deliveryPartners/rider1', totals('o5', 80, null), { merge: true }));
+    allowed(await r.set('deliveryEarnings/rider1_o5', { partnerSynced: true, updatedAt: SERVER_TS }, { merge: true }));
+    const before = await money(r);
+    await appSync(r, 'o4', 60, 500);
+    const after = await money(r);
+    if (JSON.stringify(before) !== JSON.stringify(after)) {
+      throw new Error(`A added twice: ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
+    }
+  });
+
+  test('trade-off: step 4 lost on A, another delivery B synced, then sync A -> A is NOT added, but stays visibly unsynced', async () => {
+    const r = db('rider1');
+    allowed(await r.set('deliveryEarnings/rider1_o4', earningDoc('o4', 60, 500), { merge: true })); // A: 3 only
+    allowed(await r.set('deliveryEarnings/rider1_o5', earningDoc('o5', 80, 700, 'online'), { merge: true }));
+    allowed(await r.set('deliveryPartners/rider1', totals('o5', 80, null), { merge: true }));
+    allowed(await r.set('deliveryEarnings/rider1_o5', { partnerSynced: true, updatedAt: SERVER_TS }, { merge: true }));
+    const before = await money(r);
+    if ((await appSync(r, 'o4', 60, 500)) !== 'stopped at 4') throw new Error('expected refusal');
+    if (JSON.stringify(await money(r)) !== JSON.stringify(before)) throw new Error('changed');
+    // Under-count, not double count: admin can find it (partnerSynced == false).
+    if (allowed(await r.get('deliveryEarnings/rider1_o4')).data.partnerSynced !== false) throw new Error('not visible');
+  });
+
+  test('earning createdAt must be server time; totals must stamp server time', async () => {
+    const r = db('rider1');
+    denied(await r.set('deliveryEarnings/rider1_o4', { ...earningDoc('o4', 60, 500), createdAt: new Date('2030-01-01') }), 'future createdAt');
+    allowed(await r.set('deliveryEarnings/rider1_o4', earningDoc('o4', 60, 500), { merge: true }));
+    denied(await r.set('deliveryPartners/rider1', { ...totals('o4', 60, 500), lastEarningSyncedAt: new Date('2000-01-01') }, { merge: true }), 'old stamp');
+  });
+
   test('writing the same earning twice: totals once only, amount cannot change', async () => {
     const r = db('rider1');
     allowed(await r.set('deliveryEarnings/rider1_o4', earningDoc('o4', 60, 500), { merge: true }));

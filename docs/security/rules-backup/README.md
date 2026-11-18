@@ -29,3 +29,12 @@ git checkout firestore.rules   # repo-র ফাইল আবার নতুন
 
 Console থেকে ruleset `ab0bcacc-472b-4897-a1fa-f14cff043e3b` "Restore" করা চলবে
 শুধু script চলার আগে।
+
+## 14b ধাপ A-র deploy
+| কখন (UTC) | ruleset | আগেরটা |
+|---|---|---|
+| 2026-11-17 17:29 | `230c48c3-5441-4f8c-b723-904407f211b9` | `ab0bcacc-472b-4897-a1fa-f14cff043e3b` |
+| 2026-11-18 (rider sync-এর দুবার যোগ বন্ধ) | নিচে দেখুন | `230c48c3-5441-4f8c-b723-904407f211b9` |
+
+শুধু শেষ deploy-টা ফেরাতে (চাবি সরানোর script চলার আগে বা পরে, দুই অবস্থাতেই নিরাপদ):
+Console → Firestore → Rules → History → `230c48c3…` → Restore।

@@ -476,7 +476,9 @@ service cloud.firestore {
         && request.resource.data.deliveryCharge == orderDoc(request.resource.data.orderId).data.deliveryCharge
         && request.resource.data.grandTotal == orderAmount(orderDoc(request.resource.data.orderId).data)
         && request.resource.data.status == 'pending'
-        && request.resource.data.partnerSynced == false;
+        && request.resource.data.partnerSynced == false
+        // server time, so validRiderMoneySync can trust it
+        && request.resource.data.createdAt == request.time;
     }
 
     function validRiderMoneySync(partnerId) {
@@ -496,6 +498,14 @@ service cloud.firestore {
         // the same delivery cannot be added to the totals twice.
         && exists(/databases/$(database)/documents/deliveryEarnings/$(request.auth.uid + '_' + request.resource.data.lastSyncedOrderId))
         && get(/databases/$(database)/documents/deliveryEarnings/$(request.auth.uid + '_' + request.resource.data.lastSyncedOrderId)).data.partnerSynced == false
+        // ...and must be newer than the last time any earning was added to
+        // the totals. If step 5 (mark synced) was lost, a later sync of the
+        // same earning is refused even after other deliveries were synced.
+        && (
+          !resource.data.keys().hasAny(['lastEarningSyncedAt'])
+          || get(/databases/$(database)/documents/deliveryEarnings/$(request.auth.uid + '_' + request.resource.data.lastSyncedOrderId)).data.createdAt > resource.data.lastEarningSyncedAt
+        )
+        && request.resource.data.lastEarningSyncedAt == request.time
         && (
           !resource.data.keys().hasAny(['lastSyncedOrderId'])
           || resource.data.lastSyncedOrderId != request.resource.data.lastSyncedOrderId
