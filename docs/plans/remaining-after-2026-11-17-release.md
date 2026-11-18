@@ -102,4 +102,17 @@
   আসলে মোট আয়ে যোগ হয়ে গেছে, কিন্তু চিহ্ন দেখায় "যোগ হয়নি"। তাই admin চিহ্ন
   দেখে হাতে যোগ করবেন না। আগে rider-এর `totalEarning`, `codDue` আর
   `lastSyncedOrderId` মিলিয়ে নেবেন।
+- `socialApi.whatsappBroadcastNumbers` (১টা নম্বর, ১৩ অক্ষর) এখন settings/app-এ সবার
+  জন্য খোলা। এটা ব্যক্তিগত নম্বর বা গ্রাহক তালিকা হলে app_secrets-এ সরানো দরকার,
+  সঙ্গে function-এর কোডও বদলাতে হবে। মালিক পরে ঠিক করবেন।
+- **chat bot-এর import (বাগ):** কোনো পণ্য না মিললে সাধারণ প্রশ্নেও AliExpress import
+  শুরু হয় (যেমন "ডেলিভারি চার্জ কত?", "দোকান কখন খোলা থাকে?", "আপনাদের দোকান
+  কোথায়?")। ১৮ নভেম্বর লাইভের ১৯৬টা পণ্য দিয়ে নিজের মেশিনে চালিয়ে দেখা।
+  `messaging/searchImportGuard.js`-এ প্রশ্নবাচক বা দোকান-সংক্রান্ত শব্দ বাদ দেওয়া
+  দরকার। [TODO 1d]-এর সাথে মিলিয়ে করা।
+- chat-এর পণ্য খোঁজা (`fetchCandidateProductsForChat`) শুধু `isActive` দেখে,
+  `isShopVisibleProduct` দেখে না। লুকানো category-র পণ্যও উত্তরে আসতে পারে।
+- WhatsApp, Messenger আর Instagram-এর webhook-এ ১৮ নভেম্বরের আগের ৩০ দিনে একটাও
+  request আসেনি, Meta-র GET যাচাইও না। Meta app publish আর webhook subscription
+  দেখা দরকার (মালিকের "পরে" তালিকার Meta app Publish-এর সাথে)।
 

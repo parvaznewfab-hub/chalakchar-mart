@@ -13,7 +13,10 @@ test, scripts আর `.env` এই মেলানোয় ধরা হয়�
 | ৩ | onMarketingOutboxCreated, processMarketingQueueScheduled | 2026-11-14 17:39 | `d2e65dd` |
 | ৪ | onWhatsAppDeliveryCreated, processWhatsAppDeliveryRetries | 2026-11-11 19:09 / 19:23 | `780f82c` |
 
-`functions/.env`-এ কোনো চালু মান নেই (শুধু একটা comment), তাই rollback-এ লাগবে না।
+deploy-এর মানগুলো (params) আসে `functions/.env.chalakchar-mart` থেকে। ফাইলটা git-এ
+নেই। এতে আছে `ALIEXPRESS_*`, `META_WEBHOOK_VERIFY_TOKEN`, `TIKTOK_REDIRECT_URI` ইত্যাদি।
+rollback-এর worktree-তে এই ফাইলটা কপি করতেই হবে। নইলে CLI মান চাইবে, অথবা ভুল মান
+নিয়ে deploy হবে। `functions/.env`-এ শুধু একটা comment আছে।
 
 ## সতর্কতা
 এই পুরোনো কোড চাবি পড়ে শুধু `settings/app` থেকে। চাবি সরানোর script
@@ -37,6 +40,7 @@ C=780f82c; FNS=onWhatsAppDeliveryCreated,processWhatsAppDeliveryRetries
 
 # উপরের একটা দল বেছে তারপর:
 git worktree add ../cc_rollback_$C $C
+cp functions/.env.chalakchar-mart ../cc_rollback_$C/functions/   # params, not in git
 (cd ../cc_rollback_$C/functions && npm ci)
 (cd ../cc_rollback_$C && firebase deploy --only "functions:${FNS//,/,functions:}" --project chalakchar-mart)
 git worktree remove --force ../cc_rollback_$C
