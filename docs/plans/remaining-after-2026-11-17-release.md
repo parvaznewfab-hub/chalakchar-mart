@@ -130,3 +130,8 @@
 - WhatsApp, Messenger আর Instagram-এর webhook-এ ১৮ নভেম্বরের আগের ৩০ দিনে একটাও
   request আসেনি, Meta-র GET যাচাইও না। Meta app publish আর webhook subscription
   দেখা দরকার (মালিকের "পরে" তালিকার Meta app Publish-এর সাথে)।
+- `marketing_outbox`-এ ২৩টা `partial_failed` (মূল status `completed`, তাই scheduler
+  আর চেষ্টা করে না)। কোন চ্যানেলে আর কেন ব্যর্থ, শুধু পড়ে দেখা
+  (`channelResults`, `lastError`)। মালিক পরে দেখবেন। (১৮ নভেম্বরের হিসাব: মোট ১০২টা,
+  সব completed; posted ৩৯, not_requested ৪০, partial_failed ২৩।)
+
