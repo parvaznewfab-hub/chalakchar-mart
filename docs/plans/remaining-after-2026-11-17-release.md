@@ -81,3 +81,20 @@
   দরকার হলে তাঁকে `orders.edit` বা `orders.confirm` অনুমতি দিতে হবে।
 - ধাপ B: vendors আর deliveryPartners-এর সবার দেখার তথ্য আর গোপন তথ্য আলাদা করা।
   ধাপ C: ছবির লিংকের বদলে path রাখা, আর পুরোনো download token বাতিল করা।
+- rider-অ্যাপ (`delivery_partner_dashboard_page.dart`, `_createEarning`): ধাপ ৪
+  (মোট আয় যোগ) হয়ে ৫ (চিহ্ন) হারালে "Sync earning" ধাপ ৪-এ আটকে যায়, চিহ্ন বসে
+  না। rules দুবার যোগ হতে দেয় না, কিন্তু অ্যাপের উচিত `deliveryPartners.
+  lastSyncedOrderId == orderId` হলে ধাপ ৪ বাদ দিয়ে সরাসরি ৫ করা। আর ধাপ ৪
+  হারানোর পর অন্য ডেলিভারি sync হয়ে গেলে আগেরটা আর যোগ হয় না (কম গোনা,
+  `partnerSynced:false` থেকে যায়)। admin-এ "যোগ না হওয়া আয়" তালিকা দরকার।
+  দুটোই আসল সমাধান হলো লেখাটা function-এ সরানো।
+
+## দল ২-তে যোগ (মালিক, ১৮ নভেম্বর)
+- rules-এ `ownsVendorProduct` function-টা লেখাই নেই (`firestore.rules`, products-এর
+  update আর delete)। ফলে vendor নিজের পণ্য বদলাতে বা মুছতে পারে না। কোথায় কোথায়
+  ব্যবহার হয় দেখা, function লেখা, আর emulator test।
+- লুকানো category-র পণ্যের লিংকে (যেমন Home&Cleaning) spinner ঘুরতেই থাকে।
+  "পণ্যটি এখন পাওয়া যাচ্ছে না" দেখানো উচিত। productSeo/SEO-তেও একই জিনিস দেখা।
+- Node runtime upgrade, দরকার হলে। এখন সব function `nodejs22`, `engines.node` 22
+  (দেখা হয়েছে ১৮ নভেম্বর)।
+
