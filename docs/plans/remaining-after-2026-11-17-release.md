@@ -89,6 +89,28 @@
   `partnerSynced:false` থেকে যায়)। admin-এ "যোগ না হওয়া আয়" তালিকা দরকার।
   দুটোই আসল সমাধান হলো লেখাটা function-এ সরানো।
 
+## দল ১-এর পরে সবার আগে (মালিক, ১৮ নভেম্বর)
+1. **chat লুকানো পণ্যও দেখায়।** `fetchCandidateProductsForChat` (functions/index.js)
+   শুধু `isActive` দেখে, `isShopVisibleProduct` দেখে না। ফলে লুকানো category-র পণ্যও
+   উত্তরে আসতে পারে। দোকানের একই নিয়ম লাগাতে হবে, emulator বা unit test সহ।
+2. **chat থেকে AliExpress import।** কোনো পণ্য না মিললে chat ওই কথাগুলো দিয়ে
+   `aliexpressSearchImport` ডাকে, লগইন ছাড়া, server-এর axios থেকে।
+   - ১৮ নভেম্বর নিজের মেশিনে চালিয়ে দেখা: "ডেলিভারি চার্জ কত?", "দোকান কখন খোলা
+     থাকে?", "আপনাদের দোকান কোথায়?" chat থেকে পাঠানো হয়। কিন্তু server ইংরেজি
+     পণ্যের শব্দ না পেয়ে বাদ দেয় (`no_english_terms`), তাই আসলে import হয় না।
+     ইংরেজি সাধারণ প্রশ্ন ("where is your shop", "shop open time") আংশিক মেলে বলে
+     পাঠানোই হয় না।
+   - গত ৩০ দিনে chat থেকে ৩টা import হয়েছে, সবকটা এখনকার query-চেক বসানোর আগে:
+     ১১ নভেম্বর ১টা (০টা পণ্য), ১৪ নভেম্বর ২টা। দ্বিতীয় দিনের একটায় ০টা পণ্য, অন্যটা
+     বাংলা প্রশ্ন থেকে ৫টা পণ্য, পাঁচটাই এখন দোকানে লুকানো:
+     `imp_aliexpress_050b41d6…`, `…a9acb95d…`, `…12d75d08…`, `…b5cc78b2…`, `…0344343d…`।
+   - deploy ছাড়া বন্ধ করার উপায় নেই। settings-এ কোনো flag নেই। rate-limit-এর মান ০
+     দিলে আগের মানে ফিরে যায়। Cloud Run-এ বন্ধ করলে search পেজের import-ও বন্ধ হবে।
+     chat-এর সব import একই server IP থেকে আসে, তাই ঘণ্টায় ১২টার বেশি হয় না।
+   - সমাধান: chat-এর import আলাদা flag-এ রাখা (যেমন `importSettings.chatImportEnabled`,
+     না থাকলে বন্ধ), অথবা [TODO 1d] অনুযায়ী in-process আর প্রতি গ্রাহকের সীমা।
+3. ছোট ভুল: "delivery charge?" লিখলে "charge" শব্দে charger-এর ৩টা পণ্য উত্তরে আসে।
+
 ## দল ২-তে যোগ (মালিক, ১৮ নভেম্বর)
 - rules-এ `ownsVendorProduct` function-টা লেখাই নেই (`firestore.rules`, products-এর
   update আর delete)। ফলে vendor নিজের পণ্য বদলাতে বা মুছতে পারে না। কোথায় কোথায়
@@ -105,14 +127,6 @@
 - `socialApi.whatsappBroadcastNumbers` (১টা নম্বর, ১৩ অক্ষর) এখন settings/app-এ সবার
   জন্য খোলা। এটা ব্যক্তিগত নম্বর বা গ্রাহক তালিকা হলে app_secrets-এ সরানো দরকার,
   সঙ্গে function-এর কোডও বদলাতে হবে। মালিক পরে ঠিক করবেন।
-- **chat bot-এর import (বাগ):** কোনো পণ্য না মিললে সাধারণ প্রশ্নেও AliExpress import
-  শুরু হয় (যেমন "ডেলিভারি চার্জ কত?", "দোকান কখন খোলা থাকে?", "আপনাদের দোকান
-  কোথায়?")। ১৮ নভেম্বর লাইভের ১৯৬টা পণ্য দিয়ে নিজের মেশিনে চালিয়ে দেখা।
-  `messaging/searchImportGuard.js`-এ প্রশ্নবাচক বা দোকান-সংক্রান্ত শব্দ বাদ দেওয়া
-  দরকার। [TODO 1d]-এর সাথে মিলিয়ে করা।
-- chat-এর পণ্য খোঁজা (`fetchCandidateProductsForChat`) শুধু `isActive` দেখে,
-  `isShopVisibleProduct` দেখে না। লুকানো category-র পণ্যও উত্তরে আসতে পারে।
 - WhatsApp, Messenger আর Instagram-এর webhook-এ ১৮ নভেম্বরের আগের ৩০ দিনে একটাও
   request আসেনি, Meta-র GET যাচাইও না। Meta app publish আর webhook subscription
   দেখা দরকার (মালিকের "পরে" তালিকার Meta app Publish-এর সাথে)।
-
