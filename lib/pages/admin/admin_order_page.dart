@@ -11,6 +11,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:universal_html/html.dart' as html;
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/auth_service.dart';
+import '../../services/product_service.dart';
 import '../../services/vendor_commission_service.dart';
 import '../../services/thermal_invoice_service.dart';
 import 'admin_edit_order_page.dart';
@@ -35,6 +36,38 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
   bool _canAssignRider = false;
   bool _canInvoice = false;
   bool _canSettleCod = false;
+
+  // Supplier links per order, from the admin-only order_sources/{orderId}
+  // (orders themselves no longer carry them; older ones still may).
+  final Map<String, List<Map<String, dynamic>>> _orderSources = {};
+  final Set<String> _orderSourcesLoading = {};
+
+  void _loadOrderSources(String orderId) {
+    if (orderId.isEmpty || _orderSourcesLoading.contains(orderId)) return;
+    _orderSourcesLoading.add(orderId);
+    ProductService.loadOrderSources(orderId).then((entries) {
+      if (!mounted) return;
+      setState(() => _orderSources[orderId] = entries);
+    });
+  }
+
+  String _supplierLinkFor(String orderId, Map item) {
+    final legacy = _text(item['aliExpressLink']);
+    if (legacy.isNotEmpty) return legacy;
+    final entries = _orderSources[orderId];
+    if (entries == null) {
+      _loadOrderSources(orderId);
+      return '';
+    }
+    final productId = _text(item['productId']);
+    final variantId = _text(item['variantId']);
+    for (final entry in entries) {
+      if (_text(entry['productId']) != productId) continue;
+      if (variantId.isNotEmpty && _text(entry['variantId']).isNotEmpty && _text(entry['variantId']) != variantId) continue;
+      return _text(entry['aliExpressLink']);
+    }
+    return '';
+  }
 
   @override
   void initState() {
@@ -1159,7 +1192,7 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                                 : _text(item['vendorName']);
 
                             final isMarketplace = vendorId != 'super_admin';
-                            final aliExpressLink = _text(item['aliExpressLink']);
+                            final aliExpressLink = _supplierLinkFor(id, item);
 
                             return Container(
                               margin: const EdgeInsets.only(bottom: 8),

@@ -204,7 +204,7 @@ class ProductCard extends StatelessWidget {
         return;
       }
       Navigator.of(context, rootNavigator: true)
-          .pushNamed('/product/$productId');
+          .pushNamed(ProductService.productPath(product, productId));
     }
 
     // With several variants the shopper must choose one, so "+" opens the

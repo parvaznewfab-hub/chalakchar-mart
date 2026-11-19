@@ -603,8 +603,12 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
     String videoThumbnailUrl = _text(data?['videoThumbnailUrl']);
     String videoDuration = _text(data?['videoDuration']);
 
-    final String productSource = _text(data?['source']);
-    final String sourceProductId = _text(data?['sourceProductId']);
+    // Supplier data is in the admin-only product_sources/{id}, not on the
+    // public product (older products may still carry it until migrated).
+    final Map<String, dynamic> sourceRecord = await ProductService.loadProductSource(id ?? '');
+    if (!mounted) return;
+    final String productSource = _text(sourceRecord['source'] ?? data?['source']);
+    final String sourceProductId = _text(sourceRecord['sourceProductId'] ?? data?['sourceProductId']);
     final bool isAliExpressSourced = ProductService.isAliExpressSourced({'source': productSource});
     final String aliExpressLink = isAliExpressSourced && sourceProductId.isNotEmpty
         ? ProductService.buildAliExpressLink(sourceProductId)

@@ -88,6 +88,29 @@ const { classifyHealthProduct, isHealthQuery } = require("./catalog/healthProduc
 const { mentionsSupplier, cleanCustomerText } = require("./catalog/customerText");
 const { isMarketingType, allowsMarketing, linkFields, templates: customerTemplates } = require("./notifications/customerNotifications");
 const { modelKeysUpdate, isModelKeysWrite } = require("./catalog/deviceModel");
+const {
+  ORDER_SOURCES,
+  PRIVATE_ORDER_ITEM_FIELDS,
+  orderSourceEntries,
+  stripOrderItem,
+} = require("./catalog/productSource");
+const { productPublicUrl, productUrlFor, productPath } = require("./catalog/productUrl");
+const {
+  pickSlugInTransaction,
+  reserveSlugInTransaction,
+  slugFields,
+  assignProductSlug,
+  isSlugAssignWrite,
+} = require("./catalog/productSlugStore");
+const { isSystemMaintenanceWrite } = require("./catalog/systemWrite");
+const {
+  sourceRefFor,
+  loadMergedProduct,
+  writeProduct,
+  listSourcedProducts,
+  resolveImportTarget,
+  findImportedProductId,
+} = require("./catalog/productSourceStore");
 const { pickRelatedRows, modelKeysOf, modelSeriesOf } = require("./catalog/relatedProducts");
 const { searchImportPublishOptions } = require("./aliexpress/searchImportPublish");
 const { searchImportLogDocId } = require("./aliexpress/searchImportLogId");
@@ -995,7 +1018,7 @@ function productMarketingPayload(productId, product) {
   const price = firstPriceFromProduct(product);
   const category = cleanPushText(product?.category || "", 50);
   const imageUrl = firstImageFromProduct(product);
-  const productUrl = `https://chalakcharmart.com/product/${encodeURIComponent(productId)}`;
+  const productUrl = productUrlFor(product, productId);
 
   const title = cleanPushText(
     product?.banglaTitle || product?.metaTitle || name,
@@ -2044,6 +2067,9 @@ function importVariants(rawVariants, fallback = {}) {
   return variants;
 }
 
+// The pre-2026-11 doc id of an imported listing ("imp_aliexpress_<digest>").
+// Only looked up for the products that still have it; new imports get a
+// neutral id (saveImportedProduct).
 function marketplaceImportDocumentId(source, sourceProductId) {
   const digest = crypto
     .createHash("sha256")
@@ -2477,6 +2503,12 @@ async function buildMarketplaceProductPayload(body, options = {}) {
     importSeoEnabled: importSettings.enableSeo,
     importMarketingEnabled: importSettings.enableMarketing,
 
+    // Public, names no supplier: the chat bot says "imported from abroad".
+    isImported: true,
+
+    // Everything from here to lastStockSyncAt is supplier/cost data:
+    // saveImportedProduct() writes it to product_sources/{id}, never to the
+    // public product (catalog/productSource.js).
     source,
     sourceProductId,
     sourceUrl,
@@ -2924,25 +2956,49 @@ async function resolveAliExpressDeliveryFields(productId, product, options = {})
   return buildAliExpressDeliveryFirestoreFields(product?.deliveryEstimate);
 }
 
-async function saveImportedMarketplaceProduct(body, options = {}) {
-  const { source, sourceProductId, publish, payload } = await buildMarketplaceProductPayload(body, options);
-  const productId = marketplaceImportDocumentId(source, sourceProductId);
-  const productRef = db.collection("products").doc(productId);
-  const mode = textValue(body?.mode, "upsert").toLowerCase();
-  const result = await db.runTransaction(async (transaction) => {
-    const snapshot = await transaction.get(productRef);
-    const exists = snapshot.exists;
+// Saves one built import payload. The doc id: the listing's dedupe key
+// (product_import_keys), else its pre-2026-11 imp_* id, else a new neutral id
+// — nothing about the supplier is in a new id. Supplier/cost fields go to
+// product_sources/{id} (catalog/productSource.js), the rest to products/{id}.
+// mode: "create" (refuse an existing product), "update" (refuse a new one),
+// anything else upserts.
+async function saveImportedProduct({ source, sourceProductId, payload }, mode) {
+  const legacyId = marketplaceImportDocumentId(source, sourceProductId);
+  return db.runTransaction(async (transaction) => {
+    const { productId, keyRef, keyExists } = await resolveImportTarget(transaction, db, source, sourceProductId, legacyId);
+    const current = await loadMergedProduct(db, productId, transaction);
+    const exists = current.exists;
     if (exists && mode === "create") { const e = new Error("Product already imported"); e.code = "ALREADY_EXISTS"; throw e; }
     if (!exists && mode === "update") { const e = new Error("Imported product not found"); e.code = "NOT_FOUND"; throw e; }
-    const previous = exists ? (snapshot.data() || {}) : {};
-    transaction.set(productRef, {
+    const previous = exists ? current.data() : {};
+    // A slug only for a product that has none; an existing one never changes.
+    const newSlug = textValue(previous.urlSlug)
+      ? ""
+      : await pickSlugInTransaction(transaction, db, { name: payload.name, strength: payload.strength }, productId);
+    await writeProduct(db, current.ref, {
       ...payload,
+      ...(newSlug ? slugFields(newSlug) : {}),
       importRevision: importInteger(previous.importRevision, 0) + 1,
-      ...(exists ? { createdAt: previous.createdAt || admin.firestore.FieldValue.serverTimestamp() } : { createdAt: admin.firestore.FieldValue.serverTimestamp() }),
-    }, { merge: true });
-    return { created: !exists, updated: exists };
+      createdAt: exists && previous.createdAt ? previous.createdAt : admin.firestore.FieldValue.serverTimestamp(),
+    }, { writer: transaction, mode: "set" });
+    if (newSlug) reserveSlugInTransaction(transaction, db, newSlug, productId);
+    if (!keyExists) {
+      transaction.set(keyRef, {
+        source,
+        sourceProductId,
+        productId,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    return { productId, created: !exists, updated: exists };
   });
-  return { productId, source, sourceProductId, publish, ...result, productUrl: `https://chalakcharmart.com/product/${encodeURIComponent(productId)}` };
+}
+
+async function saveImportedMarketplaceProduct(body, options = {}) {
+  const { source, sourceProductId, publish, payload } = await buildMarketplaceProductPayload(body, options);
+  const mode = textValue(body?.mode, "upsert").toLowerCase();
+  const result = await saveImportedProduct({ source, sourceProductId, payload }, mode);
+  return { source, sourceProductId, publish, ...result, productUrl: await productPublicUrl(result.productId) };
 }
 
 exports.aliexpressProductDetails = onRequest(
@@ -3054,7 +3110,7 @@ async function syncAliExpressProduct(productSnap, importSettings, options = {}) 
     // aliexpress/unsaleable.js. Price and isActive are left untouched.
     const { update, newlyUnsaleable } = buildUnsaleableUpdate(productData, admin.firestore.FieldValue.serverTimestamp());
     if (dryRun) return { changed: newlyUnsaleable, unsaleable: true, newlyUnsaleable, dryRun: true };
-    await productSnap.ref.update({
+    await writeProduct(db, productSnap.ref, {
       ...update,
       lastSyncedAt: admin.firestore.FieldValue.serverTimestamp(),
       lastStockSyncAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -3199,7 +3255,9 @@ async function syncAliExpressProduct(productSnap, importSettings, options = {}) 
     updates[SYNC_MARKETING_SUPPRESSED_FIELD] = admin.firestore.FieldValue.serverTimestamp();
   }
 
-  await productSnap.ref.update(updates);
+  // Supplier/cost fields (originalPrice, exchangeRate, delivery*, ...) land in
+  // product_sources; price/stock/variants on the public product.
+  await writeProduct(db, productSnap.ref, updates);
   logger.info(`AliExpress sync: product ${changed ? "updated" : "unchanged"}`, {
     productId: productSnap.id,
     sourceProductId,
@@ -3238,17 +3296,16 @@ async function readSyncSuppressDiscountMarketingOnce() {
 }
 
 async function runAliExpressSync({ requireSyncEnabled, dryRun = false, onlySourceProductIds = null }) {
-  let query = db.collection("products").where("source", "==", "aliexpress");
-  if (requireSyncEnabled) query = query.where("syncEnabled", "==", true);
-  const snapshot = await query.get();
+  // Merged snapshots: product + its admin-only product_sources record.
+  const sourced = await listSourcedProducts(db, { source: "aliexpress", requireSyncEnabled });
   // onlySourceProductIds: dry-run-only narrowing (local dry-run script), so a
   // few products can be re-checked without a full run.
   const only = dryRun && Array.isArray(onlySourceProductIds) && onlySourceProductIds.length
     ? new Set(onlySourceProductIds.map(String))
     : null;
   const docs = only
-    ? snapshot.docs.filter((d) => only.has(textValue(d.data()?.sourceProductId)))
-    : snapshot.docs;
+    ? sourced.filter((d) => only.has(textValue(d.data()?.sourceProductId)))
+    : sourced;
   const totalChecked = docs.length;
   let updated = 0;
   let unchanged = 0;
@@ -3398,7 +3455,7 @@ exports.aliexpressSyncAllProducts = onRequest(
 // dryRun:true so it cannot write.
 // Local-only hook for unit tests of the import path (same env-gating idea).
 if (process.env.CHALAKCHAR_LOCAL_TEST === "1") {
-  exports.__localImportInternals = { normalizeAliExpressProduct, importVariants };
+  exports.__localImportInternals = { normalizeAliExpressProduct, importVariants, saveImportedProduct, snapshotOrderSources };
 }
 
 if (process.env.CHALAKCHAR_LOCAL_SYNC_DRY_RUN === "1") {
@@ -3512,15 +3569,14 @@ async function aliexpressBackfillVariantImagesHandler(options = {}) {
 
   let productDocs = [];
   if (textValue(options.productId)) {
-    const snap = await db.collection("products").doc(textValue(options.productId)).get();
+    const snap = await loadMergedProduct(db, textValue(options.productId));
     if (snap.exists) productDocs = [snap];
   } else {
-    let query = db.collection("products").where("source", "==", "aliexpress");
-    if (textValue(options.sourceProductId)) {
-      query = query.where("sourceProductId", "==", textValue(options.sourceProductId));
-    }
-    const snapshot = await query.limit(limit).get();
-    productDocs = snapshot.docs;
+    productDocs = await listSourcedProducts(db, {
+      source: "aliexpress",
+      sourceProductId: textValue(options.sourceProductId),
+      limit,
+    });
   }
 
   const scannedProducts = productDocs.length;
@@ -3596,8 +3652,10 @@ async function aliexpressBackfillVariantImagesHandler(options = {}) {
           return;
         }
 
-        batch.update(snap.ref, { variants: patchedVariants });
-        batchOps += 1;
+        // variants carry sourceSkuId in the merged view: it goes back to
+        // product_sources, the rest to the product (up to 2 batch ops).
+        await writeProduct(db, snap.ref, { variants: patchedVariants }, { writer: batch });
+        batchOps += 2;
 
         productResult.status = "updated";
         productResult.updatedVariants = appliedCount;
@@ -3888,16 +3946,17 @@ async function runAliExpressDiscover(options = {}) {
       const sourceProductId = aliExpressAffiliateProductId(item);
       if (!sourceProductId) continue;
 
-      const productId = marketplaceImportDocumentId("aliexpress", sourceProductId);
-      const existingSnap = await db.collection("products").doc(productId).get();
-      if (existingSnap.exists) {
+      const existingId = await findImportedProductId(
+        db, "aliexpress", sourceProductId, marketplaceImportDocumentId("aliexpress", sourceProductId)
+      );
+      if (existingId) {
         skippedExisting += 1;
         continue;
       }
 
       if (dryRun) {
         imported += 1;
-        results.push({ keyword, sourceProductId, productId, productUrl: aliExpressAffiliateProductUrl(item), status: "would_import" });
+        results.push({ keyword, sourceProductId, productUrl: aliExpressAffiliateProductUrl(item), status: "would_import" });
         continue;
       }
 
@@ -4433,36 +4492,8 @@ exports.importAliExpressProduct = onRequest(
           importBody,
           { forceUnpublish: true, needsReview: true }
         );
-        const productId = marketplaceImportDocumentId(source, sourceProductId);
-        const productRef = db.collection("products").doc(productId);
         const mode = textValue(req.body?.mode, "upsert").toLowerCase();
-
-        const result = await db.runTransaction(async (transaction) => {
-          const snapshot = await transaction.get(productRef);
-          const exists = snapshot.exists;
-
-          if (exists && mode === "create") {
-            const error = new Error("Product already imported");
-            error.code = "ALREADY_EXISTS";
-            throw error;
-          }
-          if (!exists && mode === "update") {
-            const error = new Error("Imported product not found");
-            error.code = "NOT_FOUND";
-            throw error;
-          }
-
-          const previous = exists ? (snapshot.data() || {}) : {};
-          transaction.set(productRef, {
-            ...payload,
-            importRevision: importInteger(previous.importRevision, 0) + 1,
-            ...(exists
-              ? { createdAt: previous.createdAt || admin.firestore.FieldValue.serverTimestamp() }
-              : { createdAt: admin.firestore.FieldValue.serverTimestamp() }),
-          }, { merge: true });
-
-          return { created: !exists, updated: exists };
-        });
+        const { productId, ...result } = await saveImportedProduct({ source, sourceProductId, payload }, mode);
 
         logger.info("Marketplace product import completed", {
           productId,
@@ -4483,7 +4514,7 @@ exports.importAliExpressProduct = onRequest(
           needsReview: true,
           ...result,
           variantCheck,
-          productUrl: `https://chalakcharmart.com/product/${encodeURIComponent(productId)}`,
+          productUrl: await productPublicUrl(productId),
         });
       } catch (error) {
         const code = textValue(error?.code);
@@ -4567,9 +4598,42 @@ exports.onNotificationCreated = onDocumentCreated("notifications/{notificationId
   });
 });
 
+// Supplier sourcing of an order's items (AliExpress id, link, SKU) for the
+// admin's purchase step: order_sources/{orderId}, admin-only. The customer,
+// vendor and rider can all read the order itself, so it never carries this.
+// Older app builds still copy source/sourceProductId/aliExpressLink into
+// the items: those are moved here and removed from the order.
+async function snapshotOrderSources(orderRef, orderId, order) {
+  const items = Array.isArray(order.items) ? order.items : [];
+  const productIds = [...new Set(items.map((i) => textValue(i?.productId)).filter(Boolean))];
+  if (!productIds.length) return;
+  const sourceSnaps = await db.getAll(...productIds.map((id) => sourceRefFor(db, id)));
+  const sourcesById = new Map(sourceSnaps.filter((s) => s.exists).map((s) => [s.id, s.data()]));
+  const entries = orderSourceEntries(items, sourcesById);
+  const leaked = items.some((i) => i && PRIVATE_ORDER_ITEM_FIELDS.some((f) => f in i));
+  if (!entries.length && !leaked) return;
+  const batch = db.batch();
+  if (entries.length) {
+    batch.set(db.collection(ORDER_SOURCES).doc(orderId), {
+      orderId,
+      items: entries,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+  }
+  // Status is untouched, so onOrderStatusUpdated does nothing for this write.
+  if (leaked) batch.update(orderRef, { items: items.map(stripOrderItem) });
+  await batch.commit();
+}
+
 exports.onNewOrderCreated = onDocumentCreated("orders/{orderId}", async (event) => {
   const orderId = event.params.orderId;
   const order = event.data?.data() || {};
+
+  try {
+    await snapshotOrderSources(event.data.ref, orderId, order);
+  } catch (error) {
+    logger.error("Order sourcing snapshot failed", { orderId, message: error.message || String(error) });
+  }
 
   const userName = order.userName || "Customer";
   const total = toNumber(order.total || order.grandTotal || order.finalTotal);
@@ -4753,6 +4817,16 @@ exports.onProductCreated = onDocumentCreated("products/{productId}", async (even
   const productId = event.params.productId;
   const product = event.data?.data() || {};
 
+  // Products from the admin/vendor app arrive without a slug (imports bring
+  // theirs). Done first, so marketing below links to the slug URL.
+  if (event.data && !textValue(product.urlSlug)) {
+    try {
+      product.urlSlug = await assignProductSlug(db, event.data.ref);
+    } catch (error) {
+      logger.error("Product slug assignment failed", { productId, message: error.message || String(error) });
+    }
+  }
+
   // Same price guard as onProductStockUpdated (new products from older
   // app builds / vendor saves carry variants[0] as their price).
   if (event.data) await applyProductPriceGuard(event.data.ref, product, productId);
@@ -4805,8 +4879,10 @@ exports.onProductStockUpdated = onDocumentUpdated("products/{productId}", async 
   }
 
   // The model-key sync's own write (or the backfill's) changes nothing a
-  // shopper is told about.
+  // shopper is told about. Same for the write that only sets the slug.
   if (isModelKeysWrite(before, after)) return;
+  if (isSlugAssignWrite(before, after)) return;
+  if (isSystemMaintenanceWrite(before, after)) return;
   if ((before.name || "") !== (after.name || "") || !Array.isArray(after.modelKeys)) {
     await applyProductModelKeys(event.data.after.ref, after, productId);
   }
@@ -6451,6 +6527,17 @@ function youtubeThumbnail(videoId) {
   return videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : "";
 }
 
+// A product's public SKU for structured data: its own sku field, else its
+// urlSlug, else a short code from the doc id. Never the id itself (older ids
+// name the supplier). The app's web_seo_service.dart uses the same order.
+function publicSku(product, productId) {
+  const own = cleanText(product?.sku);
+  if (own && !mentionsSupplier(own) && !/^imp_/i.test(own)) return own;
+  const slug = cleanText(product?.urlSlug);
+  if (slug) return slug;
+  return `CCM-${crypto.createHash("sha256").update(String(productId)).digest("hex").slice(0, 10).toUpperCase()}`;
+}
+
 function productKeywords(product) {
   const keywords = [];
 
@@ -6535,7 +6622,7 @@ async function relatedProductsHtml(productId, product) {
     });
     const section = (title, list) => !list.length ? "" : `    <h2>${htmlEscape(title)}</h2>
     <ul>
-${list.map((p) => `      <li><a href="/product/${encodeURIComponent(p.id)}">${htmlEscape(limitText(p.name, 110))}</a></li>`).join("\n")}
+${list.map((p) => `      <li><a href="${productPath(p, p.id)}">${htmlEscape(limitText(p.name, 110))}</a></li>`).join("\n")}
     </ul>
 `;
     const body = (modelRow ? section(modelRow.title, modelRow.products) : "") + section("একই ধরনের আরও পণ্য", similarRow);
@@ -6647,8 +6734,32 @@ exports.productSeo = onRequest(
         }));
       }
 
-      // First try by Firestore document ID.
-      let productDoc = await db.collection("products").doc(productId).get();
+      // Resolve order (docs/plans/product-url-slugs.md):
+      //   1. urlSlug == path            -> 200, the product page
+      //   2. previousSlugs contains it  -> 301 to the current slug
+      //   3. a doc id (old imp_* links,
+      //      older shares)              -> 301 to its slug, 200 if it has none
+      //   4. nothing                    -> 404 app shell
+      const pathKey = productId;
+      let productDoc = { exists: false };
+      let redirectFromOld = false;
+      const bySlug = await db.collection("products").where("urlSlug", "==", pathKey).limit(1).get();
+      if (!bySlug.empty) {
+        productDoc = bySlug.docs[0];
+      } else {
+        const byOldSlug = await db.collection("products").where("previousSlugs", "array-contains", pathKey).limit(1).get();
+        if (!byOldSlug.empty) {
+          productDoc = byOldSlug.docs[0];
+          redirectFromOld = true;
+        }
+      }
+      if (productDoc.exists) {
+        productId = productDoc.id;
+      } else {
+        // A doc id (may contain characters a slug never has).
+        productDoc = await db.collection("products").doc(productId).get();
+        redirectFromOld = productDoc.exists;
+      }
 
       // Fallbacks: some admin imports may save product id in a field instead of doc id.
       if (!productDoc.exists) {
@@ -6692,7 +6803,17 @@ exports.productSeo = onRequest(
 
       const product = productDoc.data() || {};
       const baseUrl = "https://chalakcharmart.com";
-      const productUrl = `${baseUrl}/product/${encodeURIComponent(productId)}`;
+      const productUrl = productUrlFor(product, productId);
+
+      // Old link (doc id or a previous slug) of a product that has a slug:
+      // permanent redirect, query string kept (?ref=, utm_*).
+      if (redirectFromOld && cleanText(product.urlSlug) && cleanText(product.urlSlug) !== pathKey) {
+        const original = String(req.originalUrl || req.url || "");
+        const qIndex = original.indexOf("?");
+        const query = qIndex >= 0 ? original.slice(qIndex) : "";
+        res.set("Cache-Control", "public, max-age=3600");
+        return res.redirect(301, `${productPath(product, productId)}${query}`);
+      }
 
       // A hidden product (inactive / unpublished, incl. hiddenReason
       // "health_removed") keeps working for anyone with the link, but is
@@ -6731,7 +6852,8 @@ exports.productSeo = onRequest(
         "name": productName,
         "image": [image],
         "description": description,
-        "sku": productId,
+        // Never the doc id: older ids name the supplier (imp_aliexpress_...).
+        "sku": publicSku(product, productId),
         "category": category,
         "brand": {
           "@type": "Brand",
@@ -7051,7 +7173,8 @@ exports.sitemap = onRequest(
 
         urls.push(
           sitemapUrl(
-            `${baseUrl}/product/${doc.id}`,
+            // Canonical slug URL only; old doc-id URLs 301 there.
+            productUrlFor(data, doc.id),
             sitemapDate(data.updatedAt || data.createdAt),
             "weekly",
             "0.7"
@@ -7313,14 +7436,14 @@ async function inactiveCategoryNames() {
   return new Set(snap.docs.map((d) => cleanText(d.data()?.name).toLowerCase()).filter(Boolean));
 }
 
-/**
- * A product shoppers can see: active, visible, published, not hidden
- * (e.g. hiddenReason "health_removed") and not in a switched-off category.
- * Used for the sitemap and category structured data.
- */
+// A product shoppers can see, used for the sitemap, category structured data
+// and productSeo's robots tag. Same rule as the shop (lib/utils/shop_visibility.dart isShopVisibleProduct):
+// active, approved, visible, published, not hidden, category switched on.
+// The sitemap additionally needs the category to exist in categories/.
 function isPubliclyListedProduct(product, inactiveCategories = new Set()) {
   if (!product) return false;
-  if (product.isActive === false || product.isVisible === false || product.isPublished === false) return false;
+  if (product.isActive !== true || product.approvalStatus !== "approved") return false;
+  if (product.isVisible === false || product.isPublished === false) return false;
   if (cleanText(product.hiddenReason)) return false;
   const category = cleanText(product.category).toLowerCase();
   if (category && inactiveCategories.has(category)) return false;
@@ -7395,7 +7518,7 @@ exports.pageSeo = onRequest(
         .map((d, i) => ({
           "@type": "ListItem",
           "position": i + 1,
-          "url": `${baseUrl}/product/${encodeURIComponent(d.id)}`,
+          "url": productUrlFor(d.data(), d.id),
           "name": limitText(cleanText(d.data().name), 110),
         }));
 

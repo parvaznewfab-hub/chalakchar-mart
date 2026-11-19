@@ -27,6 +27,8 @@ import 'deferred/staff.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
+const bool _useFirebaseEmulators = bool.fromEnvironment('USE_FIREBASE_EMULATORS');
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -48,6 +50,16 @@ Future<void> main() async {
 
     if (kIsWeb) {
       await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
+    }
+
+    // Local testing only: `flutter build web -o build/web_emulator
+    // --dart-define=USE_FIREBASE_EMULATORS=true` reads Firestore from the
+    // emulator (127.0.0.1:8080). Release builds never set it, and
+    // tools/web/finalize_web_build.js refuses to deploy a build that does.
+    if (_useFirebaseEmulators) {
+      // The predeploy guard refuses a main.dart.js containing this call;
+      // it is compiled away without the flag.
+      FirebaseFirestore.instance.useFirestoreEmulator('127.0.0.1', 8080);
     }
   } catch (e, stack) {
     developer.log(

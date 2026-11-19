@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
+import 'product_service.dart';
 import 'web_seo_dom.dart' as dom;
 
 class WebSeoService {
@@ -84,7 +85,13 @@ class WebSeoService {
     );
 
     final metaDescription = _cleanDescription(descriptionSource);
-    final url = '$baseUrl/product/$productId';
+    final url = '$baseUrl${ProductService.productPath(product, productId)}';
+    // Never the doc id: older ids name the supplier (imp_aliexpress_...).
+    // Same order as publicSku() in functions/index.js.
+    final ownSku = _text(product['sku']);
+    final sku = ownSku.isNotEmpty && !ownSku.toLowerCase().startsWith('imp_')
+        ? ownSku
+        : _text(product['urlSlug']);
     final image = _firstImage(product);
     final category = _text(product['category']);
     final brand = _text(product['brand'] ?? product['manufacturer'], siteName);
@@ -124,7 +131,7 @@ class WebSeoService {
       'name': productName,
       'image': [image],
       'description': metaDescription,
-      'sku': productId,
+      if (sku.isNotEmpty) 'sku': sku,
       'category': category,
       'brand': {
         '@type': 'Brand',

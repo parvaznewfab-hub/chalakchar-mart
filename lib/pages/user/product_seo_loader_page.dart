@@ -1,10 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../services/product_service.dart';
+import '../../services/web_url_service.dart';
 import '../../widgets/health_gate.dart';
 import 'product_details_page.dart';
 
+/// /product/{key}: [productId] is the path key, a urlSlug or (older links)
+/// a doc id or a previous slug. Same order as productSeo on the server.
 class ProductSeoLoaderPage extends StatelessWidget {
   final String productId;
+
+  static Future<DocumentSnapshot<Map<String, dynamic>>?> _resolve(String key) async {
+    final products = FirebaseFirestore.instance.collection('products');
+    final bySlug = await products.where('urlSlug', isEqualTo: key).limit(1).get();
+    if (bySlug.docs.isNotEmpty) return bySlug.docs.first;
+    final byOldSlug = await products.where('previousSlugs', arrayContains: key).limit(1).get();
+    if (byOldSlug.docs.isNotEmpty) return byOldSlug.docs.first;
+    final byId = await products.doc(key).get();
+    return byId.exists ? byId : null;
+  }
 
   const ProductSeoLoaderPage({
     super.key,
@@ -13,14 +27,11 @@ class ProductSeoLoaderPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseFirestore.instance
-          .collection('products')
-          .doc(productId)
-          .get(),
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>?>(
+      future: _resolve(productId),
       builder: (context, snapshot) {
 
-        if (!snapshot.hasData) {
+        if (snapshot.connectionState != ConnectionState.done) {
           return const Scaffold(
             body: Center(
               child: CircularProgressIndicator(),
@@ -28,7 +39,7 @@ class ProductSeoLoaderPage extends StatelessWidget {
           );
         }
 
-        if (!snapshot.data!.exists) {
+        if (snapshot.data == null || !snapshot.data!.exists) {
           return const Scaffold(
             body: Center(
               child: Text('Product not found'),
@@ -36,10 +47,15 @@ class ProductSeoLoaderPage extends StatelessWidget {
           );
         }
 
-        final data =
-        snapshot.data!.data() as Map<String, dynamic>;
+        final data = Map<String, dynamic>.from(snapshot.data!.data() ?? {});
 
         data['id'] = snapshot.data!.id;
+
+        // Opened by an old key (doc id, previous slug): show the slug URL.
+        final path = ProductService.productPath(data, snapshot.data!.id);
+        if (path != '/product/${Uri.encodeComponent(productId)}') {
+          WidgetsBinding.instance.addPostFrameCallback((_) => WebUrlService.replaceInPage(path));
+        }
 
         // Health products were removed from the shop (hidden, not deleted);
         // an old shared link must not show their details.

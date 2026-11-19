@@ -122,3 +122,9 @@ test("unblocks zoom in the engine's viewport tag", () => {
   assert.ok(!js.includes("user-scalable=no"));
   assert.equal(finalizeWebBuild(dir).zoomFixes, 0, "running twice changes nothing");
 });
+
+test("refuses an emulator test build (USE_FIREBASE_EMULATORS)", () => {
+  const dir = fakeBuild("_flutter.loader.load();");
+  fs.writeFileSync(path.join(dir, "main.dart.js"), 'A.ah.useFirestoreEmulator("127.0.0.1",8080)');
+  assert.throws(() => finalizeWebBuild(dir), /emulator test build/);
+});

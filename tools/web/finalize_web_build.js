@@ -18,7 +18,9 @@
 //    cleared, so some builds silently ship without them. Files the build did
 //    produce (index.html, flutter_bootstrap.js, ...) are never overwritten.
 //
-// 5. Lets visitors zoom: the Flutter engine replaces any viewport tag with
+// 5. Refuses a local emulator test build (USE_FIREBASE_EMULATORS define).
+//
+// 6. Lets visitors zoom: the Flutter engine replaces any viewport tag with
 //    "width=device-width, initial-scale=1.0, maximum-scale=1.0,
 //    user-scalable=no" at startup (main.dart.js); the zoom-blocking part is
 //    removed there (accessibility: browsers' "force zoom" and Lighthouse).
@@ -78,6 +80,11 @@ function finalizeWebBuild(buildDir, webDir = path.join(__dirname, "..", "..", "w
       `incomplete build, missing ${missing.join(", ")} (the app would show a white screen). ` +
         'Run "flutter clean" and "flutter build web --release --pwa-strategy=none" again.'
     );
+  }
+  // A local test build (--dart-define=USE_FIREBASE_EMULATORS=true) reads
+  // Firestore from 127.0.0.1: never deploy it.
+  if (/["']127\.0\.0\.1["'],\s*8080\)/.test(fs.readFileSync(mainJs, "utf8"))) {
+    throw new Error(`${mainJs} is an emulator test build (USE_FIREBASE_EMULATORS). Build again without that define.`);
   }
   // Only the app's own load call matters: Flutter's inlined loader library
   // mentions serviceWorkerSettings as a parameter name in every build.

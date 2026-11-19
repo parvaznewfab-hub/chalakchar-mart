@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 
 /// Central product schema/service for ChalakChar Mart.
@@ -66,6 +67,67 @@ class ProductService {
     final sourceProductId = text(product['sourceProductId']);
     if (!isAliExpressSourced(product) || sourceProductId.isEmpty) return '';
     return buildAliExpressLink(sourceProductId);
+  }
+
+  /// Order/cart item fields that name the supplier. Never written to a doc the
+  /// customer, vendor or rider can read (older cart items may still have them).
+  static const List<String> supplierItemFields = [
+    'source',
+    'sourceProductId',
+    'aliExpressLink',
+    'sourceSkuId',
+    'sourceUrl',
+  ];
+
+  static Map<String, dynamic> withoutSupplierFields(Map<String, dynamic> item) {
+    final copy = Map<String, dynamic>.from(item);
+    for (final field in supplierItemFields) {
+      copy.remove(field);
+    }
+    return copy;
+  }
+
+  /// Admin only: the product's supplier record (product_sources/{id}), empty
+  /// when there is none or the user may not read it. Firestore rules allow
+  /// admins only; see functions/catalog/productSource.js.
+  static Future<Map<String, dynamic>> loadProductSource(String productId) async {
+    if (productId.isEmpty) return {};
+    try {
+      final snap = await FirebaseFirestore.instance.collection('product_sources').doc(productId).get();
+      return snap.data() ?? {};
+    } catch (e) {
+      debugPrint('product_sources read failed for $productId: $e');
+      return {};
+    }
+  }
+
+  /// Admin only: order_sources/{orderId}.items, one entry per supplier item
+  /// ({index, productId, variantId, sourceProductId, aliExpressLink, ...}).
+  static Future<List<Map<String, dynamic>>> loadOrderSources(String orderId) async {
+    if (orderId.isEmpty) return [];
+    try {
+      final snap = await FirebaseFirestore.instance.collection('order_sources').doc(orderId).get();
+      final items = snap.data()?['items'];
+      if (items is! List) return [];
+      return items.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    } catch (e) {
+      debugPrint('order_sources read failed for $orderId: $e');
+      return [];
+    }
+  }
+
+  /// Public path of a product: /product/{urlSlug}, or /product/{id} for one
+  /// without a slug yet (the server answers that with a 301 once it has one).
+  static String productPath(Map<String, dynamic> product, [String? id]) {
+    final slug = text(product['urlSlug']);
+    final key = slug.isNotEmpty ? slug : text(id ?? product['id'] ?? product['productId']);
+    return '/product/${Uri.encodeComponent(key)}';
+  }
+
+  static const String siteUrl = 'https://chalakcharmart.com';
+
+  static String productUrl(Map<String, dynamic> product, [String? id]) {
+    return '$siteUrl${productPath(product, id)}';
   }
 
   static String safeId(String value) {
@@ -683,8 +745,6 @@ class ProductService {
     final price = toDouble(variant['price'] ?? normalized['price']);
     final oldPrice = toDouble(variant['mrp'] ?? variant['oldPrice'] ?? normalized['oldPrice'] ?? price);
     final stock = toInt(variant['stock'] ?? normalized['stock']);
-    final source = text(normalized['source']);
-    final sourceProductId = text(normalized['sourceProductId']);
 
     return {
       'productId': productId,
@@ -707,9 +767,6 @@ class ProductService {
       'stockAtAddTime': stock,
       'stock': stock,
       'piecesPerStrip': toInt(normalized['piecesPerStrip'], 10),
-      if (source.isNotEmpty) 'source': source,
-      if (sourceProductId.isNotEmpty) 'sourceProductId': sourceProductId,
-      if (aliExpressLinkFor(normalized).isNotEmpty) 'aliExpressLink': aliExpressLinkFor(normalized),
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     };

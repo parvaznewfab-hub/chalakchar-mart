@@ -765,8 +765,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
     final productId = _productId(product);
     final name = _text(product['name'], 'Product');
     final category = _text(product['category']);
-    final productUrl =
-        'https://chalakcharmart.com/product/${Uri.encodeComponent(productId)}';
+    final productUrl = ProductService.productUrl(product, productId);
 
     final shareText = [
       '🛒 ChalakChar Mart',

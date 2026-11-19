@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../utils/marketing_eligibility.dart';
 import 'marketing_settings_service.dart';
+import 'product_service.dart';
 
 /// Central marketing queue service.
 ///
@@ -71,7 +72,7 @@ class MarketingQueueService {
     final name = _text(product['name'] ?? product['title'], 'Product');
     final price = _price(product);
     final category = _text(product['category']);
-    final productUrl = 'https://chalakcharmart.com/product/$productId';
+    final productUrl = ProductService.productUrl(product, productId);
 
     return template
         .replaceAll('{productName}', name)
@@ -215,7 +216,7 @@ class MarketingQueueService {
       'Product',
     );
 
-    final productUrl = 'https://chalakcharmart.com/product/$cleanProductId';
+    final productUrl = ProductService.productUrl(resolvedProduct, cleanProductId);
     final imageUrl = _firstImage(resolvedProduct);
     final price = _price(resolvedProduct);
     final category = _text(resolvedProduct['category']);

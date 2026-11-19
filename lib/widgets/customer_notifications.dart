@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../pages/user/customer_order_tracking_page.dart';
 import '../pages/user/notifications_page.dart';
+import '../services/product_service.dart';
 import '../utils/customer_notification_view.dart';
 
 const Color _accent = Color(0xFF007185);
@@ -81,7 +82,7 @@ class NotificationActions {
         );
         return;
       }
-      navigator.pushNamed('/product/${view.productId}');
+      navigator.pushNamed(ProductService.productPath(product ?? const {}, view.productId));
       return;
     }
 

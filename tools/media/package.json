@@ -1,0 +1,9 @@
+{
+  "name": "chalakchar-media-tools",
+  "private": true,
+  "description": "Local one-off media scripts (image migration). Not deployed.",
+  "dependencies": {
+    "firebase-admin": "^13.10.0",
+    "sharp": "0.34.4"
+  }
+}

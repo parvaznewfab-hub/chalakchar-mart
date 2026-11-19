@@ -44,12 +44,6 @@ class _CartPageState extends State<CartPage> {
   double _outsideDeliveryCharge = 110;
   double _deliveryCharge = 0;
 
-  // Fresh product docs fetched during _validateStock, keyed by productId.
-  // Reused right after in _placeOrder so each order item can snapshot
-  // source/sourceProductId/aliExpressLink from the actual product being
-  // ordered without a second round of Firestore reads.
-  final Map<String, Map<String, dynamic>> _checkoutProductCache = {};
-
   @override
   void initState() {
     super.initState();
@@ -107,8 +101,6 @@ class _CartPageState extends State<CartPage> {
   }
 
   Future<bool> _validateStock(List<QueryDocumentSnapshot<Map<String, dynamic>>> cartItems) async {
-    _checkoutProductCache.clear();
-
     for (final doc in cartItems) {
       final data = doc.data();
 
@@ -130,7 +122,6 @@ class _CartPageState extends State<CartPage> {
       }
 
       final product = ProductService.normalizeProductData(productDoc);
-      _checkoutProductCache[productId] = product;
 
       if (product['isActive'] == false) {
         await doc.reference.delete();
@@ -484,26 +475,19 @@ class _CartPageState extends State<CartPage> {
         totalAmount += price * qty;
         totalMrp += oldPrice * qty;
 
-        // Snapshot AliExpress sourcing from the actual product doc (fetched
-        // moments ago in _validateStock) so it survives future product
-        // syncs/edits/deletes instead of relying on the cart item's own copy.
+        // Supplier sourcing is never written here: the customer, vendor and
+        // rider can read the order. onNewOrderCreated snapshots it into the
+        // admin-only order_sources/{orderId}.
         final productId = _text(data['productId']);
-        final sourceProduct = _checkoutProductCache[productId] ?? <String, dynamic>{};
-        final source = _text(sourceProduct['source']);
-        final sourceProductId = _text(sourceProduct['sourceProductId']);
-        final aliExpressLink = ProductService.aliExpressLinkFor(sourceProduct);
 
         items.add({
-          ...data,
+          ...ProductService.withoutSupplierFields(data),
           'productId': productId,
           'vendorId': vendorId,
           'vendorName': vendorName,
           'isMarketplace': vendorId != 'super_admin',
           'lineTotal': price * qty,
           'lineMrpTotal': oldPrice * qty,
-          'source': source,
-          'sourceProductId': sourceProductId,
-          'aliExpressLink': aliExpressLink,
         });
       }
 

@@ -1,3 +1,4 @@
+const { productUrlFor } = require("../catalog/productUrl");
 // Formats product-search chat replies: for every matched product its price,
 // delivery estimate and link. Customer-facing text never names the supplier
 // or origin country; imported items say "বিদেশ থেকে আমদানি" instead.
@@ -40,8 +41,11 @@ function priceOf(product) {
   return p > 0 ? String(Math.round(p)) : "";
 }
 
-function productUrl(productId) {
-  return `https://chalakcharmart.com/product/${encodeURIComponent(productId)}`;
+/** Public link for a product (its data, or just an id): /product/{urlSlug}, else its id. */
+function productUrl(productOrId) {
+  return typeof productOrId === "object" && productOrId !== null
+    ? productUrlFor(productOrId, productOrId.id)
+    : productUrlFor({}, productOrId);
 }
 
 /** Same placeholder substitution as marketing_queue_service.dart's _applyTemplate. */
@@ -49,7 +53,7 @@ function applyCaptionTemplate(template, product) {
   const name = text(product.name ?? product.title, "Product");
   const price = priceOf(product);
   const category = text(product.category);
-  const url = productUrl(product.id);
+  const url = productUrl(product);
 
   return String(template || "")
     .replaceAll("{productName}", name)
@@ -101,7 +105,8 @@ function deliveryLine(product) {
   else if (max > 0 || min > 0) range = `${banglaNumber(Math.max(min, max))} দিন`;
   else if (days > 0) range = `${banglaNumber(days)} দিন`;
 
-  const imported = text(product?.source).toLowerCase() === "aliexpress";
+  // isImported is the public flag; source only exists on older/merged data.
+  const imported = product?.isImported === true || text(product?.source).toLowerCase() === "aliexpress";
   if (imported) {
     return range ? `🚚 বিদেশ থেকে আমদানি, আনুমানিক ডেলিভারি ${range}` : "🚚 বিদেশ থেকে আমদানি করা পণ্য";
   }
@@ -111,7 +116,7 @@ function deliveryLine(product) {
 function productBlock(product, query) {
   const name = text(product.name ?? product.title, "Product");
   const shortName = name.length > 90 ? `${name.slice(0, 87).trim()}...` : name;
-  return [shortName, priceLine(product, query), deliveryLine(product), `🔗 ${productUrl(product.id)}`]
+  return [shortName, priceLine(product, query), deliveryLine(product), `🔗 ${productUrl(product)}`]
     .filter(Boolean)
     .join("\n");
 }
@@ -129,14 +134,14 @@ function formatProductReply(products, _captionTemplate, query = "") {
   if (list.length === 1) {
     return {
       replyText: `এই প্রোডাক্টটি পাওয়া যাচ্ছে:\n\n${productBlock(list[0], query)}`,
-      productLinks: [productUrl(list[0].id)],
+      productLinks: [productUrl(list[0])],
     };
   }
 
   const blocks = list.map((product, index) => `${index + 1}. ${productBlock(product, query)}`);
   return {
     replyText: `এই প্রোডাক্টগুলো পাওয়া যাচ্ছে:\n\n${blocks.join("\n\n")}`,
-    productLinks: list.map((product) => productUrl(product.id)),
+    productLinks: list.map((product) => productUrl(product)),
   };
 }
 
