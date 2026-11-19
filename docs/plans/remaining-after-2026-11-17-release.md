@@ -135,3 +135,21 @@
   (`channelResults`, `lastError`)। মালিক পরে দেখবেন। (১৮ নভেম্বরের হিসাব: মোট ১০২টা,
   সব completed; posted ৩৯, not_requested ৪০, partial_failed ২৩।)
 
+
+## তালিকায় যোগ (মালিক, ১৯ নভেম্বর)
+- Admin Settings পেজের লেখায় "saved under settings/app" কথাটা বদলাতে হবে। চাবি এখন
+  `settings/app_secrets`-এ থাকে।
+- chat-এর উত্তরে "অর্ডার করুন" বোতামের কথা বলা হয়, কিন্তু সাইটে বোতামের নাম
+  "Buy Now" আর "Add to Cart"। উত্তরের লেখা সাইটের সাথে মেলাতে হবে।
+- Google OAuth Web client-এ preview channel "secrets"-এর ঠিকানা
+  (`chalakchar-mart--secrets-23qyz1jj.web.app`) হাতে যোগ করা হয়েছে। channel মুছে
+  ফেলার সময় OAuth client থেকেও এটা সরাতে হবে।
+
+## লাইভ hosting, ১৯ নভেম্বর ২০২৬ (14b ধাপ A)
+- **16:06 UTC:** preview channel "secrets" হুবহু লাইভে clone করা হয়েছে
+  (`firebase hosting:clone chalakchar-mart:secrets chalakchar-mart:live`)। build
+  worktree `../cc_deploy_d7d6761`-এর, commit `d7d6761`। release `1795104383279000`,
+  version `5718e9fbf1f0afea`। আগেরটা ছিল `847c033e7daffde8`।
+  rollback: `firebase hosting:clone chalakchar-mart@847c033e7daffde8 chalakchar-mart:live`।
+- লাইভ hosting এখন d7d6761-এ। d4ead6c এখনো লাইভে যায়নি। পরের hosting deploy HEAD
+  থেকে করলে এটা চলে যাবে, তাই সেটা আলাদা সিদ্ধান্ত।
