@@ -187,3 +187,20 @@ rollback করলে আগে চাবি settings/app-এ ফেরাতে
   (`functions/index.js:202`)। `apiReady.tiktok` এই field-এর ওপর নির্ভর না করে Secret Manager-এ secret
   আছে কি না তার ওপর নির্ভর করবে। তারপর field-টা মোছা (dry-run আর backup আগে)। সঙ্গে Flutter-এর
   `kSecretSocialApiKeys` আর rules-এর `secretSocialApiKeys` থেকেও সরানো।
+
+## Meta token বদলানো আর WhatsApp (মালিক, ১৯ নভেম্বর)
+- **Meta token এখন:**
+  - Facebook আর Instagram: ChalakChar Automation-এর Page token।
+  - WhatsApp: ChalakChar Automation-এর System user token।
+  - দুটোরই মেয়াদ Never। পুরোনো token বাতিল (Debugger-এ Valid: False)।
+  - চাবি আছে শুধু `settings/app_secrets.socialApi`-এ। settings/app-এ কোনো চাবি নেই
+    (১৯ নভেম্বর 18:14 আর 18:37 UTC-এর save-এর পর যাচাই করা)।
+- **WhatsApp marketing আসলে কাউকে যায় না।**
+  - WhatsApp opt-in করা user (`users.whatsappOptIn == true`) এখন ০ জন।
+  - তবু admin-এ "queued" দেখায়: ১৯ নভেম্বরের আগের ৭ দিনে ২৯টা item, সবকটায় `eligibleCount 0`,
+    `queuedCount 0`। কোড: `enqueueDynamicWhatsAppDeliveries`, `functions/index.js`।
+  - `whatsapp_deliveries`-এ কখনো একটাও ডকুমেন্ট তৈরি হয়নি।
+  - করণীয়: "queued" দেখানোর আগে `eligibleCount` দেখা, ০ হলে আলাদা status, যেমন
+    "no_recipients"। আর opt-in নেওয়ার ব্যবস্থা অ্যাপে কোথায় আছে বা নেই, সেটা খোঁজা।
+- **`whatsappWebhook`-এ ১৯ নভেম্বরের আগের ৭ দিনে একটাও request আসেনি** (৩০ দিনেও না, উপরে দেখুন)।
+  এটা "Meta app publish আর webhook subscription দেখা" কাজের সাথে যুক্ত।
