@@ -225,3 +225,22 @@ TikTok এখন চালু হবে না। তাই secret বদলা�
   secret বাঁধা নেই।** এরা `ensureFreshAccessToken` ডাকে
   (`tiktok/tokenRefresh.js` → `TIKTOK_CLIENT_SECRET.value()`)। token-এর মেয়াদ ১০ মিনিটের কম থাকলে refresh
   ব্যর্থ হবে। সমাধান: এই তিনটার options-এ `secrets: [TIKTOK_CLIENT_SECRET]` যোগ করা।
+- **TikTok অটোমেশন বন্ধ (১৯ নভেম্বর)।** কারণ:
+  - TikTok-এর Content Sharing Guidelines নিজের অ্যাকাউন্টে আপলোড করার utility টুল গ্রহণ করে না।
+  - audit ছাড়া সব পোস্ট private থাকে।
+  - মালিক TikTok portal-এ client secret reset করেছেন। নতুন secret কোথাও বসানো হয়নি।
+  - ভবিষ্যতে চাইলে Upload (draft/inbox) পদ্ধতি দেখা যাবে, Direct Post না।
+- **`app_secrets.socialApi.tiktokClientSecret` মোছা।** এটা পুরোনো field, আর এর মান ফাঁস হয়েছিল।
+  - মোছার আগে dry-run আর backup।
+  - সাথে `apiReady.tiktok`-এর নির্ভরতা ঠিক করা (`functions/index.js:202`, এখন এই field দেখে)।
+  - Flutter-এর `kSecretSocialApiKeys` আর rules-এর `secretSocialApiKeys` থেকেও নাম সরানো।
+- **Marketing Center-এ TikTok পরিষ্কার করা।**
+  - ১৯ নভেম্বরে `settings/app.marketingDefaults.tiktok` এখনো true ছিল।
+  - `products.marketingChannels.tiktok == true` এমন পণ্য ৯টা। admin-এর পণ্যের ফর্ম এই মানটাই আবার পাঠায়, global switch দেখে না।
+  - `marketing_outbox`-এ `channels.tiktok == true` ৫২টা: ৫০টা `skipped_missing_credentials`, ২টা `skipped_not_implemented`। সবকটার status completed।
+  - `tiktok_publish_jobs` ০টা।
+  - সিদ্ধান্ত লাগবে: পণ্যের TikTok চিহ্ন false করা হবে কি না, পুরোনো item কীভাবে দেখানো হবে, আর admin-এ TikTok-এর ঘর লুকানো হবে কি না।
+- **চারটা TikTok function রাখা হবে না মোছা হবে, সিদ্ধান্ত পরে।**
+  - চারটা: `tiktokOAuthCallback`, `tiktokTokenRefreshSweep`, `tiktokDisconnect`, `tiktokWebhook`।
+  - বাকি TikTok function-গুলোর (মোট ১১টা) সিদ্ধান্তও এর সাথে।
+  - Secret Manager-এর version 1 disable বা destroy করা যাবে শুধু function মোছার পরে। নইলে deploy আর নতুন instance ভাঙবে (বিস্তারিত ১৯ নভেম্বরের রিপোর্টে)।
