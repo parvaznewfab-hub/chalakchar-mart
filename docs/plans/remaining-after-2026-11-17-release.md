@@ -137,7 +137,7 @@
 
 
 ## তালিকায় যোগ (মালিক, ১৯ নভেম্বর)
-- Admin Settings পেজের লেখায় "saved under settings/app" কথাটা বদলাতে হবে। চাবি এখন
+- Admin Settings পেজের লেখায় "saved under settings/app" কথাটা বদলাতে হবে (`lib/pages/admin/app_settings_page.dart:2149`, d7d6761)। চাবি এখন
   `settings/app_secrets`-এ থাকে।
 - chat-এর উত্তরে "অর্ডার করুন" বোতামের কথা বলা হয়, কিন্তু সাইটে বোতামের নাম
   "Buy Now" আর "Add to Cart"। উত্তরের লেখা সাইটের সাথে মেলাতে হবে।
@@ -153,3 +153,37 @@
   rollback: `firebase hosting:clone chalakchar-mart@847c033e7daffde8 chalakchar-mart:live`।
 - লাইভ hosting এখন d7d6761-এ। d4ead6c এখনো লাইভে যায়নি। পরের hosting deploy HEAD
   থেকে করলে এটা চলে যাবে, তাই সেটা আলাদা সিদ্ধান্ত।
+
+## 14b ধাপ A-র পরে: social চাবি (মালিক, ১৯ নভেম্বর)
+১৯ নভেম্বর 16:29 UTC-তে `moveSocialSecrets.js --apply` চলেছে। চাবি এখন শুধু
+`settings/app_secrets.socialApi`-এ আছে। backup রাখা আছে `~/cc-backups`-এ, মালিক নিজে মুছবেন।
+এখন rules ফেরাতে হলে শুধু `firestore.rules.rollback-keep-secrets` ব্যবহার করতে হবে। function
+rollback করলে আগে চাবি settings/app-এ ফেরাতে হবে
+([functions-rollback-2026-11-18.md](../security/functions-rollback-2026-11-18.md))।
+
+- **admin-এর social চাবি save শক্ত করা।** অগ্রাধিকার: দল ১-এর সাথে।
+  এখনকার সমস্যা: admin পেজ খুললেই token-এর পুরো মান দেখায়
+  (`app_settings_page.dart:345-354`)। ঘর ফাঁকা রেখে save করলে app_secrets-এ খালি মান লেখা হয়,
+  ফলে চাবি মুছে যায় (`:437-445`)।
+  1. admin-only callable `adminSaveSocialSecrets`:
+     - server-এ দেখবে ডাকা লোকটার `settings.edit` অনুমতি আছে কি না।
+     - শুধু জানা key নেবে (`SECRET_SOCIAL_API_KEYS`)।
+     - ফাঁকা বা না-পাঠানো key বাদ দেবে, তাই পুরোনো মান থেকে যাবে।
+     - মোছার জন্য আলাদা স্পষ্ট flag, যেমন `clear: ["whatsappAccessToken"]`।
+     - log-এ শুধু key-র নাম আর সময়, কোনো মান না।
+  2. callable `adminSocialSecretsStatus`: প্রতিটা key-র শুধু "বসানো আছে/নেই", চাইলে শেষ বদলের সময়।
+     কোনো মান ফেরত দেবে না।
+  3. admin পেজ:
+     - app_secrets আর সরাসরি পড়বে না।
+     - token-এর ঘর সবসময় ফাঁকা থাকবে, পাশে লেখা "বসানো আছে/নেই"।
+     - নতুন মান লিখলেই শুধু সেটা `adminSaveSocialSecrets`-এ পাঠাবে।
+     - settings/app-এর save থেকে token পুরো আলাদা থাকবে।
+  4. rules: `settings/app_secrets`-এ client থেকে লেখা বন্ধ (`write: if false`)। শুধু function লিখবে।
+     client-এর পড়াও বন্ধ করা যায়।
+  5. পরীক্ষা: emulator-এ দেখা—ফাঁকা পাঠালে মান থেকে যায় কি না, customer বা অনুমতি ছাড়া admin ডাকলে
+     বাতিল হয় কি না, status বা কোনো উত্তরে মান আসে না কি না। তারপর নিজস্ব preview channel-এ চোখে দেখা।
+- **`app_secrets.socialApi.tiktokClientSecret` পুরোনো field।** TikTok-এর আসল কাজ চলে Secret Manager-এর
+  `TIKTOK_CLIENT_SECRET` দিয়ে। এই field শুধু `apiReady.tiktok` হিসাবে কাজে লাগে
+  (`functions/index.js:202`)। `apiReady.tiktok` এই field-এর ওপর নির্ভর না করে Secret Manager-এ secret
+  আছে কি না তার ওপর নির্ভর করবে। তারপর field-টা মোছা (dry-run আর backup আগে)। সঙ্গে Flutter-এর
+  `kSecretSocialApiKeys` আর rules-এর `secretSocialApiKeys` থেকেও সরানো।
