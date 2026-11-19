@@ -19,8 +19,9 @@
 //      and the script stops)
 //   - deletes those keys from settings/app.socialApi
 // Before it, a backup of the old settings/app.socialApi token keys is saved
-// to functions/scripts/backups/ (git-ignored). It CONTAINS THE TOKENS: delete
-// it once the move is checked, and after the tokens are rotated it is useless.
+// to ~/cc-backups/ (C:\Users\<you>\cc-backups), outside the repo and outside
+// OneDrive. It CONTAINS THE TOKENS: delete it once the move is checked, and
+// after the tokens are rotated it is useless.
 //
 // Usage (from functions/, application-default credentials):
 //   node scripts/moveSocialSecrets.js            dry run: what would move
@@ -28,6 +29,7 @@
 // -----------------------------------------------------------------------------
 
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { SECRET_SOCIAL_API_KEYS } = require("../settings/socialSecrets");
 
@@ -98,7 +100,7 @@ async function main() {
     return;
   }
 
-  const backupDir = path.join(__dirname, "backups");
+  const backupDir = path.join(os.homedir(), "cc-backups");
   fs.mkdirSync(backupDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const backupFile = path.join(backupDir, `settings_app_socialApi_secrets_${stamp}.json`);
