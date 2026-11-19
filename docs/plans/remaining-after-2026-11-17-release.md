@@ -204,3 +204,24 @@ rollback করলে আগে চাবি settings/app-এ ফেরাতে
     "no_recipients"। আর opt-in নেওয়ার ব্যবস্থা অ্যাপে কোথায় আছে বা নেই, সেটা খোঁজা।
 - **`whatsappWebhook`-এ ১৯ নভেম্বরের আগের ৭ দিনে একটাও request আসেনি** (৩০ দিনেও না, উপরে দেখুন)।
   এটা "Meta app publish আর webhook subscription দেখা" কাজের সাথে যুক্ত।
+
+## TikTok: বন্ধ (মালিকের সিদ্ধান্ত, ১৯ নভেম্বর)
+TikTok এখন চালু হবে না। তাই secret বদলানো, deploy বা worktree কিছুই করা হয়নি। পরে চালু করলে নিচের কাজগুলো আগে করতে হবে।
+- **Secret Manager-এর `TIKTOK_CLIENT_SECRET` version 1 ভুল।** এতে ৩২ অক্ষরের মানটা পরপর ৪ বার লেখা,
+  মোট ১২৮ অক্ষর। সম্ভবত এজন্যই TikTok কখনো connect হয়নি।
+  - `tiktok_connections` ০টা।
+  - `tiktok_oauth_states`-এ ৩টা চেষ্টা, শুধু ১০-১১ জুলাই ২০২৬-এর।
+- **নতুন version বসানো:** `gcloud secrets versions add TIKTOK_CLIENT_SECRET --data-file=- --project chalakchar-mart`
+  দিয়ে। secret paste করে Ctrl+D দিতে হবে।
+  - `firebase functions:secrets:set` ব্যবহার করা যাবে না। এটা শেষে "destroy the stale version?" জিজ্ঞেস করে,
+    আর default উত্তর হ্যাঁ। হ্যাঁ দিলে পুরোনো version চিরতরে মুছে যায়।
+  - পুরোনো version পরে শুধু disable করা হবে, destroy না।
+- **secret কোন version-এ বাঁধা থাকবে, তা ঠিক হয় deploy-এর সময়।** firebase CLI তখনকার latest version
+  বেঁধে দেয়। কোডে (`functions/tiktok/config.js:6`) কোনো version লেখা নেই।
+  - তাই নতুন version বসানোর পর চারটা function আবার deploy করতে হবে: `tiktokOAuthCallback`,
+    `tiktokTokenRefreshSweep`, `tiktokDisconnect`, `tiktokWebhook`।
+  - লাইভে এগুলো চলছে `780f82c`-এর কোডে। এদের `tiktok/` ফোল্ডার d7d6761-এর সাথে হুবহু এক।
+- **`tiktokConfirmPublish`, `tiktokGetCreatorInfo` আর `tiktokPublishJobsSweep` token refresh করে, কিন্তু এদের সাথে
+  secret বাঁধা নেই।** এরা `ensureFreshAccessToken` ডাকে
+  (`tiktok/tokenRefresh.js` → `TIKTOK_CLIENT_SECRET.value()`)। token-এর মেয়াদ ১০ মিনিটের কম থাকলে refresh
+  ব্যর্থ হবে। সমাধান: এই তিনটার options-এ `secrets: [TIKTOK_CLIENT_SECRET]` যোগ করা।
