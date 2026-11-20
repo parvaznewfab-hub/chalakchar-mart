@@ -1,8 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/auth_service.dart';
+import '../../services/private_profile_service.dart';
+import '../../utils/private_profile_fields.dart';
 
 class AdminVendorsPage extends StatefulWidget {
   const AdminVendorsPage({super.key});
@@ -23,6 +24,17 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
   bool canChangeVendorStatus = false;
   bool canViewVendorDocuments = false;
   bool canContactVendors = false;
+
+  // vendor_private/{id} (contact, documents, payout, commission; 14b step B),
+  // filled by the second stream in _vendorList. Empty if not readable.
+  Map<String, Map<String, dynamic>> _privateById = {};
+
+  /// Public vendor doc merged with its private doc.
+  Map<String, dynamic> _merged(QueryDocumentSnapshot doc) => mergePrivateFields(
+        doc.data() as Map<String, dynamic>,
+        _privateById[doc.id],
+        kVendorPrivateKeys,
+      );
 
   final searchController = TextEditingController();
 
@@ -125,7 +137,7 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
     final q = searchText.toLowerCase().trim();
 
     return docs.where((doc) {
-      final data = doc.data() as Map<String, dynamic>;
+      final data = _merged(doc);
       final status = _text(data['status'], 'pending');
       final active = _active(data);
 
@@ -495,6 +507,8 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
 
     if (ok != true) return;
 
+    // The private half first (it is only reachable through this vendor id).
+    await PrivateProfileService.vendorPrivateRef(vendorId).delete();
     await db.collection('vendors').doc(vendorId).delete();
     _snack('Vendor deleted');
   }
@@ -535,14 +549,20 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
     final address = TextEditingController(text: _text(data?['address']));
     final businessType = TextEditingController(text: _text(data?['businessType'], 'general'));
     final ownerId = TextEditingController(text: _text(data?['ownerId'] ?? data?['userId']));
+    // Per-vendor rate set by the owner (vendor_private). 0 is a real value;
+    // the 10% default only shows while nothing has been set.
     final commission = TextEditingController(
-      text: _toDouble(data?['commissionPercent'] ?? data?['commissionRate'], 10).toStringAsFixed(0),
+      text: _percentText(vendorCommissionPercent(data)),
     );
     final payoutAccount = TextEditingController(text: _text(data?['payoutAccount']));
-    final tradeLicense = TextEditingController(text: _text(data?['tradeLicense']));
-    final nidFront = TextEditingController(text: _text(data?['nidFront']));
-    final nidBack = TextEditingController(text: _text(data?['nidBack']));
+    final shopArea = TextEditingController(text: _text(data?['shopArea']));
     final note = TextEditingController(text: _text(data?['note']));
+    // Documents are not edited here any more: no download links are typed
+    // or stored (14b step B). Only their on-file state is shown.
+    final docsOnFile = [
+      for (final kind in ['tradeLicense', 'nidFront', 'nidBack'])
+        if (vendorDocumentPath(data, kind).isNotEmpty) kind,
+    ];
 
     String status = _text(data?['status'], 'pending');
     bool active = data == null ? false : data['isActive'] == true;
@@ -567,41 +587,51 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
               _snack('Owner/User ID required. Set the seller Firebase Auth UID.');
               return;
             }
+            final commissionValue = double.tryParse(commission.text.trim());
+            if (commissionValue == null || commissionValue < 0 || commissionValue > 100) {
+              _snack('Commission % must be a number from 0 to 100 (0 = no commission).');
+              return;
+            }
 
             setDialogState(() => saving = true);
 
             try {
+              // Public: what the shop page may show.
               final payload = {
                 'shopName': shopName.text.trim(),
-                'ownerName': ownerName.text.trim(),
-                'phone': phone.text.trim(),
-                'email': email.text.trim(),
-                'address': address.text.trim(),
+                'shopArea': shopArea.text.trim(),
                 'businessType': businessType.text.trim().isEmpty ? 'general' : businessType.text.trim(),
                 'ownerId': ownerId.text.trim(),
                 'userId': ownerId.text.trim(),
-                'commissionPercent': _toDouble(commission.text, 10),
-                'commissionRate': _toDouble(commission.text, 10),
-                'payoutAccount': payoutAccount.text.trim(),
-                'tradeLicense': tradeLicense.text.trim(),
-                'nidFront': nidFront.text.trim(),
-                'nidBack': nidBack.text.trim(),
-                'note': note.text.trim(),
                 'status': status,
                 'isActive': active,
                 'isVerified': verified,
                 'updatedAt': FieldValue.serverTimestamp(),
+              };
+              // Private: vendor_private/{id} (14b step B).
+              final privatePayload = {
+                'ownerName': ownerName.text.trim(),
+                'phone': phone.text.trim(),
+                'email': email.text.trim(),
+                'address': address.text.trim(),
+                'commissionPercent': commissionValue,
+                'commissionRate': commissionValue,
+                'payoutAccount': payoutAccount.text.trim(),
+                'note': note.text.trim(),
               };
 
               if (id == null) {
                 final doc = await db.collection('vendors').add({
                   ...payload,
                   'rating': 0,
-                  'totalSales': 0,
                   'totalOrders': 0,
+                  'createdAt': FieldValue.serverTimestamp(),
+                });
+                await PrivateProfileService.saveVendorPrivate(doc.id, {
+                  ...privatePayload,
+                  'totalSales': 0,
                   'withdrawableBalance': 0,
                   'withdrawPendingBalance': 0,
-                  'createdAt': FieldValue.serverTimestamp(),
                 });
 
                 if (ownerId.text.trim().isNotEmpty) {
@@ -620,6 +650,7 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
                 _snack('Vendor added');
               } else {
                 await db.collection('vendors').doc(id).set(payload, SetOptions(merge: true));
+                await PrivateProfileService.saveVendorPrivate(id, privatePayload);
 
                 if (ownerId.text.trim().isNotEmpty) {
                   await db.collection('users').doc(ownerId.text.trim()).set({
@@ -690,18 +721,19 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
                       onChanged: (v) => setDialogState(() => status = v ?? 'pending'),
                     ),
                     const SizedBox(height: 12),
-                    _dialogField('Address', address, Icons.location_on_outlined, maxLines: 2),
+                    _dialogField('Shop area / district (public, optional)', shopArea, Icons.map_outlined),
                     const SizedBox(height: 12),
-                    _dialogField('Payout Account / bKash / Bank', payoutAccount, Icons.account_balance_wallet_outlined, maxLines: 2),
+                    _dialogField('Address (private)', address, Icons.location_on_outlined, maxLines: 2),
                     const SizedBox(height: 12),
-                    _dialogField('Trade License URL', tradeLicense, Icons.description_outlined),
+                    _dialogField('Payout Account / bKash / Bank (private)', payoutAccount, Icons.account_balance_wallet_outlined, maxLines: 2),
                     const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(child: _dialogField('NID Front URL', nidFront, Icons.badge_outlined)),
-                        const SizedBox(width: 10),
-                        Expanded(child: _dialogField('NID Back URL', nidBack, Icons.badge_outlined)),
-                      ],
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Documents on file: ${docsOnFile.isEmpty ? 'none' : docsOnFile.length}/3. '
+                        'The vendor uploads them from the seller application; viewing comes in security step C.',
+                        style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+                      ),
                     ),
                     const SizedBox(height: 12),
                     _dialogField('Admin Note', note, Icons.note_alt_outlined, maxLines: 3),
@@ -748,11 +780,13 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
     ownerId.dispose();
     commission.dispose();
     payoutAccount.dispose();
-    tradeLicense.dispose();
-    nidFront.dispose();
-    nidBack.dispose();
+    shopArea.dispose();
     note.dispose();
   }
+
+  /// 10 -> "10", 2.5 -> "2.5", 0 -> "0".
+  String _percentText(double v) =>
+      v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toString();
 
   Widget _dialogField(
       String label,
@@ -815,31 +849,28 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
     );
   }
 
-  Future<void> _openUrl(String url) async {
-    if (_denyUnless(canViewVendorDocuments, 'Permission denied: vendors.documents required')) return;
-    final link = url.trim();
-    if (link.isEmpty) return;
 
-    final uri = Uri.tryParse(link);
-    if (uri == null) {
-      _snack('Invalid document URL');
-      return;
-    }
+  /// Document status only. Old download links now answer 403 (tokens
+  /// revoked 2026-11-20) and no new link is made here: viewing comes in
+  /// 14b step C (Storage SDK / short-lived signed URL). [path] is the
+  /// Storage path of the file, or '' when none is on file.
+  Widget _docButton(String title, String path, IconData icon) {
+    final onFile = path.trim().isNotEmpty;
 
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!ok) _snack('Could not open document');
-  }
-
-  Widget _docButton(String title, String url, IconData icon) {
-    final hasUrl = url.trim().isNotEmpty;
-
-    return OutlinedButton.icon(
-      onPressed: hasUrl ? () => _openUrl(url) : null,
-      icon: Icon(icon, size: 18),
-      label: Text(title),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: hasUrl ? const Color(0xFF2563EB) : Colors.grey,
-        side: BorderSide(color: hasUrl ? const Color(0xFFBFDBFE) : Colors.grey.shade300),
+    return Tooltip(
+      message: onFile
+          ? 'On file. Viewing documents comes in security step C.'
+          : 'No document uploaded.',
+      child: OutlinedButton.icon(
+        onPressed: onFile
+            ? () => _snack('$title is on file. Viewing documents in the admin panel comes in security step C.')
+            : null,
+        icon: Icon(onFile ? Icons.check_circle_outline : icon, size: 18),
+        label: Text(onFile ? '$title: on file' : '$title: missing'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: onFile ? Colors.green.shade700 : Colors.grey,
+          side: BorderSide(color: onFile ? Colors.green.shade200 : Colors.grey.shade300),
+        ),
       ),
     );
   }
@@ -984,7 +1015,7 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
   }
 
   Widget _vendorCard(QueryDocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+    final data = _merged(doc);
     final vendorId = doc.id;
     final ownerId = _vendorOwnerId(vendorId, data);
     final shopName = _text(data['shopName'], 'Unnamed Shop');
@@ -994,7 +1025,7 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
     final status = _text(data['status'], 'pending');
     final active = data['isActive'] == true;
     final verified = data['isVerified'] == true;
-    final commission = _toDouble(data['commissionPercent'] ?? data['commissionRate'], 10);
+    final commission = vendorCommissionPercent(data);
 
     return FutureBuilder<List<dynamic>>(
       future: Future.wait([
@@ -1048,7 +1079,7 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
                           _chip(status.toUpperCase(), _statusColor(status)),
                           _chip(active ? 'Active' : 'Inactive', active ? Colors.green : Colors.red),
                           if (verified) _chip('Verified', Colors.deepPurple),
-                          _chip('Commission ${commission.toStringAsFixed(0)}%', Colors.blue),
+                          _chip('Commission ${_percentText(commission)}%', Colors.blue),
                           _chip('$productCount Products', Colors.teal),
                           _chip('$orderCount Orders', Colors.orange),
                           _chip('৳${revenue.toStringAsFixed(0)} Sales', Colors.green),
@@ -1061,9 +1092,9 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
                         runSpacing: 6,
                         children: [
                           if (canViewVendorDocuments) ...[
-                            _docButton('Trade License', _text(data['tradeLicense']), Icons.description_outlined),
-                            _docButton('NID Front', _text(data['nidFront']), Icons.badge_outlined),
-                            _docButton('NID Back', _text(data['nidBack']), Icons.badge_outlined),
+                            _docButton('Trade License', vendorDocumentPath(data, 'tradeLicense'), Icons.description_outlined),
+                            _docButton('NID Front', vendorDocumentPath(data, 'nidFront'), Icons.badge_outlined),
+                            _docButton('NID Back', vendorDocumentPath(data, 'nidBack'), Icons.badge_outlined),
                           ],
                         ],
                       ),
@@ -1150,6 +1181,21 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
   }
 
   Widget _vendorList() {
+    // Private halves first (one listener for all vendors); no permission or
+    // not deployed yet: the list still shows, with private fields empty.
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: db.collection(kVendorPrivateCollection).limit(300).snapshots(),
+      builder: (context, privateSnap) {
+        _privateById = {
+          for (final d in privateSnap.data?.docs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+            d.id: d.data(),
+        };
+        return _vendorPublicList();
+      },
+    );
+  }
+
+  Widget _vendorPublicList() {
     return StreamBuilder<QuerySnapshot>(
       stream: db.collection('vendors').orderBy('createdAt', descending: true).limit(300).snapshots(),
       builder: (context, snap) {

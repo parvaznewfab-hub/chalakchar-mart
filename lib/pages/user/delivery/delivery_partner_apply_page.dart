@@ -6,6 +6,9 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../services/private_profile_service.dart';
+import '../../../utils/user_error_message.dart';
+
 class DeliveryPartnerApplyPage extends StatefulWidget {
   const DeliveryPartnerApplyPage({super.key});
 
@@ -115,10 +118,9 @@ class _DeliveryPartnerApplyPageState extends State<DeliveryPartnerApplyPage> {
 
     await ref.putData(bytes, metadata);
 
-    final url = await ref.getDownloadURL();
-
+    // Only the Storage path is kept, never a download link: a link carries a
+    // token that opens the file for anyone who has it (14b step B / C).
     return {
-      'url': url,
       'path': path,
     };
   }
@@ -174,22 +176,28 @@ class _DeliveryPartnerApplyPageState extends State<DeliveryPartnerApplyPage> {
         side: 'nid_back',
       );
 
+      // NID, address, email, note: delivery_partner_private (14b step B).
+      // Written first: if the public doc then fails, the rules let the
+      // rider write it again until the public doc exists (retry), and
+      // nothing half-done is visible to admins.
+      await PrivateProfileService.writeRiderApplication(user.uid, {
+        'uid': user.uid,
+        'email': user.email ?? '',
+        'nidNumber': nidCtrl.text.trim(),
+        'nidFrontPath': front['path'],
+        'nidBackPath': back['path'],
+        'address': addressCtrl.text.trim(),
+        'note': noteCtrl.text.trim(),
+      });
+
       await ref.set({
         'uid': user.uid,
-        'email': user.email,
         'name': nameCtrl.text.trim(),
         'phone': phoneCtrl.text.trim(),
-        'nidNumber': nidCtrl.text.trim(),
-        'nidFrontUrl': front['url'],
-        'nidFrontPath': front['path'],
-        'nidBackUrl': back['url'],
-        'nidBackPath': back['path'],
         'documentStatus': 'submitted',
         'documentUploadedAt': FieldValue.serverTimestamp(),
-        'address': addressCtrl.text.trim(),
         'preferredArea': areaCtrl.text.trim(),
         'vehicleType': vehicleType,
-        'note': noteCtrl.text.trim(),
         'status': 'pending',
         'isActive': false,
         'totalDeliveries': 0,
@@ -204,8 +212,9 @@ class _DeliveryPartnerApplyPageState extends State<DeliveryPartnerApplyPage> {
       _snack('Application submitted successfully. Admin approval required.');
 
       if (mounted) Navigator.pop(context);
-    } catch (e) {
-      _snack('Submit failed: $e', error: true);
+    } catch (e, st) {
+      // Plain message for the rider; the real error goes to the log.
+      _snack(friendlySubmitError(e, where: 'rider application', stack: st), error: true);
     } finally {
       if (mounted) setState(() => loading = false);
     }

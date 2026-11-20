@@ -5,9 +5,27 @@ const { loadRules, clearData, seed } = require('./emu');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const RULES_FILE = path.resolve(REPO, process.env.RULES_FILE || 'firestore.rules');
-const OLD_RULES = /rules-backup/.test(RULES_FILE);
+// Step B rollback = the step A rules (closed holes) with the private halves
+// shut. It lives in rules-backup but is NOT "old rules" for the hole tests.
+const STEP_B_ROLLBACK = /rollback-step-b/.test(RULES_FILE);
+const OLD_RULES = /rules-backup/.test(RULES_FILE) && !STEP_B_ROLLBACK;
 // The rollback file = old rules with only settings/app_secrets locked.
 const KEEP_SECRETS = /keep-secrets/.test(RULES_FILE);
+// Step 6 (current firestore.rules): the move script has run, so the public
+// vendor / rider docs hold no private key. Old copies (and the step B
+// rollback, which runs after the restore script) keep the pre-move docs.
+const POST_MOVE = !OLD_RULES && !STEP_B_ROLLBACK;
+const { VENDOR_PRIVATE_KEYS, RIDER_PRIVATE_KEYS } = require('../../functions/scripts/movePrivateProfiles');
+
+function withoutPrivateKeys(docs) {
+  const out = { ...docs };
+  for (const [p, data] of Object.entries(out)) {
+    const keys = p.startsWith('vendors/') ? VENDOR_PRIVATE_KEYS
+      : p.startsWith('deliveryPartners/') ? RIDER_PRIVATE_KEYS : null;
+    if (keys) out[p] = Object.fromEntries(Object.entries(data).filter(([k]) => !keys.includes(k)));
+  }
+  return out;
+}
 
 // Cast:
 //   cust1, cust2          ordinary customers
@@ -32,6 +50,13 @@ const users = {
   'users/admin': u('admin'),
   'users/boss': u('superAdmin'),
   'users/analyst': u('staff', { permissions: ['analytics.view'] }),
+  // Step B staff: one permission each.
+  'users/vendStaff': u('staff', { permissions: ['vendors.view'] }),
+  'users/payStaff': u('staff', { permissions: ['vendors.payouts'] }),
+  'users/assignStaff': u('staff', { permissions: ['orders.assign_rider'] }),
+  'users/riderStaff': u('staff', { permissions: ['delivery.view'] }),
+  // A vendor applicant: owns vendors/vendNew (doc id = uid), not approved yet.
+  'users/vendNew': u('user'),
 };
 
 function baseDocs() {
@@ -42,6 +67,18 @@ function baseDocs() {
       nidFront: 'https://example.invalid/nid?token=x', status: 'approved', isActive: true, isVerified: true,
     },
     'vendors/vend2': { ownerId: 'vendU2', userId: 'vendU2', shopName: 'Shop Two', status: 'approved', isActive: true, isVerified: true },
+    // Step B: the private halves. vend1's public doc above still carries the
+    // old copies (state before the move script); vend2's is already clean.
+    'vendor_private/vend1': {
+      vendorId: 'vend1', phone: '01700000001', nidFront: 'https://example.invalid/nid?token=x',
+      payoutAccount: 'bkash 017', commissionPercent: 10, withdrawableBalance: 500,
+    },
+    'vendor_private/vend2': { vendorId: 'vend2', phone: '01700000002', payoutAccount: 'nagad 018' },
+    'vendors/vendNew': { ownerId: 'vendNew', userId: 'vendNew', shopName: 'New Shop', status: 'pending', isActive: false, isVerified: false },
+    'delivery_partner_private/rider1': {
+      uid: 'rider1', nidNumber: '1234567890', nidFrontUrl: 'https://example.invalid/r?token=y', address: 'House 9',
+    },
+    'delivery_partner_private/rider3': { uid: 'rider3', nidNumber: '555' },
     'deliveryPartners/rider1': {
       uid: 'rider1', name: 'Rider One', phone: '01800000001', nidNumber: '1234567890',
       nidFrontUrl: 'https://example.invalid/r?token=y', status: 'approved', isActive: true,
@@ -97,7 +134,7 @@ function baseDocs() {
 async function resetWorld() {
   await loadRules(RULES_FILE);
   await clearData();
-  await seed(baseDocs());
+  await seed(POST_MOVE ? withoutPrivateKeys(baseDocs()) : baseDocs());
 }
 
-module.exports = { resetWorld, RULES_FILE, OLD_RULES, KEEP_SECRETS };
+module.exports = { resetWorld, RULES_FILE, OLD_RULES, KEEP_SECRETS, STEP_B_ROLLBACK, POST_MOVE };

@@ -4,6 +4,10 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../services/private_profile_service.dart';
+import '../../utils/private_profile_fields.dart';
+import '../../utils/user_error_message.dart';
+
 class VendorApplyPage extends StatefulWidget {
   const VendorApplyPage({super.key});
 
@@ -24,6 +28,7 @@ class _VendorApplyPageState extends State<VendorApplyPage> {
   final phoneController = TextEditingController();
   final emailController = TextEditingController();
   final addressController = TextEditingController();
+  final shopAreaController = TextEditingController();
   final businessTypeController = TextEditingController(text: 'general');
   final payoutAccountController = TextEditingController();
   final noteController = TextEditingController();
@@ -51,6 +56,7 @@ class _VendorApplyPageState extends State<VendorApplyPage> {
     phoneController.dispose();
     emailController.dispose();
     addressController.dispose();
+    shopAreaController.dispose();
     businessTypeController.dispose();
     payoutAccountController.dispose();
     noteController.dispose();
@@ -132,10 +138,17 @@ class _VendorApplyPageState extends State<VendorApplyPage> {
         existingVendor = vendorDoc.data();
       }
 
+      // Contact, documents and payout account are in vendor_private (14b
+      // step B); an old copy in the public doc is used until it is moved.
+      if (existingVendorId != null) {
+        existingVendor = await PrivateProfileService.mergedVendor(existingVendorId!, existingVendor);
+      }
+
       final data = existingVendor;
 
       if (data != null) {
         shopNameController.text = _text(data['shopName']);
+        shopAreaController.text = _text(data['shopArea']);
         ownerNameController.text = _text(data['ownerName'], ownerNameController.text);
         phoneController.text = _text(data['phone'], phoneController.text);
         emailController.text = _text(data['email'], emailController.text);
@@ -170,13 +183,17 @@ class _VendorApplyPageState extends State<VendorApplyPage> {
     });
   }
 
+  /// Uploads [file] and returns its Storage path. With no new file, returns
+  /// [oldPath] (the path of the document already on file). Only the path is
+  /// stored, never a download link: a link carries a token that opens the
+  /// file for anyone who has it (14b step B / C).
   Future<String> _uploadFile({
     required XFile? file,
     required String vendorId,
     required String name,
-    required String oldUrl,
+    required String oldPath,
   }) async {
-    if (file == null) return oldUrl;
+    if (file == null) return oldPath;
 
     final ext = _fileExtension(file.name);
     final path = 'vendors/$vendorId/documents/$name-${DateTime.now().millisecondsSinceEpoch}.$ext';
@@ -189,7 +206,7 @@ class _VendorApplyPageState extends State<VendorApplyPage> {
       SettableMetadata(contentType: _contentType(ext)),
     );
 
-    return ref.getDownloadURL();
+    return path;
   }
 
   Future<void> _submit() async {
@@ -203,9 +220,11 @@ class _VendorApplyPageState extends State<VendorApplyPage> {
 
     if (!_formKey.currentState!.validate()) return;
 
-    final oldTrade = _text(existingVendor?['tradeLicense']);
-    final oldFront = _text(existingVendor?['nidFront']);
-    final oldBack = _text(existingVendor?['nidBack']);
+    // Path of a document already on file (new *Path field, or the path inside
+    // an old download link). The old link itself is never written again.
+    final oldTrade = vendorDocumentPath(existingVendor, 'tradeLicense');
+    final oldFront = vendorDocumentPath(existingVendor, 'nidFront');
+    final oldBack = vendorDocumentPath(existingVendor, 'nidBack');
 
     if (oldTrade.isEmpty && tradeLicenseFile == null) {
       _snack('Trade License / Citizen Certificate image required', error: true);
@@ -227,56 +246,67 @@ class _VendorApplyPageState extends State<VendorApplyPage> {
     try {
       final vendorId = existingVendorId ?? user.uid;
 
-      final tradeLicenseUrl = await _uploadFile(
+      final tradeLicensePath = await _uploadFile(
         file: tradeLicenseFile,
         vendorId: vendorId,
         name: 'trade-license',
-        oldUrl: oldTrade,
+        oldPath: oldTrade,
       );
 
-      final nidFrontUrl = await _uploadFile(
+      final nidFrontPath = await _uploadFile(
         file: nidFrontFile,
         vendorId: vendorId,
         name: 'nid-front',
-        oldUrl: oldFront,
+        oldPath: oldFront,
       );
 
-      final nidBackUrl = await _uploadFile(
+      final nidBackPath = await _uploadFile(
         file: nidBackFile,
         vendorId: vendorId,
         name: 'nid-back',
-        oldUrl: oldBack,
+        oldPath: oldBack,
       );
 
       final oldStatus = _text(existingVendor?['status'], 'pending');
       final nextStatus = existingVendor == null || oldStatus == 'rejected' ? 'pending' : oldStatus;
 
-      final payload = <String, dynamic>{
+      // Public: what the shop page shows. shopArea = area/district only.
+      final publicPayload = <String, dynamic>{
         'shopName': shopNameController.text.trim(),
-        'ownerName': ownerNameController.text.trim(),
-        'phone': phoneController.text.trim(),
-        'email': emailController.text.trim(),
-        'address': addressController.text.trim(),
+        'shopArea': shopAreaController.text.trim(),
         'businessType': businessTypeController.text.trim().isEmpty
             ? 'general'
             : businessTypeController.text.trim(),
-        'payoutAccount': payoutAccountController.text.trim(),
-        'note': noteController.text.trim(),
         'ownerId': user.uid,
         'userId': user.uid,
-        'tradeLicense': tradeLicenseUrl,
-        'nidFront': nidFrontUrl,
-        'nidBack': nidBackUrl,
         'status': nextStatus,
         'isActive': existingVendor?['isActive'] == true,
         'isVerified': existingVendor?['isVerified'] == true,
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
+      // Private: vendor_private/{vendorId} (owner and vendor staff only).
+      final privatePayload = <String, dynamic>{
+        'ownerName': ownerNameController.text.trim(),
+        'phone': phoneController.text.trim(),
+        'email': emailController.text.trim(),
+        'address': addressController.text.trim(),
+        'payoutAccount': payoutAccountController.text.trim(),
+        'note': noteController.text.trim(),
+        'tradeLicensePath': tradeLicensePath,
+        'nidFrontPath': nidFrontPath,
+        'nidBackPath': nidBackPath,
+      };
+
+      // Public first: the private rules find the owner through it.
       await db.collection('vendors').doc(vendorId).set({
-        ...payload,
+        ...publicPayload,
         if (existingVendor == null) 'createdAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+
+      await PrivateProfileService.saveVendorPrivate(vendorId, privatePayload);
+
+      final payload = {...publicPayload, ...privatePayload};
 
       await db.collection('users').doc(user.uid).set({
         'vendorId': vendorId,
@@ -301,8 +331,9 @@ class _VendorApplyPageState extends State<VendorApplyPage> {
             ? 'Seller information updated.'
             : 'Vendor application submitted. Admin approval pending.',
       );
-    } catch (e) {
-      _snack('Submit failed: $e', error: true);
+    } catch (e, st) {
+      // Plain message for the vendor; the real error goes to the log.
+      _snack(friendlySubmitError(e, where: 'vendor application', stack: st), error: true);
     } finally {
       if (mounted) setState(() => submitting = false);
     }
@@ -400,7 +431,20 @@ class _VendorApplyPageState extends State<VendorApplyPage> {
               ],
             ),
             const SizedBox(height: 12),
-            _field('Shop Address', addressController, Icons.location_on, locked: locked, required: true, maxLines: 2),
+            _field(
+              'Shop area / district (shown on your shop page, optional)',
+              shopAreaController,
+              Icons.map_outlined,
+              locked: locked,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Only the area, e.g. "Chalakchar, Narsingdi". Your phone and address are never shown to customers.',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            _field('Address (private, for ChalakChar only)', addressController, Icons.location_on,
+                locked: locked, required: true, maxLines: 2),
             const SizedBox(height: 12),
             _field(
               'Payout Account / bKash / Bank',
@@ -418,7 +462,7 @@ class _VendorApplyPageState extends State<VendorApplyPage> {
             _docPicker(
               title: 'Trade License / Citizen Certificate',
               file: tradeLicenseFile,
-              oldUrl: _text(existingVendor?['tradeLicense']),
+              oldUrl: vendorDocumentPath(existingVendor, 'tradeLicense'),
               onTap: locked ? null : () => _chooseDocument('trade'),
             ),
             const SizedBox(height: 10),
@@ -428,7 +472,7 @@ class _VendorApplyPageState extends State<VendorApplyPage> {
                   child: _docPicker(
                     title: 'NID Front',
                     file: nidFrontFile,
-                    oldUrl: _text(existingVendor?['nidFront']),
+                    oldUrl: vendorDocumentPath(existingVendor, 'nidFront'),
                     onTap: locked ? null : () => _chooseDocument('front'),
                   ),
                 ),
@@ -437,7 +481,7 @@ class _VendorApplyPageState extends State<VendorApplyPage> {
                   child: _docPicker(
                     title: 'NID Back',
                     file: nidBackFile,
-                    oldUrl: _text(existingVendor?['nidBack']),
+                    oldUrl: vendorDocumentPath(existingVendor, 'nidBack'),
                     onTap: locked ? null : () => _chooseDocument('back'),
                   ),
                 ),

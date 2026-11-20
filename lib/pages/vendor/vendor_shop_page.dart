@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../services/app_settings_service.dart';
 import '../../services/category_service.dart';
 import '../../utils/shop_visibility.dart';
 
@@ -44,8 +46,10 @@ class VendorShopPage extends StatelessWidget {
           final shopName = _text(vendor['shopName'] ?? vendor['name'], 'Vendor Shop');
           final banner = _text(vendor['bannerUrl'] ?? vendor['coverImage']);
           final logo = _text(vendor['logoUrl'] ?? vendor['image']);
-          final phone = _text(vendor['phone']);
-          final address = _text(vendor['address']);
+          // Only the area/district the vendor chose to show (14b step B).
+          // The vendor's own phone and address are private and never shown;
+          // customers contact ChalakChar support (below the stats).
+          final shopArea = _text(vendor['shopArea']);
 
           return CustomScrollView(
             slivers: [
@@ -98,17 +102,20 @@ class VendorShopPage extends StatelessWidget {
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
-                                  if (address.isNotEmpty)
-                                    Text(
-                                      address,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(color: Colors.white70),
-                                    ),
-                                  if (phone.isNotEmpty)
-                                    Text(
-                                      phone,
-                                      style: const TextStyle(color: Colors.white70),
+                                  if (shopArea.isNotEmpty)
+                                    Row(
+                                      children: [
+                                        const Icon(Icons.place_outlined, size: 14, color: Colors.white70),
+                                        const SizedBox(width: 4),
+                                        Expanded(
+                                          child: Text(
+                                            shopArea,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(color: Colors.white70),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                 ],
                               ),
@@ -121,6 +128,7 @@ class VendorShopPage extends StatelessWidget {
                 ),
               ),
               SliverToBoxAdapter(child: _shopStats(vendor)),
+              SliverToBoxAdapter(child: _supportContact()),
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
                 sliver: _productsGrid(),
@@ -163,6 +171,41 @@ class VendorShopPage extends StatelessWidget {
           Expanded(child: _statItem('Orders', totalOrders.toStringAsFixed(0))),
           Expanded(child: _statItem('Rating', rating > 0 ? rating.toStringAsFixed(1) : 'New')),
           Expanded(child: _statItem('Status', status.toUpperCase())),
+        ],
+      ),
+    );
+  }
+
+  /// Questions about this shop's products go to ChalakChar support, never to
+  /// the vendor's private number.
+  Widget _supportContact() {
+    final phone = AppSettingsService.cached.supportPhone.trim();
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.grey.shade100),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.support_agent, color: Color(0xFF32A8C7)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              phone.isEmpty
+                  ? 'Questions about this shop? Contact ChalakChar support.'
+                  : 'Questions about this shop? ChalakChar support: $phone',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ),
+          if (phone.isNotEmpty)
+            IconButton(
+              tooltip: 'Call ChalakChar support',
+              icon: const Icon(Icons.call, color: Color(0xFF32A8C7)),
+              onPressed: () => launchUrl(Uri(scheme: 'tel', path: phone)),
+            ),
         ],
       ),
     );

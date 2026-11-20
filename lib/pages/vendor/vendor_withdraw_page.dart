@@ -2,6 +2,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../services/private_profile_service.dart';
+import '../../utils/private_profile_fields.dart';
+import '../../utils/user_error_message.dart';
+
 class VendorWithdrawPage extends StatefulWidget {
   const VendorWithdrawPage({super.key});
 
@@ -128,8 +132,9 @@ class _VendorWithdrawPageState extends State<VendorWithdrawPage> {
       }
     }
 
-    final commissionPercent = _toDouble(vendor['commissionPercent'] ?? vendor['commissionRate']);
-    final commission = commissionPercent > 0 ? deliveredSales * commissionPercent / 100 : _toDouble(vendor['totalCommission']);
+    // Admin-set rate (0% stays 0%); 10% only when never set.
+    final commissionPercent = vendorCommissionPercent(vendor);
+    final commission = deliveredSales * commissionPercent / 100;
 
     double pending = 0;
     double paid = 0;
@@ -198,8 +203,7 @@ class _VendorWithdrawPageState extends State<VendorWithdrawPage> {
         'vendorId': vendorId,
         'vendorOwnerId': ownerUid,
         'vendorName': _text(vendor['shopName'] ?? vendor['name'], 'Vendor'),
-        'vendorEmail': _text(vendor['email']),
-        'vendorPhone': _text(vendor['phone']),
+        // No phone/email copies (14b step B): staff see them in vendor_private.
         'amount': amount,
         'status': 'pending',
         'note': noteController.text.trim(),
@@ -211,8 +215,9 @@ class _VendorWithdrawPageState extends State<VendorWithdrawPage> {
       amountController.clear();
       noteController.clear();
       _show('Withdraw request submitted');
-    } catch (e) {
-      _show('Withdraw failed: $e', error: true);
+    } catch (e, st) {
+      // Plain message for the vendor; the real error goes to the log.
+      _show(friendlySubmitError(e, where: 'vendor withdraw', stack: st), error: true);
     } finally {
       if (mounted) setState(() => submitting = false);
     }
@@ -242,17 +247,18 @@ class _VendorWithdrawPageState extends State<VendorWithdrawPage> {
         backgroundColor: primary,
         foregroundColor: Colors.white,
       ),
-      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: db.collection('vendors').doc(vendorId).snapshots(),
+      body: StreamBuilder<Map<String, dynamic>?>(
+        // Public doc + vendor_private (payout account, balances; 14b step B).
+        stream: PrivateProfileService.vendorMergedStream(vendorId),
         builder: (context, vendorSnap) {
           if (vendorSnap.hasError) {
             return _errorCard('Vendor Withdraw load failed', vendorSnap.error.toString());
           }
-          if (!vendorSnap.hasData) {
+          if (vendorSnap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final vendor = vendorSnap.data!.data() ?? <String, dynamic>{};
+          final vendor = vendorSnap.data ?? <String, dynamic>{};
 
           return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: db.collection('orders').where('vendorIds', arrayContains: vendorId).snapshots(),

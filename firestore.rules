@@ -431,6 +431,71 @@ service cloud.firestore {
         || (oldApi is map && api.get(key, '') == oldApi.get(key, ''));
     }
 
+    /* ---------- 14b step B: private vendor / rider data ----------
+       Personal and money fields live in vendor_private/{vendorId} and
+       delivery_partner_private/{uid}. Step 6 (after the move script emptied
+       the public docs, 2026-11-20): the public docs may not hold ANY private
+       key, not even empty or unchanged, old download-link keys included.
+       Lists must match lib/utils/private_profile_fields.dart and
+       functions/scripts/movePrivateProfiles.js. */
+
+    // One keys().hasAny() per rule: cheap, far below the 1000-expression limit.
+    function noVendorPrivateKeys() {
+      return !request.resource.data.keys().hasAny(vendorAllPrivateKeys());
+    }
+
+    function noRiderPrivateKeys() {
+      return !request.resource.data.keys().hasAny(riderAllPrivateKeys());
+    }
+
+    function vendorAllPrivateKeys() {
+      return vendorPrivateProfileKeys().concat(vendorPrivateMoneyKeys());
+    }
+
+    function riderAllPrivateKeys() {
+      return riderPrivateNidKeys().concat(['address', 'email', 'note']);
+    }
+
+    function vendorPrivateProfileKeys() {
+      // nidFront/nidBack/tradeLicense: old download links, never written again;
+      // documents are Storage paths (*Path), in vendor_private only.
+      return [
+        'phone', 'email', 'address', 'ownerName', 'note',
+        'nidFront', 'nidBack', 'tradeLicense',
+        'nidFrontPath', 'nidBackPath', 'tradeLicensePath',
+        'payoutAccount', 'payoutNumber'
+      ];
+    }
+
+    function vendorPrivateMoneyKeys() {
+      return [
+        'commissionPercent', 'commissionRate',
+        'totalSales', 'totalCommission',
+        'pendingBalance', 'withdrawableBalance', 'withdrawPendingBalance',
+        'totalPaidOut', 'deliveredOrders', 'cancelledOrders'
+      ];
+    }
+
+    function riderPrivateNidKeys() {
+      return ['nidNumber', 'nidFrontUrl', 'nidBackUrl', 'nidFrontPath', 'nidBackPath'];
+    }
+
+    // The vendor owner: the vendor doc id is their uid (vendor_apply_page),
+    // or users/{uid}.vendorId points at it, or the public doc names them.
+    // Works before approval (applicants are not isVendor() yet).
+    function ownsVendorRecord(vendorId) {
+      return signedIn()
+        && notBanned()
+        && (
+          vendorId == request.auth.uid
+          || (userExists(request.auth.uid) && me().get('vendorId', '') == vendorId)
+          || (
+            exists(/databases/$(database)/documents/vendors/$(vendorId))
+            && get(/databases/$(database)/documents/vendors/$(vendorId)).data.get('ownerId', '') == request.auth.uid
+          )
+        );
+    }
+
     function validPositiveAmount(value) {
       return value is number && value > 0 && value <= 1000000;
     }
@@ -853,9 +918,14 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.ownerId == request.auth.uid
         && request.resource.data.status in ['pending', 'submitted']
-        && request.resource.data.isActive == false;
+        && request.resource.data.isActive == false
+        && noVendorPrivateKeys();
 
-      allow update: if can('vendors.edit') || can('vendors.approve') || can('vendors.status');
+      // canAnyOf, not can() x3: the old form ran past Firestore's 1000-expression
+      // limit for every non-staff caller, so even an approved vendor's own
+      // profile save was refused (found in step B, also true on live c34bd793).
+      allow update: if canAnyOf(['vendors.edit', 'vendors.approve', 'vendors.status'])
+        && noVendorPrivateKeys();
 
       // Applicant/vendor owner can create or update own application while it is pending/rejected/submitted.
       // They cannot approve themselves or edit money/commission fields.
@@ -879,9 +949,11 @@ service cloud.firestore {
           'withdrawPendingBalance',
           'approvedAt',
           'suspendedAt'
-        ]);
+        ])
+        && noVendorPrivateKeys();
 
       // Vendor owner can update only profile/docs fields, not approval/money/status fields.
+      // (Profile/docs themselves now go to vendor_private, below.)
       allow update: if ownsVendorData(resource.data)
         && !changedAny([
           'status',
@@ -896,7 +968,35 @@ service cloud.firestore {
           'approvedAt',
           'rejectedAt',
           'suspendedAt'
-        ]);
+        ])
+        && noVendorPrivateKeys();
+
+      allow delete: if can('vendors.delete') || isSuperAdmin();
+    }
+
+    // Personal, document and money fields of a vendor (14b step B).
+    // Only the vendor owner and vendor staff; never customers or the public.
+    match /vendor_private/{vendorId} {
+      allow read: if ownsVendorRecord(vendorId)
+        || canAnyOf(['vendors.view', 'vendors.edit', 'vendors.approve', 'vendors.payouts']);
+
+      // The owner writes their own contact, documents and payout account,
+      // never commission or balances.
+      allow create: if ownsVendorRecord(vendorId)
+        && request.resource.data.keys().hasOnly(
+          vendorPrivateProfileKeys().concat(['vendorId', 'createdAt', 'updatedAt'])
+        );
+      allow update: if ownsVendorRecord(vendorId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          vendorPrivateProfileKeys().concat(['updatedAt'])
+        );
+
+      // Vendor managers: everything. Payout staff: money fields only.
+      allow create, update: if canAnyOf(['vendors.edit', 'vendors.approve']) || isSuperAdmin();
+      allow create, update: if can('vendors.payouts')
+        && request.resource.data.diff(resource == null ? {} : resource.data).affectedKeys().hasOnly(
+          vendorPrivateMoneyKeys().concat(['vendorId', 'updatedAt'])
+        );
 
       allow delete: if can('vendors.delete') || isSuperAdmin();
     }
@@ -912,7 +1012,9 @@ service cloud.firestore {
       allow create: if ownsVendorId(request.resource.data.vendorId)
         && request.resource.data.vendorOwnerId == request.auth.uid
         && request.resource.data.keys().hasOnly([
-          'vendorId', 'vendorOwnerId', 'vendorName', 'vendorEmail', 'vendorPhone',
+          // No vendorEmail/vendorPhone copies (14b step B): staff see them
+          // in vendor_private. payoutAccount stays: it is what gets paid.
+          'vendorId', 'vendorOwnerId', 'vendorName',
           'amount', 'status', 'note', 'payoutAccount', 'createdAt', 'updatedAt'
         ])
         && request.resource.data.status == 'pending'
@@ -953,7 +1055,8 @@ service cloud.firestore {
 
     match /deliveryPartners/{partnerId} {
       // The rider themselves, and staff who manage riders or assign orders.
-      // Holds phone, address, NID number and NID image links.
+      // Holds name, phone (copied to orders for the customer), area, status
+      // and the money totals. NID, address and email: delivery_partner_private.
       allow read: if (signedIn() && request.auth.uid == partnerId)
         || canAnyOf([
           'delivery.view', 'delivery.approve', 'delivery.block',
@@ -969,10 +1072,14 @@ service cloud.firestore {
         && request.resource.data.get('totalEarning', 0) == 0
         && request.resource.data.get('withdrawnAmount', 0) == 0
         && request.resource.data.get('pendingAmount', 0) == 0
-        && request.resource.data.get('codDue', 0) == 0;
+        && request.resource.data.get('codDue', 0) == 0
+        && noRiderPrivateKeys();
 
-      allow update: if hasRole('admin')
-        || canAnyOf(['delivery.approve', 'delivery.block', 'delivery.withdraw', 'delivery.settle_cod']);
+      allow update: if (
+          hasRole('admin')
+          || canAnyOf(['delivery.approve', 'delivery.block', 'delivery.withdraw', 'delivery.settle_cod'])
+        )
+        && noRiderPrivateKeys();
 
       // The rider: never their own approval or money fields directly...
       allow update: if signedIn()
@@ -983,11 +1090,45 @@ service cloud.firestore {
           'approvedAt', 'approvedBy', 'rejectedAt', 'blockedAt',
           'totalDeliveries', 'totalEarning', 'withdrawnAmount', 'pendingAmount', 'codDue',
           'lastEarningSyncedAt', 'lastSyncedOrderId', 'lastWithdrawRequestId', 'lastCodSettlementAt'
-        ]);
+        ])
+        && noRiderPrivateKeys();
 
       // ...only through these two checked steps of the rider app.
+      // (Both allow money keys only, so private keys cannot change there.)
       allow update: if validRiderMoneySync(partnerId)
         || validRiderWithdrawPending(partnerId);
+
+      allow delete: if isSuperAdmin();
+    }
+
+    // NID, address and email of a rider (14b step B). The rider and rider
+    // managers only: not order staff who just pick a rider, not payout staff.
+    match /delivery_partner_private/{partnerId} {
+      allow read: if (signedIn() && request.auth.uid == partnerId)
+        || canAnyOf(['delivery.view', 'delivery.approve', 'delivery.block']);
+
+      // The application sets the NID once; afterwards the rider may change
+      // address and email only (same as the old public-doc rule).
+      allow create: if signedIn()
+        && request.auth.uid == partnerId
+        && request.resource.data.keys().hasOnly(
+          riderPrivateNidKeys().concat(['uid', 'address', 'email', 'note', 'createdAt', 'updatedAt'])
+        );
+      allow update: if signedIn()
+        && request.auth.uid == partnerId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['address', 'email', 'updatedAt']);
+
+      // Retry of an unfinished application (private doc written, public
+      // deliveryPartners doc not yet): the same keys as create may be
+      // written again, e.g. after a network drop between the two writes.
+      allow update: if signedIn()
+        && request.auth.uid == partnerId
+        && !exists(/databases/$(database)/documents/deliveryPartners/$(partnerId))
+        && request.resource.data.keys().hasOnly(
+          riderPrivateNidKeys().concat(['uid', 'address', 'email', 'note', 'createdAt', 'updatedAt'])
+        );
+
+      allow create, update: if hasRole('admin') || canAnyOf(['delivery.approve', 'delivery.block']);
 
       allow delete: if isSuperAdmin();
     }
@@ -1440,6 +1581,11 @@ match /products/{productId} {
       allow read: if request.path != /databases/$(database)/documents/settings/app_secrets
         // Nor the closed pharmacy-era appointments.
         && document[0] != 'doctor_appointments'
+        // Nor vendor/rider personal data and vendor payout requests
+        // (14b step B): only their own match blocks decide.
+        && document[0] != 'vendor_private'
+        && document[0] != 'delivery_partner_private'
+        && document[0] != 'vendorWithdrawRequests'
         && signedIn()
         && userExists(request.auth.uid)
         && (can('analytics.view') || hasRole('staff'));

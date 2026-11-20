@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../../services/private_profile_service.dart';
 import 'vendor_orders_page.dart';
 import 'vendor_products_page.dart';
 import 'vendor_withdraw_page.dart';
@@ -187,8 +188,9 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
           ? const Center(child: CircularProgressIndicator())
           : _vendorId.isEmpty
           ? const Center(child: Text('Vendor not found'))
-          : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: db.collection('vendors').doc(_vendorId).snapshots(),
+          : StreamBuilder<Map<String, dynamic>?>(
+        // Public doc + vendor_private (balances, commission; 14b step B).
+        stream: PrivateProfileService.vendorMergedStream(_vendorId),
         builder: (context, vendorSnap) {
           if (vendorSnap.hasError) {
             return _errorView(
@@ -201,14 +203,14 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (!vendorSnap.hasData || !vendorSnap.data!.exists) {
+          if (!vendorSnap.hasData || vendorSnap.data == null) {
             return _errorView(
               title: 'Vendor profile not found',
               message: 'No vendor document found for this account. Please make sure the vendor application is approved and users.vendorId is correct.',
             );
           }
 
-          final vendor = vendorSnap.data?.data() ?? {};
+          final vendor = vendorSnap.data!;
           if (!_isCurrentVendorOwner(vendor)) {
             return _errorView(
               title: 'Vendor access denied',

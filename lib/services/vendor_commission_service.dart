@@ -1,5 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../utils/private_profile_fields.dart';
+import 'private_profile_service.dart';
+
+// 14b step B: commission and balances live in vendor_private/{vendorId}.
+// NOTE: this ledger is written from the client. The rules refuse it for
+// customers, and vendors/{id}/commissionLedger has no rule at all, so today
+// it never completes; moving it to a function is a high-priority item in
+// docs/plans/remaining-after-2026-11-17-release.md.
 class VendorCommissionService {
   VendorCommissionService._();
 
@@ -29,12 +37,12 @@ class VendorCommissionService {
     }
 
     final doc = await _db.collection('vendors').doc(vendorId).get();
-    final data = doc.data();
+    // Private doc over the public one. A caller who may not read it (a
+    // customer) gets the 10% default, as before when the field was missing.
+    final data = await PrivateProfileService.mergedVendor(vendorId, doc.data());
 
-    final percent = _toDouble(
-      data?['commissionPercent'] ?? data?['commissionRate'],
-      10,
-    );
+    // Admin-set rate wins, 0% included; 10% only when never set.
+    final percent = vendorCommissionPercent(data);
 
     return {
       'percent': percent,
@@ -101,12 +109,15 @@ class VendorCommissionService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      final vendorRef = _db.collection('vendors').doc(vendorId);
-
-      batch.set(vendorRef, {
+      batch.set(PrivateProfileService.vendorPrivateRef(vendorId), {
         'totalSales': FieldValue.increment(subtotal),
         'totalCommission': FieldValue.increment(adminCommission),
         'pendingBalance': FieldValue.increment(vendorPayable),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      // The public order count shown on the shop page.
+      batch.set(_db.collection('vendors').doc(vendorId), {
         'totalOrders': FieldValue.increment(1),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -155,7 +166,7 @@ class VendorCommissionService {
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      batch.set(_db.collection('vendors').doc(vendorId), {
+      batch.set(PrivateProfileService.vendorPrivateRef(vendorId), {
         'pendingBalance': FieldValue.increment(-vendorPayable),
         'withdrawableBalance': FieldValue.increment(vendorPayable),
         'deliveredOrders': FieldValue.increment(1),
@@ -209,7 +220,7 @@ class VendorCommissionService {
       }, SetOptions(merge: true));
 
       if (status == 'delivered') {
-        batch.set(_db.collection('vendors').doc(vendorId), {
+        batch.set(PrivateProfileService.vendorPrivateRef(vendorId), {
           'withdrawableBalance': FieldValue.increment(-vendorPayable),
           'totalSales': FieldValue.increment(-subtotal),
           'totalCommission': FieldValue.increment(-adminCommission),
@@ -217,7 +228,7 @@ class VendorCommissionService {
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       } else {
-        batch.set(_db.collection('vendors').doc(vendorId), {
+        batch.set(PrivateProfileService.vendorPrivateRef(vendorId), {
           'pendingBalance': FieldValue.increment(-vendorPayable),
           'totalSales': FieldValue.increment(-subtotal),
           'totalCommission': FieldValue.increment(-adminCommission),
