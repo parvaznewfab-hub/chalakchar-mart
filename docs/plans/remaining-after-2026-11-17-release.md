@@ -244,3 +244,18 @@ TikTok এখন চালু হবে না। তাই secret বদলা�
   - চারটা: `tiktokOAuthCallback`, `tiktokTokenRefreshSweep`, `tiktokDisconnect`, `tiktokWebhook`।
   - বাকি TikTok function-গুলোর (মোট ১১টা) সিদ্ধান্তও এর সাথে।
   - Secret Manager-এর version 1 disable বা destroy করা যাবে শুধু function মোছার পরে। নইলে deploy আর নতুন instance ভাঙবে (বিস্তারিত ১৯ নভেম্বরের রিপোর্টে)।
+
+## ধাপ B-এর সিদ্ধান্ত আর নতুন কাজ (মালিক, ২০ নভেম্বর)
+- **উঁচু অগ্রাধিকার: commission ledger customer অ্যাপ থেকে না লিখে function-এ নেওয়া।** কোনো vendor-এর পণ্য
+  চালুর আগে এটা বাধ্যতামূলক।
+  - এখন `cart_page.dart:576` থেকে customer-এর অ্যাপ `VendorCommissionService.createOrderCommissionLedger`
+    ডাকে। এটা `vendorCommissions` আর vendor-এর টাকার field লিখতে চায়।
+  - rules customer-কে এটা লিখতে দেয় না, আর error চুপচাপ গিলে ফেলা হয়। তাই vendor-এর পণ্য বিক্রি হলেও
+    হিসাব তৈরি হবে না। (২০ নভেম্বরে vendor-এর পণ্য ০টা।)
+- **মোবাইল অ্যাপে ন্যূনতম version যাচাই (force update)।** এখন না।
+- ধাপ B-এর সিদ্ধান্ত:
+  - দোকানের পেজে ব্যক্তিগত phone বা address দেখানো হবে না।
+  - মূল `vendors` ডকুমেন্টে নতুন public field `shopArea`: শুধু এলাকা বা জেলা, vendor নিজে লিখবে, ঐচ্ছিক।
+    থাকলে দোকানের পেজে দেখাবে, না থাকলে কিছু না।
+  - যোগাযোগের জায়গায় দেখাবে ChalakChar support।
+  - `ownerName` আর `commissionPercent` গোপন।
