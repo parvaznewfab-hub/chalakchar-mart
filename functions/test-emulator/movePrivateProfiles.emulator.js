@@ -23,8 +23,10 @@ const db = admin.firestore();
 const SCRIPT = path.join(__dirname, "..", "scripts", "movePrivateProfiles.js");
 const LINK = "https://firebasestorage.googleapis.com/v0/b/x/o/vendors%2Fv1%2Fdocuments%2Fnid-front-1.jpeg?alt=media&token=SECRET-TOKEN";
 
-function run(args, home) {
-  const r = spawnSync(process.execPath, [SCRIPT, ...args], {
+const RESTORE = path.join(__dirname, "..", "scripts", "restorePrivateProfiles.js");
+
+function run(args, home, script = SCRIPT) {
+  const r = spawnSync(process.execPath, [script, ...args], {
     cwd: path.join(__dirname, ".."),
     env: { ...process.env, HOME: home, USERPROFILE: home, GCLOUD_PROJECT: PROJECT },
     encoding: "utf8",
@@ -119,4 +121,68 @@ test("conflict: a different value already in the private doc stops everything be
   assert.equal((await db.doc("vendors/v1").get()).get("phone"), "01700000000", "public untouched");
   assert.equal((await db.doc("deliveryPartners/r1").get()).get("nidNumber"), "1234567890", "rider untouched too");
   assert.equal(fs.existsSync(path.join(home, "cc-backups")), false);
+});
+
+// ---- restorePrivateProfiles.js (the rollback) ----
+
+test("restore --from-backup: dry run writes nothing; --apply gives the public docs back, links included", async () => {
+  await clear();
+  await seed();
+  const original = {
+    v1: (await db.doc("vendors/v1").get()).data(),
+    r1: (await db.doc("deliveryPartners/r1").get()).data(),
+  };
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "cc-move-"));
+  assert.equal(run(["--apply"], home).code, 0);
+  const backupFile = path.join(home, "cc-backups", fs.readdirSync(path.join(home, "cc-backups"))[0]);
+
+  const dry = run(["--from-backup", backupFile], home, RESTORE);
+  assert.equal(dry.code, 0, dry.out);
+  assert.match(dry.out, /Dry run: 2 doc\(s\) would change/);
+  for (const secret of ["01700000000", "1234567890", "SECRET-TOKEN"]) assert.ok(!dry.out.includes(secret), secret);
+  assert.equal((await db.doc("vendors/v1").get()).get("phone"), undefined, "dry run wrote nothing");
+
+  const r = run(["--from-backup", backupFile, "--apply"], home, RESTORE);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /All planned values are back/);
+  const v1 = (await db.doc("vendors/v1").get()).data();
+  const r1 = (await db.doc("deliveryPartners/r1").get()).data();
+  delete v1.updatedAt;
+  delete r1.updatedAt;
+  // Empty leftovers (note: "") are not written back; everything with a value is.
+  const expectV1 = { ...original.v1 };
+  delete expectV1.note;
+  assert.deepEqual(v1, expectV1);
+  assert.deepEqual(r1, original.r1);
+  assert.equal((await db.doc("vendor_private/v1").get()).get("phone"), "01700000000", "private docs are kept");
+});
+
+test("restore --from-private: values back (paths, not links); conflict stops before writing", async () => {
+  await clear();
+  await seed();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "cc-move-"));
+  assert.equal(run(["--apply"], home).code, 0);
+
+  // Someone typed a new phone into the public doc meanwhile: conflict.
+  await db.doc("vendors/v1").update({ phone: "01799999999" });
+  const c = run(["--from-private", "--apply"], home, RESTORE);
+  assert.equal(c.code, 2, c.out);
+  assert.match(c.out, /CONFLICT/);
+  assert.equal((await db.doc("deliveryPartners/r1").get()).get("nidNumber"), undefined, "nothing written anywhere");
+
+  await db.doc("vendors/v1").update({ phone: admin.firestore.FieldValue.delete() });
+  const r = run(["--from-private", "--apply"], home, RESTORE);
+  assert.equal(r.code, 0, r.out);
+  const v1 = (await db.doc("vendors/v1").get()).data();
+  assert.equal(v1.phone, "01700000000");
+  assert.equal(v1.nidFrontPath, "vendors/v1/documents/nid-front-1.jpeg");
+  assert.equal(v1.nidFront, undefined, "links were never copied, so none comes back");
+  assert.equal((await db.doc("deliveryPartners/r1").get()).get("nidNumber"), "1234567890");
+});
+
+test("restore needs exactly one source", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "cc-move-"));
+  const r = run([], home, RESTORE);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /exactly one source/);
 });
