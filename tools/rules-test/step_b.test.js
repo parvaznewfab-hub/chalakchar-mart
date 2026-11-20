@@ -113,6 +113,16 @@ describe('step B: vendors', opts, () => {
     }));
   });
 
+  test('commission %: vendors.edit (admin) and payout staff set it, 0 included; vendor and view-only staff cannot', async () => {
+    allowed(await db('admin').update('vendor_private/vend1', { commissionPercent: 0, commissionRate: 0, updatedAt: SERVER_TS }));
+    allowed(await db('payStaff').update('vendor_private/vend1', { commissionPercent: 7.5, commissionRate: 7.5 }));
+    denied(await db('vendU1').update('vendor_private/vend1', { commissionPercent: 0 }));
+    denied(await db('vendU1').set('vendor_private/vend1', { commissionRate: 1 }, { merge: true }));
+    denied(await db('vendStaff').update('vendor_private/vend1', { commissionPercent: 5 }));
+    // ...and never on the public doc.
+    denied(await db('admin').update('vendors/vend2', { commissionPercent: 5 }));
+  });
+
   test('vendors.view staff: reads private; cannot write it', async () => {
     allowed(await db('vendStaff').get('vendor_private/vend1'));
     allowed(await db('vendStaff').query('vendor_private'));
@@ -220,6 +230,25 @@ describe('step B: riders', opts, () => {
     allowed(await db('admin').update('delivery_partner_private/rider1', { address: 'Checked' }));
     allowed(await db('boss').delete('delivery_partner_private/rider3'));
     denied(await db('admin').delete('delivery_partner_private/rider3'));
+  });
+
+  test('application retry: private doc rewritten (createdAt too) while the public doc is missing; not after', async () => {
+    const first = { uid: 'cust1', nidNumber: '1', nidFrontPath: 'p1', createdAt: SERVER_TS, updatedAt: SERVER_TS };
+    allowed(await db('cust1').create('delivery_partner_private/cust1', first));
+    // Network dropped before deliveryPartners/cust1 was written: retry.
+    allowed(await db('cust1').set('delivery_partner_private/cust1',
+      { ...first, nidFrontPath: 'p1.png', note: 'again' }, { merge: true }));
+    // Once the public application exists, NID is fixed again.
+    allowed(await db('cust1').set('deliveryPartners/cust1', {
+      uid: 'cust1', name: 'C', phone: '0', status: 'pending', isActive: false,
+      totalDeliveries: 0, totalEarning: 0, withdrawnAmount: 0, pendingAmount: 0, codDue: 0, createdAt: SERVER_TS,
+    }));
+    denied(await db('cust1').update('delivery_partner_private/cust1', { nidNumber: '2' }));
+    allowed(await db('cust1').update('delivery_partner_private/cust1', { address: 'New', updatedAt: SERVER_TS }));
+    // The retry rule never covers someone else, or extra keys.
+    denied(await db('cust2').set('delivery_partner_private/cust1', { nidNumber: 'x' }, { merge: true }));
+    allowed(await db('cust2').create('delivery_partner_private/cust2', { uid: 'cust2', nidNumber: '9' }));
+    denied(await db('cust2').set('delivery_partner_private/cust2', { totalEarning: 5 }, { merge: true }));
   });
 
   test('analytics staff: rider private denied (catch-all excludes it)', async () => {

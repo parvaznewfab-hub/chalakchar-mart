@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../utils/private_profile_fields.dart';
 import 'private_profile_service.dart';
 
 // 14b step B: commission and balances live in vendor_private/{vendorId}.
@@ -40,10 +41,8 @@ class VendorCommissionService {
     // customer) gets the 10% default, as before when the field was missing.
     final data = await PrivateProfileService.mergedVendor(vendorId, doc.data());
 
-    final percent = _toDouble(
-      data['commissionPercent'] ?? data['commissionRate'],
-      10,
-    );
+    // Admin-set rate wins, 0% included; 10% only when never set.
+    final percent = vendorCommissionPercent(data);
 
     return {
       'percent': percent,

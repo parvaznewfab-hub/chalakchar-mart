@@ -1155,6 +1155,16 @@ service cloud.firestore {
         && request.auth.uid == partnerId
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['address', 'email', 'updatedAt']);
 
+      // Retry of an unfinished application (private doc written, public
+      // deliveryPartners doc not yet): the same keys as create may be
+      // written again, e.g. after a network drop between the two writes.
+      allow update: if signedIn()
+        && request.auth.uid == partnerId
+        && !exists(/databases/$(database)/documents/deliveryPartners/$(partnerId))
+        && request.resource.data.keys().hasOnly(
+          riderPrivateNidKeys().concat(['uid', 'address', 'email', 'note', 'createdAt', 'updatedAt'])
+        );
+
       allow create, update: if hasRole('admin') || canAnyOf(['delivery.approve', 'delivery.block']);
 
       allow delete: if isSuperAdmin();

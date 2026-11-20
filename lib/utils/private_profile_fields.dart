@@ -86,6 +86,25 @@ Map<String, dynamic> mergePrivateFields(
   return merged;
 }
 
+/// Default commission when the admin has not set one for this vendor.
+const double kDefaultVendorCommissionPercent = 10;
+
+/// The vendor's commission %: commissionPercent, else the older
+/// commissionRate, else [kDefaultVendorCommissionPercent]. A value the
+/// admin set (0 included) always wins; the default is only for "never set"
+/// (missing, null or blank). Unreadable text also counts as never set.
+double vendorCommissionPercent(Map<String, dynamic>? data) {
+  double? parse(dynamic v) {
+    if (v == null) return null;
+    if (v is num) return v.toDouble();
+    final text = v.toString().trim();
+    if (text.isEmpty) return null;
+    return double.tryParse(text);
+  }
+
+  return parse(data?['commissionPercent']) ?? parse(data?['commissionRate']) ?? kDefaultVendorCommissionPercent;
+}
+
 /// Only the private keys of [data] (for writing to the private doc).
 Map<String, dynamic> pickKeys(Map<String, dynamic> data, List<String> keys) {
   return {

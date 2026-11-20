@@ -176,9 +176,10 @@ class _DeliveryPartnerApplyPageState extends State<DeliveryPartnerApplyPage> {
       );
 
       // NID, address, email, note: delivery_partner_private (14b step B).
-      // Written first: if the public doc then fails, a retry rewrites the
-      // same values (allowed), and nothing half-done is visible to admins.
-      await PrivateProfileService.riderPrivateRef(user.uid).set({
+      // Written first: if the public doc then fails, the rules let the
+      // rider write it again until the public doc exists (retry), and
+      // nothing half-done is visible to admins.
+      await PrivateProfileService.writeRiderApplication(user.uid, {
         'uid': user.uid,
         'email': user.email ?? '',
         'nidNumber': nidCtrl.text.trim(),
@@ -186,9 +187,7 @@ class _DeliveryPartnerApplyPageState extends State<DeliveryPartnerApplyPage> {
         'nidBackPath': back['path'],
         'address': addressCtrl.text.trim(),
         'note': noteCtrl.text.trim(),
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      });
 
       await ref.set({
         'uid': user.uid,

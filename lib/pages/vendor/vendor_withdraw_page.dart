@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/private_profile_service.dart';
+import '../../utils/private_profile_fields.dart';
 
 class VendorWithdrawPage extends StatefulWidget {
   const VendorWithdrawPage({super.key});
@@ -130,8 +131,9 @@ class _VendorWithdrawPageState extends State<VendorWithdrawPage> {
       }
     }
 
-    final commissionPercent = _toDouble(vendor['commissionPercent'] ?? vendor['commissionRate']);
-    final commission = commissionPercent > 0 ? deliveredSales * commissionPercent / 100 : _toDouble(vendor['totalCommission']);
+    // Admin-set rate (0% stays 0%); 10% only when never set.
+    final commissionPercent = vendorCommissionPercent(vendor);
+    final commission = deliveredSales * commissionPercent / 100;
 
     double pending = 0;
     double paid = 0;

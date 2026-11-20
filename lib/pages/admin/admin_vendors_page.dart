@@ -549,8 +549,10 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
     final address = TextEditingController(text: _text(data?['address']));
     final businessType = TextEditingController(text: _text(data?['businessType'], 'general'));
     final ownerId = TextEditingController(text: _text(data?['ownerId'] ?? data?['userId']));
+    // Per-vendor rate set by the owner (vendor_private). 0 is a real value;
+    // the 10% default only shows while nothing has been set.
     final commission = TextEditingController(
-      text: _toDouble(data?['commissionPercent'] ?? data?['commissionRate'], 10).toStringAsFixed(0),
+      text: _percentText(vendorCommissionPercent(data)),
     );
     final payoutAccount = TextEditingController(text: _text(data?['payoutAccount']));
     final shopArea = TextEditingController(text: _text(data?['shopArea']));
@@ -585,6 +587,11 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
               _snack('Owner/User ID required. Set the seller Firebase Auth UID.');
               return;
             }
+            final commissionValue = double.tryParse(commission.text.trim());
+            if (commissionValue == null || commissionValue < 0 || commissionValue > 100) {
+              _snack('Commission % must be a number from 0 to 100 (0 = no commission).');
+              return;
+            }
 
             setDialogState(() => saving = true);
 
@@ -607,8 +614,8 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
                 'phone': phone.text.trim(),
                 'email': email.text.trim(),
                 'address': address.text.trim(),
-                'commissionPercent': _toDouble(commission.text, 10),
-                'commissionRate': _toDouble(commission.text, 10),
+                'commissionPercent': commissionValue,
+                'commissionRate': commissionValue,
                 'payoutAccount': payoutAccount.text.trim(),
                 'note': note.text.trim(),
               };
@@ -776,6 +783,10 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
     shopArea.dispose();
     note.dispose();
   }
+
+  /// 10 -> "10", 2.5 -> "2.5", 0 -> "0".
+  String _percentText(double v) =>
+      v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toString();
 
   Widget _dialogField(
       String label,
@@ -1014,7 +1025,7 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
     final status = _text(data['status'], 'pending');
     final active = data['isActive'] == true;
     final verified = data['isVerified'] == true;
-    final commission = _toDouble(data['commissionPercent'] ?? data['commissionRate'], 10);
+    final commission = vendorCommissionPercent(data);
 
     return FutureBuilder<List<dynamic>>(
       future: Future.wait([
@@ -1068,7 +1079,7 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
                           _chip(status.toUpperCase(), _statusColor(status)),
                           _chip(active ? 'Active' : 'Inactive', active ? Colors.green : Colors.red),
                           if (verified) _chip('Verified', Colors.deepPurple),
-                          _chip('Commission ${commission.toStringAsFixed(0)}%', Colors.blue),
+                          _chip('Commission ${_percentText(commission)}%', Colors.blue),
                           _chip('$productCount Products', Colors.teal),
                           _chip('$orderCount Orders', Colors.orange),
                           _chip('৳${revenue.toStringAsFixed(0)} Sales', Colors.green),
