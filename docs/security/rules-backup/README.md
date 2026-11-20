@@ -91,3 +91,7 @@ git checkout storage.rules
 |---|---|---|---|
 | 2026-11-20 07:33 UTC (`4800640`) | Firestore, ধাপ B | `c1dedc27-106c-42fa-a55a-bff96182ec15` | `c34bd793-1b54-472a-96bd-375352ac8f85` |
 | 2026-11-20 07:33 UTC (`4800640`) | Storage, ধাপ B | `2ce1afb0-379e-4ad8-82e3-206be53d8a01` | `fc245689-b129-4212-8538-115ae1d3298b` |
+| 2026-11-20 09:28 UTC (`4800640`, preview `step-b` থেকে clone) | Hosting live, ধাপ B | version `2ac61cbcad787dc7` | version `5718e9fbf1f0afea` |
+
+Hosting ফেরাতে: `firebase hosting:clone chalakchar-mart@5718e9fbf1f0afea chalakchar-mart:live --project chalakchar-mart`।
+সতর্কতা: পুরোনো website নতুন rules-এ vendor/rider আবেদন, withdraw আর seller request জমা দিতে পারে না।
