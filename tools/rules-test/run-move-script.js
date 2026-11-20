@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// End-to-end test of functions/scripts/movePrivateProfiles.js on a throwaway
+// End-to-end test of functions/scripts/movePrivateProfiles.js, restorePrivateProfiles.js
+// and clearPublicOwnerName.js on a throwaway
 // Firestore EMULATOR (demo project; never the live database).
 //   node tools/rules-test/run-move-script.js
 // firebase-admin is taken from functions/node_modules, or from the folder in
@@ -17,7 +18,7 @@ if (!fs.existsSync(path.join(nodeModules, 'firebase-admin'))) {
   console.error(`firebase-admin not found in ${nodeModules}; run npm ci in functions/ or set MOVE_TEST_NODE_MODULES`);
   process.exit(1);
 }
-const inner = `node --test --test-concurrency=1 ${path.join('functions', 'test-emulator', 'movePrivateProfiles.emulator.js')}`;
+const inner = `node --test --test-concurrency=1 ${['movePrivateProfiles', 'clearPublicOwnerName'].map((n) => path.join('functions', 'test-emulator', `${n}.emulator.js`)).join(' ')}`;
 
 const r = spawnSync(
   'firebase',

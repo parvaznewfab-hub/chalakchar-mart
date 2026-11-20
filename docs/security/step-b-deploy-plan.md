@@ -86,34 +86,119 @@ firebase hosting:clone chalakchar-mart:step-b chalakchar-mart:live --project cha
 
 ## ধাপ ৫: script, ধাপ ২ক-এর পরে (Play release-এর জন্য অপেক্ষা নয়), আগে dry-run, তারপর মালিকের অনুমোদন, তারপর `--apply`, তারপর যাচাই
 
-```sh
-# ০. Firestore export (মালিকের স্থায়ী শর্ত: যেকোনো লাইভ --apply-এর আগে)
-gcloud firestore export gs://<asia-south1 backup bucket>/step-b-$(date -u +%Y%m%d-%H%M) \
-  --collection-ids=vendors,deliveryPartners,vendor_private,delivery_partner_private --project chalakchar-mart
-cd functions && npm ci
-node scripts/movePrivateProfiles.js            # dry-run: id, key-এর নাম, দৈর্ঘ্য
-node scripts/movePrivateProfiles.js --apply    # অনুমোদনের পরে; backup যায় ~/cc-backups-এ
-```
+শুরুর শর্ত: মালিক vendor আর rider-কে website ব্যবহারের কথা জানিয়ে বলবেন। তার আগে কিছু শুরু হবে না।
+প্রতিটি `--apply` আলাদা অনুমোদনে চলবে। প্রতিটা উপধাপের পর থেমে রিপোর্ট দিতে হবে। রিপোর্টে কোনো মান লেখা যাবে না, শুধু key-এর নাম আর দৈর্ঘ্য।
+সব কমান্ড চলবে `C:\FlutterProjects\cc_step_b`-এ, Git Bash-এ। script চলবে `functions/` থেকে।
+`firebase-admin` লাগলে কমান্ডের আগে `NODE_PATH=C:/FlutterProjects/chalakchar_mart/functions/node_modules` যোগ করতে হবে, অথবা `functions/`-এ `npm ci` চালাতে হবে।
 
+### ক. Firestore export
+
+- **কোথায় যাবে:** `gs://chalakchar-mart-backups`। bucket-টা তৈরি হয়েছে 2026-11-20, অঞ্চল asia-south1।
+  - uniform access আর public access prevention চালু।
+  - lifecycle নিয়ম: ৩০ দিন পর object নিজে থেকে মুছে যায়। তারপর আরও ৭ দিন soft-delete অবস্থায় থাকে। এটা GCS-এর default নিয়ম।
+  - bucket-এর IAM-এ আছে শুধু project owner আর Firestore service agent। agent-এর role `roles/storage.legacyBucketWriter`।
+- **কমান্ড:**
+  ```sh
+  STAMP=$(date -u +%Y%m%d-%H%M)
+  gcloud firestore export gs://chalakchar-mart-backups/step-b-$STAMP \
+    --collection-ids=vendors,deliveryPartners,vendor_private,delivery_partner_private,users \
+    --project chalakchar-mart
+  ```
+- **সফল হলো কি না কীভাবে বুঝব:**
+  - কমান্ডটা শেষ না হওয়া পর্যন্ত অপেক্ষা করে (`--async` ছাড়া)। শেষে operation-এর বিবরণ দেখায়। সেখানে `operationState: SUCCESSFUL` থাকতে হবে।
+  - পরে আবার দেখতে চাইলে: `gcloud firestore operations list --project chalakchar-mart --limit=3`
+  - `gcloud storage ls -r gs://chalakchar-mart-backups/step-b-$STAMP/` চালালে `step-b-$STAMP.overall_export_metadata` ফাইল আর `all_namespaces/...` ফোল্ডার দেখাবে।
+  - এর কোনোটা না মিললে থামতে হবে। বাকি উপধাপ শুরু হবে না।
+
+### খ. vendor-এর পুরোনো `ownerName` মোছা (`clearPublicOwnerName.js`)
+
+- **কারণ:** `vendors/{id}.ownerName`-এ পুরোনো ভুল মান আছে। ঠিক মান আছে `vendor_private`-এ। এটা না মুছলে গ-এর script CONFLICT ধরে থেমে যাবে।
+- **নিয়ম:**
+  - script মোছে শুধু ওই একটা key।
+  - `vendor_private`-এ ownerName না থাকলে বা খালি থাকলে মোছে না (exit 2)।
+  - মোছার আগে backup রাখে: `~/cc-backups/clear_public_ownerName_<সময়>.json`। ফরম্যাট movePrivateProfiles-এর backup-এর মতোই।
+  - transaction-এর ভেতরে আবার মিলিয়ে দেখে, তারপর মোছে। শেষে আবার পড়ে যাচাই করে।
+  - দ্বিতীয়বার চালালে "Nothing to do" দেখায়।
+  - এর test: `node tools/rules-test/run-move-script.js` (emulator), আর `functions/test/clearPublicOwnerName.test.js`।
+- **কমান্ড:**
+  ```sh
+  cd functions
+  node scripts/clearPublicOwnerName.js vmcQG3naz6RGutEiiiWZNBhz4Dm2            # dry-run
+  # -> মালিকের অনুমোদন
+  node scripts/clearPublicOwnerName.js vmcQG3naz6RGutEiiiWZNBhz4Dm2 --apply
+  ```
+- **dry-run-এ যা প্রত্যাশিত:**
+  - `plan: delete (vendor_private already has ownerName)`
+  - `Dry run: would delete vendors/vmcQ….ownerName`
 - **যাচাই:**
-  - script নিজে শেষে মূল ডকুমেন্টগুলো আবার পড়ে।
-  - লগইন ছাড়া `vendors/<id>` পড়লে কোনো গোপন field-এর নাম থাকবে না।
-  - লগইন ছাড়া `vendor_private/<id>` পড়লে 403 আসবে।
-  - admin পেজে ফোন, payout আর "on file" আগের মতোই দেখাবে, এবার private থেকে।
+  - script শেষে `Done.` দেখাবে।
+  - `node scripts/movePrivateProfiles.js` (dry-run) চালালে আর CONFLICT থাকবে না।
 - **rollback:**
-  - export থেকে `gcloud firestore import`, অথবা backup JSON থেকে মূল ডকুমেন্টে মান ফেরানো।
-  - ফেরানোর script: `functions/scripts/restorePrivateProfiles.js` (emulator-এ test করা, লাইভে কখনো চালানো হয়নি):
-    ```sh
-    node scripts/restorePrivateProfiles.js --from-backup ~/cc-backups/private_profiles_<সময়>.json            # dry-run
-    node scripts/restorePrivateProfiles.js --from-backup ~/cc-backups/private_profiles_<সময়>.json --apply    # অনুমোদনের পরে
-    ```
-    এতে পুরোনো লিংক সহ মান মূল ডকুমেন্টে ফেরে, আর private ডকুমেন্ট যেমন আছে তেমন থাকে।
-    backup না থাকলে `--from-private` দিয়ে চালানো যায়, তবে তাতে লিংক ফেরে না।
-    মূল ডকুমেন্টে ভিন্ন মান থাকলে script কিছু লেখার আগেই থেমে যায়।
-  - এই ধাপের পরে rules ফেরাতে হলে শুধু `firestore.rules.rollback-step-b`। README দেখুন।
+  ```sh
+  node scripts/restorePrivateProfiles.js --from-backup ~/cc-backups/clear_public_ownerName_<সময়>.json            # dry-run
+  node scripts/restorePrivateProfiles.js --from-backup ~/cc-backups/clear_public_ownerName_<সময়>.json --apply
+  ```
+
+### গ. গোপন মান সরানো (`movePrivateProfiles.js`)
+
+- **কমান্ড:**
+  ```sh
+  node scripts/movePrivateProfiles.js            # dry-run: id, key-এর নাম, দৈর্ঘ্য
+  # -> মালিকের অনুমোদন
+  node scripts/movePrivateProfiles.js --apply    # backup: ~/cc-backups/private_profiles_<সময়>.json
+  ```
+- **dry-run-এ যা প্রত্যাশিত (2026-11-20-এর পড়া অনুযায়ী):** ২টা ডকুমেন্ট বদলাবে।
+  - **vendor:** phone, email, address, note আর payoutAccount যাবে private-এ। আগে থেকেই একই মান থাকলে আবার লেখা হবে না।
+  - **vendor-এর ৩টা link** (nidFront, nidBack, tradeLicense) `*Path` হয়ে যাবে। link-গুলো মুছে যাবে।
+  - **rider:** `delivery_partner_private` এখন খালি। nidNumber, nidFrontPath, nidBackPath, address আর email লেখা হবে।
+  - **rider-এর মূল ডকুমেন্ট থেকে সরবে:** nidFrontUrl, nidBackUrl আর note।
+  - কোনো CONFLICT থাকবে না।
+- **যাচাই:**
+  - script শেষে `No private key left in vendors or deliveryPartners` দেখাবে। না দেখালে exit 3।
+  - dry-run আবার চালালে `Nothing to move` দেখাবে।
+  - লগইন ছাড়া `vendors/<id>` পড়লে কোনো গোপন key-এর নাম থাকবে না। `vendor_private/<id>` আর `delivery_partner_private/<id>` পড়লে 403 আসবে।
+
+### ঘ. লাইভে চোখে দেখা (chalakcharmart.com, কিছু save না করে)
+
+- **admin → Vendors:**
+  - দোকান "Abdullah Pharmacy" দেখাবে।
+  - Edit খুললে owner name, ফোন, ঠিকানা, payout আর commission ১০ দেখাবে।
+  - ৩টা কাগজ "on file" দেখাবে। ধাপ ৫-এর আগে এগুলো link থেকে আসত, এখন path থেকে আসে।
+- **admin → Delivery Partners:** rider-এর NID নম্বর, ঠিকানা আর ২টা NID কাগজ "on file" দেখাবে।
+- **vendor লগইন → My Shop / dashboard:** balance আর commission আগের মতোই দেখাবে।
+- **vendor লগইন → Withdraw:** payout account দেখাবে, "Please add payout account first" দেখাবে না। request জমা দেওয়া হবে না।
+- **দোকানের পেজ (লগইন ছাড়া):** ফোন আর ঠিকানা দেখাবে না। ChalakChar support-এর যোগাযোগ দেখাবে।
+- **rider লগইন → dashboard:** আয়, COD আর অর্ডার আগের মতোই দেখাবে।
+- **সব জায়গায়:** browser console-এ permission-denied থাকবে না।
+
+### ঙ. rollback (ধাপ ৫-এর পরে শুধু এভাবে)
+
+- **মানগুলো মূল ডকুমেন্টে ফেরানো:**
+  ```sh
+  node scripts/restorePrivateProfiles.js --from-backup ~/cc-backups/private_profiles_<সময়>.json            # dry-run
+  node scripts/restorePrivateProfiles.js --from-backup ~/cc-backups/private_profiles_<সময়>.json --apply
+  ```
+  - এতে পুরোনো link-সহ মান ফেরে। private ডকুমেন্ট যেমন আছে তেমন থাকে।
+  - backup না থাকলে `--from-private` দিয়ে চালানো যায়, তবে তাতে link ফেরে না।
+  - মূল ডকুমেন্টে ভিন্ন মান থাকলে script কিছু লেখার আগেই থেমে যায় (exit 2)।
+  - `ownerName`-ও ফেরাতে হলে খ-এর backup দিয়ে আলাদাভাবে চালাতে হবে।
+- **rules ফেরানো: শুধু এই ফাইল দিয়ে।**
+  ```sh
+  cp docs/security/rules-backup/firestore.rules.rollback-step-b firestore.rules
+  firebase deploy --only firestore:rules --project chalakchar-mart
+  git checkout firestore.rules
+  ```
+  `rollback-keep-secrets`, `live-2026-11-17` বা Console-এর পুরোনো কোনো ruleset ব্যবহার করা যাবে **না**। কারণ সেগুলোতে private collection-এর কোনো নিয়ম নেই। তাই catch-all-এর মাধ্যমে যেকোনো staff role সেগুলো পড়তে পারে।
+- **ক্রম:**
+  1. আগে মান ফেরানো (restore)।
+  2. তারপর rules ফেরানো।
+  3. দরকার হলে hosting ফেরানো: `firebase hosting:clone chalakchar-mart@5718e9fbf1f0afea chalakchar-mart:live --project chalakchar-mart`। কারণ rollback-step-b-তে private collection বন্ধ, তাই নতুন website private থেকে কিছু পড়তে পারে না।
+- **শেষ উপায়:** `gcloud firestore import gs://chalakchar-mart-backups/step-b-<STAMP> --collection-ids=vendors,deliveryPartners,vendor_private,delivery_partner_private,users --project chalakchar-mart`।
+  - এতে export-এর পরে লেখা একই id-র ডকুমেন্ট আগের অবস্থায় ফিরে যায়।
+  - export-এর পরে নতুন তৈরি হওয়া ডকুমেন্ট মোছে না।
 - **প্রভাব:**
-  - নতুন ওয়েবসাইট আর নতুন অ্যাপ: কিছু না, কারণ এরা private থেকেই পড়ে।
-  - পুরোনো অ্যাপ: নিচের টেবিলের "ধাপ ৫-এর পরে" কলাম।
+  - নতুন website আর নতুন অ্যাপে কিছু বদলায় না, কারণ এরা private থেকেই পড়ে।
+  - পুরোনো অ্যাপের জন্য নিচের টেবিলের "ধাপ ৫-এর পরে" কলাম দেখুন।
 
 ## ধাপ ৬: rules-এর দ্বিতীয় ধাপ
 
