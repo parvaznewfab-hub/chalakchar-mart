@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../services/private_profile_service.dart';
+import '../../../utils/user_error_message.dart';
 
 class DeliveryPartnerApplyPage extends StatefulWidget {
   const DeliveryPartnerApplyPage({super.key});
@@ -211,8 +212,9 @@ class _DeliveryPartnerApplyPageState extends State<DeliveryPartnerApplyPage> {
       _snack('Application submitted successfully. Admin approval required.');
 
       if (mounted) Navigator.pop(context);
-    } catch (e) {
-      _snack('Submit failed: $e', error: true);
+    } catch (e, st) {
+      // Plain message for the rider; the real error goes to the log.
+      _snack(friendlySubmitError(e, where: 'rider application', stack: st), error: true);
     } finally {
       if (mounted) setState(() => loading = false);
     }

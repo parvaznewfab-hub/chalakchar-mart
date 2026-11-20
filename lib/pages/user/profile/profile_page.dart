@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../services/auth_service.dart';
+import '../../../utils/user_error_message.dart';
 import '../wishlist_page.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -231,16 +232,25 @@ class _ProfilePageState extends State<ProfilePage> {
           ElevatedButton(
             onPressed: () async {
               if (shop.text.trim().isEmpty) return;
-              await AuthService().requestSellerAccount(
-                shopName: shop.text,
-                phone: phone.text,
-                address: address.text,
-              );
-              if (mounted) {
-                if (context.mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Seller request submitted')));
-                }
+              // Never leave the dialog hanging: on failure close it and show
+              // a plain message; the real error goes to the log.
+              String message = 'Seller request submitted';
+              var failed = false;
+              try {
+                await AuthService().requestSellerAccount(
+                  shopName: shop.text,
+                  phone: phone.text,
+                  address: address.text,
+                );
+              } catch (e, st) {
+                failed = true;
+                message = friendlySubmitError(e, where: 'seller request', stack: st);
+              }
+              if (mounted && context.mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(message), backgroundColor: failed ? Colors.red : null),
+                );
               }
             },
             child: const Text('Submit'),

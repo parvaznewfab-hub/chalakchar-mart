@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/private_profile_service.dart';
 import '../../utils/private_profile_fields.dart';
+import '../../utils/user_error_message.dart';
 
 class VendorWithdrawPage extends StatefulWidget {
   const VendorWithdrawPage({super.key});
@@ -214,8 +215,9 @@ class _VendorWithdrawPageState extends State<VendorWithdrawPage> {
       amountController.clear();
       noteController.clear();
       _show('Withdraw request submitted');
-    } catch (e) {
-      _show('Withdraw failed: $e', error: true);
+    } catch (e, st) {
+      // Plain message for the vendor; the real error goes to the log.
+      _show(friendlySubmitError(e, where: 'vendor withdraw', stack: st), error: true);
     } finally {
       if (mounted) setState(() => submitting = false);
     }

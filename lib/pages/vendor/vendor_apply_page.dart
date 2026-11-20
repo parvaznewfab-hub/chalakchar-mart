@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../services/private_profile_service.dart';
 import '../../utils/private_profile_fields.dart';
+import '../../utils/user_error_message.dart';
 
 class VendorApplyPage extends StatefulWidget {
   const VendorApplyPage({super.key});
@@ -330,8 +331,9 @@ class _VendorApplyPageState extends State<VendorApplyPage> {
             ? 'Seller information updated.'
             : 'Vendor application submitted. Admin approval pending.',
       );
-    } catch (e) {
-      _snack('Submit failed: $e', error: true);
+    } catch (e, st) {
+      // Plain message for the vendor; the real error goes to the log.
+      _snack(friendlySubmitError(e, where: 'vendor application', stack: st), error: true);
     } finally {
       if (mounted) setState(() => submitting = false);
     }
