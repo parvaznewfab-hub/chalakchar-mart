@@ -100,9 +100,10 @@ test("allowed: 5-minute V4 read URL for the path from the private doc; log has n
   assert.equal(res.expiresAt, new Date(1_000_000 + 300_000).toISOString());
   assert.match(res.url, /^https:\/\/signed\.example\//);
   assert.equal(logs.length, 1);
-  assert.deepEqual(Object.keys(logs[0].f).sort(), ["at", "kind", "viewerUid", "which"]);
+  assert.deepEqual(Object.keys(logs[0].f).sort(), ["at", "kind", "ownerId", "viewerUid", "which"]);
   const logged = JSON.stringify(logs);
-  for (const secret of ["vendors/v1/documents", "signed.example", "017", "v1\""]) assert.ok(!logged.includes(secret), secret);
+  assert.deepEqual({ ...logs[0].f, at: "-" }, { viewerUid: "a1", ownerId: "v1", kind: "vendor", which: "nidFront", at: "-" });
+  for (const secret of ["vendors/v1/documents", "signed.example", "017"]) assert.ok(!logged.includes(secret), secret);
 });
 
 test("refused: no login, no permission, banned admin; nothing signed, nothing logged", async () => {

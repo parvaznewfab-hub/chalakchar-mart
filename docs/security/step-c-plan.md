@@ -26,36 +26,120 @@ d4ead6c এতে নেই, `git merge-base --is-ancestor` দিয়ে য�
   - কোথাও save হয় না: Firestore-এ না, log-এ না, অ্যাপে লেখা হিসেবেও দেখানো হয় না।
 - **ভুলের বার্তা:** `unauthenticated`, `permission-denied`, `invalid-argument`, `not-found` (কাগজ নেই বা ফাইল নেই), `failed-precondition` (path মালিকের ফোল্ডারের বাইরে)।
 - **Log:** Cloud Logging-এ যায়, বার্তা `identity document viewed`।
-  - শুধু চারটে field থাকে: `viewerUid`, `kind`, `which`, `at`।
+  - শুধু পাঁচটা field থাকে: `viewerUid`, `ownerId` (কার কাগজ, মালিকের সিদ্ধান্ত), `kind`, `which`, `at`।
   - path, URL বা কোনো ব্যক্তিগত মান থাকে না।
-  - **প্রস্তাব:** কার কাগজ দেখা হলো সেটাও রাখা, অর্থাৎ `ownerId`। এটা কোনো মান নয়, শুধু একটা id। মালিক বললে এক লাইনে যোগ করা যাবে।
   - Firestore-এ log রাখা হয়নি। কারণ সেখানে রাখলে catch-all নিয়মের কারণে staff সেটা পড়তে পারত।
 - **Test:**
   - `functions/test/identityDocumentUrl.test.js`: ৭টা unit test।
   - `node tools/rules-test/run-identity-doc.js`: Firestore আর Storage emulator-এ ৬টা test। শুধু signing অংশটা বদলে দেওয়া, কারণ ওটার জন্য আসল service account লাগে।
 
-### signBlob-এর অনুমতি (মালিক দেবেন, আমি দিইনি)
+### আলাদা service account `identity-docs-viewer` (মালিক নিজে চালাবেন)
 
-- Functions চলে `1036870421759-compute@developer.gserviceaccount.com` দিয়ে। এটা default, অন্য কোনো account বসানো নেই।
-- service account key ছাড়া signed URL বানাতে admin SDK IAM `signBlob` ব্যবহার করে। এর জন্য ওই account-এর **নিজের ওপর** `iam.serviceAccounts.signBlob` অনুমতি লাগে।
-- **এখন অনুমতিটা নেই।**
-  - account-টার নিজের IAM policy খালি।
-  - project-এ এর আছে শুধু `roles/editor`, আর Editor-এ signBlob নেই (যাচাই করা)।
-  - `iamcredentials.googleapis.com` চালু আছে।
-- এটা ছাড়া callable `internal` ভুল দেবে, আর অ্যাপে দেখাবে "কাগজটা খোলা যায়নি"।
-- **যা দিতে হবে**, শুধু এই account-এর ওপর, পুরো project-এ নয়:
+মালিকের সিদ্ধান্ত (২০ নভেম্বর): default compute account-কে signBlob-এর অনুমতি দেওয়া হবে না।
+তাই `getIdentityDocumentUrl` চলবে নিজের service account দিয়ে।
+কোডে `onCall({ serviceAccount: "identity-docs-viewer@chalakchar-mart.iam.gserviceaccount.com" })` বসানো আছে।
+account-টা না থাকলে deploy ব্যর্থ হবে।
+deploy যিনি করবেন, তাঁর account-এ `iam.serviceAccounts.actAs` লাগবে। Owner-এর এটা আছে।
 
+```sh
+# ১. account তৈরি
+gcloud iam service-accounts create identity-docs-viewer \
+  --display-name="Identity documents viewer (getIdentityDocumentUrl)" --project chalakchar-mart
+
+# ২. Firestore: শুধু ডকুমেন্ট পড়া। custom role, যাতে একটাই অনুমতি আছে: datastore.entities.get।
+#    এতে list, query, লেখা বা মোছা কিছুই নেই।
+gcloud iam roles create identityDocsFirestoreGet --project chalakchar-mart \
+  --title="Identity docs: Firestore get only" --permissions=datastore.entities.get --stage=GA
+
+# ৩. ওপরের role-টা account-কে দেওয়া (project স্তরে)
+gcloud projects add-iam-policy-binding chalakchar-mart \
+  --member=serviceAccount:identity-docs-viewer@chalakchar-mart.iam.gserviceaccount.com \
+  --role=projects/chalakchar-mart/roles/identityDocsFirestoreGet --condition=None
+
+# ৪. Storage: শুধু default bucket-এ ফাইল পড়া (objectViewer)। কোন prefix, তা নিচের "Storage prefix" অংশে দেখুন।
+gcloud storage buckets add-iam-policy-binding gs://chalakchar-mart.firebasestorage.app \
+  --member=serviceAccount:identity-docs-viewer@chalakchar-mart.iam.gserviceaccount.com \
+  --role=roles/storage.objectViewer
+
+# ৫. signBlob: account শুধু নিজের নামে sign করতে পারবে (Token Creator, শুধু নিজের ওপর)
+gcloud iam service-accounts add-iam-policy-binding identity-docs-viewer@chalakchar-mart.iam.gserviceaccount.com \
+  --member=serviceAccount:identity-docs-viewer@chalakchar-mart.iam.gserviceaccount.com \
+  --role=roles/iam.serviceAccountTokenCreator --project chalakchar-mart
+```
+
+- **Firestore-এর সীমা:**
+  - Firestore-এর IAM collection অনুযায়ী ভাগ করা যায় না। IAM condition শুধু database-এর নাম ধরে কাজ করে।
+  - তাই `datastore.entities.get`-এর মানে, id জানা থাকলে যেকোনো ডকুমেন্ট পড়া যায়।
+  - তবে কোড পড়ে মাত্র তিনটে জিনিস: `users/{uid}`, `vendor_private/{id}` আর `delivery_partner_private/{id}`।
+  - predefined role-এর মধ্যে সবচেয়ে ছোট হলো `roles/datastore.viewer`, কিন্তু তাতে list আর query-ও আছে। custom role তার চেয়ে ছোট।
+  - "roles পড়তে যা লাগে": অনুমতি যাচাই হয় `users/{uid}` ডকুমেন্টের role, roles আর permissions field থেকে। আলাদা কোনো `roles` collection পড়া হয় না।
+- **Log লেখা:** কোনো role লাগে না।
+  - firebase-functions-এর logger stdout-এ লেখে, আর Cloud Run platform নিজেই সেটা Cloud Logging-এ পাঠায়।
+  - `roles/logging.logWriter` ইচ্ছা করেই দেওয়া হয়নি।
+  - deploy-এর পর log-এ লাইন আসছে কি না দেখা হবে। না এলে তখন এটা দেওয়া হবে।
+- **Storage prefix (IAM condition):**
+  - bucket `chalakchar-mart.firebasestorage.app`-এ **uniform bucket-level access বন্ধ** (পড়ে দেখা)।
+  - Cloud Storage-এ IAM condition কাজ করে শুধু uniform access চালু থাকলে। তাই এখন prefix-এর condition বসানো যায় না, gcloud ভুল দেবে।
+  - **বিকল্প ক (প্রস্তাবিত):** condition ছাড়াই objectViewer দেওয়া, ওপরের ৪ নম্বর কমান্ড।
+    - bucket-এর বাকি অংশে আছে products, banners, categories আর vendors-এর ছবি। এগুলো এমনিতেই সবার জন্য খোলা (download link দিয়ে)।
+    - account-টা বানানোই হয়েছে গোপন কাগজ পড়ার জন্য। তাই condition দিয়ে বাড়তি সুরক্ষা খুব সামান্য।
+  - **বিকল্প খ:** আগে bucket-এ uniform access চালু করা, তারপর condition দেওয়া। এতে পুরোনো object-ACL বন্ধ হয়ে যায়। Firebase-এর download link আর rules আগের মতোই চলে, তবে ACL-নির্ভর কিছু থাকলে ভাঙবে। ৯০ দিনের মধ্যে আবার বন্ধ করা যায়। এটা আলাদা ঝুঁকি, আলাদা test লাগবে।
+    ```sh
+    gcloud storage buckets update gs://chalakchar-mart.firebasestorage.app --uniform-bucket-level-access
+    gcloud storage buckets add-iam-policy-binding gs://chalakchar-mart.firebasestorage.app \
+      --member=serviceAccount:identity-docs-viewer@chalakchar-mart.iam.gserviceaccount.com \
+      --role=roles/storage.objectViewer \
+      --condition='title=identity-docs-only,expression=resource.name.startsWith("projects/_/buckets/chalakchar-mart.firebasestorage.app/objects/vendors/") || resource.name.startsWith("projects/_/buckets/chalakchar-mart.firebasestorage.app/objects/delivery_partner_documents/")'
+    ```
+    - বিকল্প খ-তেও `vendors/` prefix-এর ভেতরে যা আছে, তা পুরোটাই পড়া যাবে। এখন সেখানে শুধু `vendors/{id}/documents/` আছে, ৩টা ফাইল।
+- **যাচাই (মালিক চালানোর পরে, শুধু পড়া):**
   ```sh
-  gcloud iam service-accounts add-iam-policy-binding 1036870421759-compute@developer.gserviceaccount.com \
-    --member=serviceAccount:1036870421759-compute@developer.gserviceaccount.com \
-    --role=roles/iam.serviceAccountTokenCreator --project chalakchar-mart
+  gcloud projects get-iam-policy chalakchar-mart --flatten=bindings --filter="bindings.members:identity-docs-viewer" --format="value(bindings.role)"
+  gcloud storage buckets get-iam-policy gs://chalakchar-mart.firebasestorage.app --format=json | grep -B3 identity-docs-viewer
+  gcloud iam service-accounts get-iam-policy identity-docs-viewer@chalakchar-mart.iam.gserviceaccount.com
   ```
+- **rollback:** `gcloud iam service-accounts delete identity-docs-viewer@chalakchar-mart.iam.gserviceaccount.com`। custom role মুছতে: `gcloud iam roles delete identityDocsFirestoreGet --project chalakchar-mart`।
 
-  এতে compute account-এ চলা সব function নিজের নামে sign করতে পারবে। ওদের Editor role আগে থেকেই আছে, তাই নতুন ঝুঁকি সামান্য।
-- **পরিচ্ছন্ন বিকল্প:** এই function-এর জন্য আলাদা একটা service account।
-  - role লাগবে: Firestore পড়া, Storage-এ `objects.get`, আর নিজের ওপর Token Creator।
-  - এটা তালিকার কম-অগ্রাধিকারের কাজের সঙ্গে মেলে: "Functions-এর জন্য আলাদা কম-ক্ষমতার service account"।
-  - তখন `onCall({ serviceAccount: "…" })` যোগ করতে হবে।
+### CORS: admin-এর dialog-এ ছবি দেখানো
+
+- **ছবি দেখানোর পদ্ধতি:** `Image.network(url)`। Flutter 3.38-এ web-এ এর default `webHtmlElementStrategy.never`।
+  - মানে ছবি HTML `<img>` দিয়ে দেখানো হয় না। browser `fetch` দিয়ে byte নামায়।
+  - তাই `storage.googleapis.com`-কে CORS header পাঠাতে হয়।
+- **bucket-এ এখনকার CORS** (পড়ে দেখা): `[{ origin: ["*"], method: ["GET"], maxAgeSeconds: 3600 }]`।
+  - অর্থাৎ CORS এখনই ঠিক আছে, signed URL থেকে ছবি দেখাতে **নতুন কিছু লাগবে না**।
+  - CORS কোনো অনুমতি দেয় না। এটা শুধু ঠিক করে, browser পাতা উত্তরটা পড়তে পারবে কি না। signed URL ছাড়া ফাইল খোলে না।
+- **ছোট CORS নিয়ম** (মালিকের অনুরোধে লেখা, বসানো হয়নি)। ⚠️ CORS পুরো bucket-এ খাটে, তাই এটা বসালে পুরোনো `*` নিয়ম চলে যাবে।
+  - তখন অন্য preview channel (যেমন `related`, `notif`) আর localhost-এ পণ্য, banner আর category-র ছবি নাও দেখাতে পারে।
+  - নতুন preview channel খুললে প্রতিবার তার origin যোগ করতে হবে।
+  - এখন না বসানোর প্রস্তাব দিচ্ছি।
+  ```json
+  [
+    {
+      "origin": [
+        "https://chalakcharmart.com",
+        "https://chalakchar-mart.web.app",
+        "https://chalakchar-mart--step-c-<HASH>.web.app"
+      ],
+      "method": ["GET"],
+      "responseHeader": ["Content-Type"],
+      "maxAgeSeconds": 300
+    }
+  ]
+  ```
+  বসাতে হলে: `gcloud storage buckets update gs://chalakchar-mart.firebasestorage.app --cors-file=cors.json`।
+  ফেরাতে: একই কমান্ড, `[{"origin":["*"],"method":["GET"],"maxAgeSeconds":3600}]` দিয়ে।
+  `www.chalakcharmart.com` চালু থাকলে সেটাও তালিকায় যোগ করতে হবে।
+
+### step-c preview: OAuth client আর Auth domain
+
+- **preview-এর ঠিকানা:** `https://chalakchar-mart--step-c-<HASH>.web.app`।
+  - `<HASH>` হলো ৮ অক্ষরের একটা এলোমেলো অংশ। channel তৈরির সময় Firebase এটা বানায়, আগে থেকে জানা যায় না। যেমন step-b-র ছিল `09kqlelw`।
+  - **সমাধান:** ধাপ ১-এর আগে শুধু channel তৈরি করা, কোনো ফাইল ছাড়া: `firebase hosting:channel:create step-c --expires 7d --project chalakchar-mart`।
+  - এতে লাইভে কিছু বদলায় না। ঠিকানাটা এখান থেকে জানা যাবে। মালিক অনুমতি দিলে করব।
+- **Google OAuth web client** (Google Cloud Console → APIs & Services → Credentials → Web client):
+  - Authorized JavaScript origins: `https://chalakchar-mart--step-c-<HASH>.web.app`
+  - Authorized redirect URIs: `https://chalakchar-mart--step-c-<HASH>.web.app/__/auth/handler`
+- **Firebase Auth authorized domains:** `hosting:channel:deploy` এটা নিজে থেকে যোগ করে, step-b-তেও তাই হয়েছিল। না হলে Console থেকে হাতে যোগ করতে হবে।
 
 ## ২. admin পেজে কাগজ খোলা
 
@@ -103,7 +187,7 @@ d4ead6c এতে নেই, `git merge-base --is-ancestor` দিয়ে য�
 
 ## ৪. ক্রম (প্রতিটির পরে থামা, মালিকের অনুমতি)
 
-০. **মালিক:** উপরের IAM binding দেবেন। অথবা আলাদা service account বেছে নেবেন।
+০. **মালিক:** `identity-docs-viewer` account আর তার অনুমতি দেবেন (উপরের ১–৫)। আমি শুধু পড়ে যাচাই করব। step-c channel আগে তৈরি করা হবে, তাতে OAuth-এর ঠিকানা জানা যাবে। CORS এখনকারটাই থাকবে, মালিক অন্য সিদ্ধান্ত না নিলে।
 
 ১. **শুধু এই function deploy**, worktree `cc_step_c` থেকে (d4ead6c ছাড়া):
    ```sh

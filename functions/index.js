@@ -4513,7 +4513,16 @@ exports.importAliExpressProduct = onRequest(
 // document (functions/identity/identityDocumentUrl.js). Nothing is stored.
 const identityDocumentUrl = require("./identity/identityDocumentUrl");
 
-exports.getIdentityDocumentUrl = onCall({ maxInstances: 2 }, async (request) => {
+// Runs as its own service account (not the default compute one): Firestore
+// document get only, Storage objectViewer on the default bucket, and Token
+// Creator on itself for signBlob. Set up by the owner; see
+// docs/security/step-c-plan.md. Deploy fails if the account does not exist.
+const IDENTITY_DOCS_SERVICE_ACCOUNT = "identity-docs-viewer@chalakchar-mart.iam.gserviceaccount.com";
+
+exports.getIdentityDocumentUrl = onCall({
+  maxInstances: 2,
+  serviceAccount: IDENTITY_DOCS_SERVICE_ACCOUNT,
+}, async (request) => {
   try {
     return await identityDocumentUrl.getIdentityDocumentUrl(request.auth, request.data, {
       db,

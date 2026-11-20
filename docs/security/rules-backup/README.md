@@ -1,5 +1,11 @@
 # লাইভ rules-এর কপি
 
+> **কোথা থেকে deploy করতে হবে** (মালিকের নিয়ম, ২০ নভেম্বর ২০২৬): d4ead6c (product sources আর slugs) নিয়ে সিদ্ধান্ত না হওয়া পর্যন্ত
+> **rules আর hosting deploy হবে শুধু `audit-step-c` থেকে** (worktree `C:\FlutterProjects\cc_step_c`), **`wip/audit-step1` থেকে কখনো নয়।**
+> কারণ `wip/audit-step1`-এ d4ead6c আছে। সেখানকার `firestore.rules`-এ লাইভে না যাওয়া product নিয়ম আছে, আর hosting-এ আছে d4ead6c-এর কোড।
+> তা ছাড়া d4ead6c deploy-এর আগে `product_sources` আর `product_import_keys` catch-all-এর বাদের তালিকায় যোগ করা বাধ্যতামূলক।
+> functions-ও শুধু নাম ধরে (`--only functions:<name>`) deploy হবে, `audit-step-c` থেকে।
+
 ১৭ নভেম্বর ২০২৬-এ লাইভ থেকে নামানো (Firebase Rules API)।
 
 | ফাইল | লাইভ ruleset | লাইভে গেছে |

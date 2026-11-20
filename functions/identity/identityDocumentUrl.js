@@ -9,7 +9,7 @@
 // The Storage path is read from vendor_private/{ownerId} or
 // delivery_partner_private/{ownerId} and must sit inside that owner's own
 // document folder. The URL is returned only; it is never stored or logged.
-// The log line holds who, when and which kind of document (no path, no URL,
+// The log line holds who, when, whose (ownerId) and which kind of document (no path, no URL,
 // no personal value).
 //
 // Permissions (same lists as storage.rules canSeeVendorDocuments /
@@ -113,6 +113,7 @@ async function getIdentityDocumentUrl(auth, data, deps) {
 
   deps.logger.info("identity document viewed", {
     viewerUid: uid,
+    ownerId,
     kind,
     which,
     at: new Date(now).toISOString(),

@@ -91,9 +91,9 @@ test("path outside the owner's folder, missing file, nothing on file, unknown ow
   assert.equal(signed.length, before);
 });
 
-test("log lines: who, when, which kind only", () => {
+test("log lines: who, when, whose, which kind only", () => {
   assert.ok(logs.length >= 4);
-  for (const f of logs) assert.deepEqual(Object.keys(f).sort(), ["at", "kind", "viewerUid", "which"]);
+  for (const f of logs) assert.deepEqual(Object.keys(f).sort(), ["at", "kind", "ownerId", "viewerUid", "which"]);
   const all = JSON.stringify(logs);
   for (const s of ["vendors/", "delivery_partner_documents", "signed.test", "01700000000", "123\""]) assert.ok(!all.includes(s), s);
 });
