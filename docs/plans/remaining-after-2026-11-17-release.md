@@ -299,3 +299,6 @@ TikTok এখন চালু হবে না। তাই secret বদলা�
   - এগুলো বাদ না দিলে `analytics.view` বা যেকোনো staff role supplier আর cost-এর তথ্য পড়তে পারবে।
   - এর জন্য emulator test লাগবে।
 - **নিয়ম:** d4ead6c নিয়ে সিদ্ধান্ত না হওয়া পর্যন্ত rules আর hosting deploy হবে শুধু `audit-step-c` থেকে, `wip/audit-step1` থেকে না। বিস্তারিত `docs/security/rules-backup/README.md`-এ (audit-step-c)।
+- **পরে (কম অগ্রাধিকার):** default bucket `chalakchar-mart.firebasestorage.app`-এ uniform bucket-level access চালু করা, তারপর `identity-docs-viewer`-এর objectViewer-এ prefix condition বসানো (`vendors/` আর `delivery_partner_documents/`)।
+  - আগে দেখতে হবে কোনো কিছু object-ACL-এর ওপর নির্ভর করে কি না।
+  - এটা ৯০ দিনের মধ্যে আবার বন্ধ করা যায়।
