@@ -4509,6 +4509,27 @@ exports.importAliExpressProduct = onRequest(
   }
 );
 
+// 14b step C: admin-only, 5-minute signed URL for a vendor / rider identity
+// document (functions/identity/identityDocumentUrl.js). Nothing is stored.
+const identityDocumentUrl = require("./identity/identityDocumentUrl");
+
+exports.getIdentityDocumentUrl = onCall({ maxInstances: 2 }, async (request) => {
+  try {
+    return await identityDocumentUrl.getIdentityDocumentUrl(request.auth, request.data, {
+      db,
+      bucket: admin.storage().bucket(),
+      logger,
+      now: () => Date.now(),
+    });
+  } catch (error) {
+    if (error instanceof identityDocumentUrl.RequestError) {
+      throw new HttpsError(error.code, error.message);
+    }
+    logger.error("getIdentityDocumentUrl failed", { code: error?.code, message: error?.message });
+    throw new HttpsError("internal", "Could not open the document.");
+  }
+});
+
 exports.healthCheck = onRequest((req, res) => {
   cors(req, res, () => {
     res.status(200).json({

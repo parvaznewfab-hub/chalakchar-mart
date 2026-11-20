@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../../services/private_profile_service.dart';
 import '../../utils/private_profile_fields.dart';
+import '../../widgets/identity_document_dialog.dart';
 
 class AdminVendorsPage extends StatefulWidget {
   const AdminVendorsPage({super.key});
@@ -731,7 +732,7 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
                       alignment: Alignment.centerLeft,
                       child: Text(
                         'Documents on file: ${docsOnFile.isEmpty ? 'none' : docsOnFile.length}/3. '
-                        'The vendor uploads them from the seller application; viewing comes in security step C.',
+                        'The vendor uploads them from the seller application; open them from the vendor card.',
                         style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
                       ),
                     ),
@@ -850,20 +851,24 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
   }
 
 
-  /// Document status only. Old download links now answer 403 (tokens
-  /// revoked 2026-11-20) and no new link is made here: viewing comes in
-  /// 14b step C (Storage SDK / short-lived signed URL). [path] is the
-  /// Storage path of the file, or '' when none is on file.
-  Widget _docButton(String title, String path, IconData icon) {
+  /// 14b step C: "on file" opens the document through the Cloud Function
+  /// getIdentityDocumentUrl (permission checked on the server, 5-minute
+  /// signed URL, path read from vendor_private there). No download link is
+  /// stored or made here. [path] only says whether a file is on file.
+  Widget _docButton(String title, String vendorId, String which, String path, IconData icon) {
     final onFile = path.trim().isNotEmpty;
 
     return Tooltip(
-      message: onFile
-          ? 'On file. Viewing documents comes in security step C.'
-          : 'No document uploaded.',
+      message: onFile ? 'On file. Tap to view (link works 5 minutes).' : 'No document uploaded.',
       child: OutlinedButton.icon(
         onPressed: onFile
-            ? () => _snack('$title is on file. Viewing documents in the admin panel comes in security step C.')
+            ? () => showIdentityDocumentDialog(
+                  context,
+                  title: title,
+                  kind: 'vendor',
+                  ownerId: vendorId,
+                  which: which,
+                )
             : null,
         icon: Icon(onFile ? Icons.check_circle_outline : icon, size: 18),
         label: Text(onFile ? '$title: on file' : '$title: missing'),
@@ -1092,9 +1097,9 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
                         runSpacing: 6,
                         children: [
                           if (canViewVendorDocuments) ...[
-                            _docButton('Trade License', vendorDocumentPath(data, 'tradeLicense'), Icons.description_outlined),
-                            _docButton('NID Front', vendorDocumentPath(data, 'nidFront'), Icons.badge_outlined),
-                            _docButton('NID Back', vendorDocumentPath(data, 'nidBack'), Icons.badge_outlined),
+                            _docButton('Trade License', vendorId, 'tradeLicense', vendorDocumentPath(data, 'tradeLicense'), Icons.description_outlined),
+                            _docButton('NID Front', vendorId, 'nidFront', vendorDocumentPath(data, 'nidFront'), Icons.badge_outlined),
+                            _docButton('NID Back', vendorId, 'nidBack', vendorDocumentPath(data, 'nidBack'), Icons.badge_outlined),
                           ],
                         ],
                       ),
