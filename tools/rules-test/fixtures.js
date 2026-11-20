@@ -5,7 +5,10 @@ const { loadRules, clearData, seed } = require('./emu');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const RULES_FILE = path.resolve(REPO, process.env.RULES_FILE || 'firestore.rules');
-const OLD_RULES = /rules-backup/.test(RULES_FILE);
+// Step B rollback = the step A rules (closed holes) with the private halves
+// shut. It lives in rules-backup but is NOT "old rules" for the hole tests.
+const STEP_B_ROLLBACK = /rollback-step-b/.test(RULES_FILE);
+const OLD_RULES = /rules-backup/.test(RULES_FILE) && !STEP_B_ROLLBACK;
 // The rollback file = old rules with only settings/app_secrets locked.
 const KEEP_SECRETS = /keep-secrets/.test(RULES_FILE);
 
@@ -119,4 +122,4 @@ async function resetWorld() {
   await seed(baseDocs());
 }
 
-module.exports = { resetWorld, RULES_FILE, OLD_RULES, KEEP_SECRETS };
+module.exports = { resetWorld, RULES_FILE, OLD_RULES, KEEP_SECRETS, STEP_B_ROLLBACK };

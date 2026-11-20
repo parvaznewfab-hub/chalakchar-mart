@@ -7,9 +7,11 @@
 const { describe, test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const { db, allowed, denied, SERVER_TS } = require('./emu');
-const { resetWorld, OLD_RULES } = require('./fixtures');
+const { resetWorld, OLD_RULES, STEP_B_ROLLBACK } = require('./fixtures');
 
-const opts = { skip: OLD_RULES ? 'step B suite (RULES_FILE is an old copy)' : false };
+const opts = {
+  skip: OLD_RULES || STEP_B_ROLLBACK ? 'step B suite (RULES_FILE is an old copy / the step B rollback)' : false,
+};
 
 beforeEach(resetWorld);
 

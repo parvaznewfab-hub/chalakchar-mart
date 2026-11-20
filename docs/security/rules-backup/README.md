@@ -38,3 +38,56 @@ Console থেকে ruleset `ab0bcacc-472b-4897-a1fa-f14cff043e3b` "Restore" �
 
 শুধু শেষ deploy-টা ফেরাতে (চাবি সরানোর script চলার আগে বা পরে, দুই অবস্থাতেই নিরাপদ):
 Console → Firestore → Rules → History → `230c48c3…` → Restore।
+
+## 14b ধাপ B (vendor আর rider-এর গোপন তথ্য): rollback
+ধাপ B-তে vendor আর rider-এর গোপন তথ্য মূল ডকুমেন্ট থেকে সরে যায় দুটো আলাদা collection-এ:
+- vendor-এর ফোন, ইমেইল, ঠিকানা, NID আর trade license-এর লিংক, payout account, commission আর balance যায়
+  `vendor_private/{vendorId}`-এ।
+- rider-এর NID, ঠিকানা আর ইমেইল যায় `delivery_partner_private/{uid}`-এ।
+
+এই সরানোর কাজটা করে `functions/scripts/movePrivateProfiles.js --apply`।
+
+**কোন ফাইল দিয়ে ফেরানো যাবে:**
+- **ধাপ B-এর rules লাইভে যাওয়ার আগে:** এই অংশ খাটে না। উপরের ধাপ A-এর নিয়ম মানতে হবে।
+- **ধাপ B-এর rules লাইভে, কিন্তু সরানোর script এখনো চলেনি:**
+  - Console → Firestore → Rules → History থেকে ধাপ B-এর আগের ruleset-এ Restore করা যায়।
+  - ধাপ A-এর লাইভ ruleset ছিল `c34bd793-1b54-472a-96bd-375352ac8f85`। ধাপ B deploy হলে নিচের টেবিলে সঠিক id লেখা হবে।
+  - নিরাপদ বিকল্প হিসেবে `firestore.rules.rollback-step-b` ব্যবহার করা যায়।
+- **সরানোর script চলার পরে:** সবসময় **শুধু `firestore.rules.rollback-step-b`**।
+  - **`firestore.rules.rollback-keep-secrets` আর `firestore.rules.live-2026-11-17` তখন আর কখনো ব্যবহার করা যাবে না।** Console-এর
+    History থেকে ধাপ B-এর আগের কোনো ruleset Restore করাও চলবে না।
+  - কারণ: পুরোনো সব rules-এ `vendor_private` আর `delivery_partner_private`-এর কোনো match নেই। তাই সবশেষের
+    `match /{document=**}` দিয়ে analytics.view বা staff role-এর যে কেউ NID, ফোন আর payout account পড়তে পারবে।
+    emulator-এ এটা দেখানো হয়েছে: পুরোনো লাইভ rules-এ analyst `vendor_private` পড়তে পারে (200)।
+  - `firestore.rules.rollback-step-b` হলো ধাপ B-এর আগের লাইভ rules (`c34bd793`, commit `d7d6761`), শুধু এই তিনটা বদলসহ:
+    - `vendor_private` আর `delivery_partner_private` সবার জন্য বন্ধ, admin আর superAdmin-এর জন্যও।
+      function বা admin SDK পড়তে পারে।
+    - সবশেষের match-এ এই দুটো আর `vendorWithdrawRequests` বাদ।
+    - বাকি সব ধাপ B-এর আগের মতো। এর মধ্যে আছে vendor-এর নিজের দোকান save করতে না পারার ভুলটাও
+      (ধাপ B-তে `canAnyOf` দিয়ে ঠিক হয়েছে, rollback-এ ফিরে আসে)।
+  - এই ফাইল দিয়ে ফেরালে অ্যাপ থেকে কেউ গোপন তথ্য দেখবে না। তাই admin-এর vendor আর rider পেজে ফোন, NID আর
+    payout ফাঁকা দেখাবে। তথ্য ফেরাতে হলে script-এর backup থেকে আলাদা কাজ লাগবে।
+  - emulator test: `node tools/rules-test/run.js docs/security/rules-backup/firestore.rules.rollback-step-b`। এতে
+    `tools/rules-test/rollback_b.test.js` চলে: ১৩ রকম ভূমিকার কেউ private পড়তে বা লিখতে পারে না।
+
+```sh
+cp docs/security/rules-backup/firestore.rules.rollback-step-b firestore.rules
+firebase deploy --only firestore:rules --project chalakchar-mart
+git checkout firestore.rules   # repo-র ফাইল আবার নতুন rules-এ
+```
+
+**Storage rules:** ধাপ B-এ `storage.rules`-ও বদলায়। NID আর trade license-এর ফাইল আগে যেকোনো staff role পড়তে
+পারত, এখন পারবে শুধু মালিক আর যাদের অনুমতি আছে। Storage rollback করা যায় `storage.rules.live-2026-11-17` দিয়ে।
+তাতে আবার যেকোনো staff role ফাইলগুলো পড়তে পারবে, তবে লগইন ছাড়া বা customer কেউ পারবে না। storage-এর test:
+`node tools/rules-test/run-storage.js`।
+
+```sh
+cp docs/security/rules-backup/storage.rules.live-2026-11-17 storage.rules
+firebase deploy --only storage --project chalakchar-mart
+git checkout storage.rules
+```
+
+| কখন (UTC) | কী | ruleset | আগেরটা |
+|---|---|---|---|
+| (এখনো deploy হয়নি) | Firestore, ধাপ B | — | `c34bd793-1b54-472a-96bd-375352ac8f85` |
+| (এখনো deploy হয়নি) | Storage, ধাপ B | — | `fc245689-b129-4212-8538-115ae1d3298b` |
