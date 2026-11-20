@@ -89,5 +89,5 @@ git checkout storage.rules
 
 | কখন (UTC) | কী | ruleset | আগেরটা |
 |---|---|---|---|
-| (এখনো deploy হয়নি) | Firestore, ধাপ B | — | `c34bd793-1b54-472a-96bd-375352ac8f85` |
-| (এখনো deploy হয়নি) | Storage, ধাপ B | — | `fc245689-b129-4212-8538-115ae1d3298b` |
+| 2026-11-20 07:33 UTC (`4800640`) | Firestore, ধাপ B | `c1dedc27-106c-42fa-a55a-bff96182ec15` | `c34bd793-1b54-472a-96bd-375352ac8f85` |
+| 2026-11-20 07:33 UTC (`4800640`) | Storage, ধাপ B | `2ce1afb0-379e-4ad8-82e3-206be53d8a01` | `fc245689-b129-4212-8538-115ae1d3298b` |
