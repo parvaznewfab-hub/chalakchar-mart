@@ -2,6 +2,8 @@
 
 এই ফাইলে শুধু পরিকল্পনা। প্রতিটা ধাপ চলবে মালিকের অনুমতির পরে।
 
+ক্রম (মালিক, ২০ নভেম্বর): ১ → ২ → ২ক → ৫ → ৬। Android release আলাদাভাবে, keystore পাওয়া গেলে।
+
 সব কমান্ড চলবে worktree `C:\FlutterProjects\cc_step_b`-এর মূল ফোল্ডার থেকে, Git Bash-এ, branch `audit-step-b`-এ।
 এই branch d7d6761 থেকে খোলা, তাই d4ead6c এতে নেই। শুরুর আগে নিশ্চিত হতে:
 `git merge-base --is-ancestor d4ead6c HEAD` চালালে exit code 1 আসতে হবে।
@@ -75,37 +77,14 @@ firebase hosting:clone chalakchar-mart:step-b chalakchar-mart:live --project cha
   rider-এর ছবি এখনো পুরোনো token-সহ লিংক দিয়ে খোলে, যতক্ষণ না ধাপ C-তে token বাতিল হয়।
 - **পুরোনো অ্যাপ** (Play-তে এখন যে build আছে): নিচের "পুরোনো অ্যাপ" টেবিলের "ধাপ ২ থেকে ৫" কলাম।
 
-## ধাপ ৩: audit-step-b থেকে নতুন Android release build, তারপর Play-তে জমা
+## ধাপ ২ক: vendor আর rider-কে জানানো (ধাপ ২-এর পরপরই)
 
-**আগে যা লাগবে** (এখন repo-তে নেই):
-1. **upload keystore** (`.jks`) আর `android/key.properties`। এতে থাকে storePassword, keyPassword, keyAlias আর storeFile।
-   - এটা git-এ রাখা যাবে না।
-   - Play App Signing চালু থাকলে Play Console-এ যে upload key নিবন্ধিত আছে, সেই key-ই লাগবে।
-     হারিয়ে গেলে Play Console → App integrity → "Request upload key reset"।
-2. `android/app/build.gradle.kts`-এ `signingConfigs.release`। এখন release build debug key দিয়ে সই হয় (লাইন ৩৮-৪১)।
-   এই build দিয়ে Play-তে জমা দেওয়া যাবে না।
-3. **version:** pubspec-এ এখন `1.0.0+1`, যেটা প্রথম commit থেকে কখনো বদলায়নি।
-   - নতুন versionCode অবশ্যই Play-তে এখনকার versionCode-এর চেয়ে বড় হতে হবে। মান দেখতে হবে Play Console → App bundle explorer-এ।
-   - উদাহরণ: `--build-name=1.0.1 --build-number=<Play-এর এখনকার versionCode + 1>`।
+- মালিক দুজনকে জানাবেন: নতুন Android অ্যাপ আসা পর্যন্ত vendor-এর প্রোফাইল, আবেদন আর withdraw **ওয়েবসাইট থেকে**
+  (chalakcharmart.com) করতে হবে। পুরোনো অ্যাপে এগুলো ব্যর্থ হবে (নিচের টেবিল)।
+- rider-এর dashboard, আয় আর COD sync পুরোনো অ্যাপেই চলে, তাই rider-এর কিছু বদলাতে হবে না।
+- কোনো কমান্ড নেই। rollback-ও নেই।
 
-```sh
-flutter clean && flutter pub get
-flutter test                       # সব পাস করতে হবে
-flutter build appbundle --release --build-name=1.0.1 --build-number=<N>
-# ফল: build/app/outputs/bundle/release/app-release.aab -> Play Console -> Internal testing -> তারপর Production
-```
-
-- **rollback:** Play-তে আগের release-এ ফেরা যায় না। ভুল থাকলে নতুন versionCode দিয়ে ঠিক করা build জমা দিতে হবে।
-  তবে staged rollout থামানো যায়।
-- **প্রভাব:** কিছু না, যতক্ষণ না ব্যবহারকারী update করছেন। Play-এর review-এ কয়েক ঘণ্টা থেকে কয়েক দিন লাগতে পারে।
-
-## ধাপ ৪: Play-তে নতুন অ্যাপ এলে মালিক vendor আর rider-কে update করাবেন
-
-- দুজনে অ্যাপ খুলে লগইন করবেন।
-- নতুন অ্যাপ এখনো platform বা version লেখে না, এটা তালিকায় আছে। তাই update হয়েছে কি না নিশ্চিত হতে হবে
-  দুজনের কাছে জিজ্ঞেস করে। Play Store-এ অ্যাপের পাতায় "Update" বোতাম না থাকলে update হয়ে গেছে।
-
-## ধাপ ৫: script, আগে dry-run, তারপর মালিকের অনুমোদন, তারপর `--apply`, তারপর যাচাই
+## ধাপ ৫: script, ধাপ ২ক-এর পরে (Play release-এর জন্য অপেক্ষা নয়), আগে dry-run, তারপর মালিকের অনুমোদন, তারপর `--apply`, তারপর যাচাই
 
 ```sh
 # ০. Firestore export (মালিকের স্থায়ী শর্ত: যেকোনো লাইভ --apply-এর আগে)
@@ -123,7 +102,14 @@ node scripts/movePrivateProfiles.js --apply    # অনুমোদনের প
   - admin পেজে ফোন, payout আর "on file" আগের মতোই দেখাবে, এবার private থেকে।
 - **rollback:**
   - export থেকে `gcloud firestore import`, অথবা backup JSON থেকে মূল ডকুমেন্টে মান ফেরানো।
-  - **ফেরানোর script এখনো লেখা হয়নি।** ধাপ ৫-এর আগে এটা লিখে emulator-এ পরীক্ষা করা উচিত।
+  - ফেরানোর script: `functions/scripts/restorePrivateProfiles.js` (emulator-এ test করা, লাইভে কখনো চালানো হয়নি):
+    ```sh
+    node scripts/restorePrivateProfiles.js --from-backup ~/cc-backups/private_profiles_<সময়>.json            # dry-run
+    node scripts/restorePrivateProfiles.js --from-backup ~/cc-backups/private_profiles_<সময়>.json --apply    # অনুমোদনের পরে
+    ```
+    এতে পুরোনো লিংক সহ মান মূল ডকুমেন্টে ফেরে, আর private ডকুমেন্ট যেমন আছে তেমন থাকে।
+    backup না থাকলে `--from-private` দিয়ে চালানো যায়, তবে তাতে লিংক ফেরে না।
+    মূল ডকুমেন্টে ভিন্ন মান থাকলে script কিছু লেখার আগেই থেমে যায়।
   - এই ধাপের পরে rules ফেরাতে হলে শুধু `firestore.rules.rollback-step-b`। README দেখুন।
 - **প্রভাব:**
   - নতুন ওয়েবসাইট আর নতুন অ্যাপ: কিছু না, কারণ এরা private থেকেই পড়ে।
@@ -145,6 +131,44 @@ firebase deploy --only firestore:rules --project chalakchar-mart
 - **rollback:** Console History থেকে ধাপ ২-এর ruleset-এ Restore। এটা নিরাপদ, কারণ ওই ruleset-ও private ডকুমেন্ট বন্ধ রাখে।
 - **প্রভাব:** এই ধাপে কোনো কপি বাকি থাকে না। তাই পুরোনো অ্যাপের "আগের মতো" মান পাঠানো save-ও বাতিল হবে,
   যেমন খোলা থাকা পুরোনো admin form। পুরোনো অ্যাপের জন্য ধাপ ৫-এর টেবিলই খাটে।
+
+---
+
+## আলাদা কাজ: Android release (keystore পাওয়া গেলে, ধাপ ৫-এর জন্য অপেক্ষা নয়)
+
+মালিকের সিদ্ধান্ত (২০ নভেম্বর): ধাপ ৫ Play release-এর জন্য অপেক্ষা করবে না। keystore পাওয়া গেলে নিচের ক, খ আলাদাভাবে হবে।
+
+### ক. audit-step-b থেকে নতুন Android release build, তারপর Play-তে জমা
+
+**আগে যা লাগবে** (এখন repo-তে নেই):
+1. **upload keystore** (`.jks`) আর `android/key.properties`। এতে থাকে storePassword, keyPassword, keyAlias আর storeFile।
+   - এটা git-এ রাখা যাবে না।
+   - Play App Signing চালু থাকলে Play Console-এ যে upload key নিবন্ধিত আছে, সেই key-ই লাগবে।
+     হারিয়ে গেলে Play Console → App integrity → "Request upload key reset"।
+2. `android/app/build.gradle.kts` এখন `android/key.properties` থেকে release-এর signing পড়ে (audit-step-b)।
+   ফাইলটা না থাকলে বা কোনো ঘর ফাঁকা থাকলে release build থেমে যায়, স্পষ্ট বার্তা দেয়, debug key দিয়ে আর সই হয় না
+   (পরীক্ষা করা হয়েছে: `flutter build apk --release` → "Release signing is not configured…")।
+   key.properties আর `*.jks` `.gitignore`-এ আছে।
+3. **version:** pubspec-এ এখন `1.0.0+1`, যেটা প্রথম commit থেকে কখনো বদলায়নি।
+   - নতুন versionCode অবশ্যই Play-তে এখনকার versionCode-এর চেয়ে বড় হতে হবে। মান দেখতে হবে Play Console → App bundle explorer-এ।
+   - উদাহরণ: `--build-name=1.0.1 --build-number=<Play-এর এখনকার versionCode + 1>`।
+
+```sh
+flutter clean && flutter pub get
+flutter test                       # সব পাস করতে হবে
+flutter build appbundle --release --build-name=1.0.1 --build-number=<N>
+# ফল: build/app/outputs/bundle/release/app-release.aab -> Play Console -> Internal testing -> তারপর Production
+```
+
+- **rollback:** Play-তে আগের release-এ ফেরা যায় না। ভুল থাকলে নতুন versionCode দিয়ে ঠিক করা build জমা দিতে হবে।
+  তবে staged rollout থামানো যায়।
+- **প্রভাব:** কিছু না, যতক্ষণ না ব্যবহারকারী update করছেন। Play-এর review-এ কয়েক ঘণ্টা থেকে কয়েক দিন লাগতে পারে।
+
+### খ. Play-তে নতুন অ্যাপ এলে মালিক vendor আর rider-কে update করাবেন
+
+- দুজনে অ্যাপ খুলে লগইন করবেন।
+- নতুন অ্যাপ এখনো platform বা version লেখে না, এটা তালিকায় আছে। তাই update হয়েছে কি না নিশ্চিত হতে হবে
+  দুজনের কাছে জিজ্ঞেস করে। Play Store-এ অ্যাপের পাতায় "Update" বোতাম না থাকলে update হয়ে গেছে।
 
 ---
 
