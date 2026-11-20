@@ -291,7 +291,7 @@ TikTok এখন চালু হবে না। তাই secret বদলা�
 - **কম অগ্রাধিকার:** Cloud Functions-এর জন্য কম ক্ষমতার আলাদা একটা service account তৈরি করা, আর default compute account থেকে `Editor` সরিয়ে দেওয়া।
   - কারণ: project-স্তরের `Editor` থাকায় compute, App Engine আর cloudservices account `gs://chalakchar-mart-backups`-সহ সব bucket পড়তে পারে। `firebase-adminsdk-fbsvc`-এর `storage.admin`-ও একই কাজ করে।
   - backup bucket-এর জন্য IAM deny policy এখন লাগবে না (মালিকের সিদ্ধান্ত)। soft-delete-এর ৭ দিন থাকবে।
-- **কম অগ্রাধিকার:** rider Faruk-এর nidNumber ৯ অক্ষরের, সম্ভবত এটা test মান। আসল NID নিয়ে admin থেকে ঠিক করতে হবে। মানটা এখন আছে `delivery_partner_private`-এ।
+- **কম অগ্রাধিকার:** rider Faruk-এর NID নম্বর আর দুটো NID ফাইল test মান, আসল NID নেই। Faruk আসল rider হলে আসল কাগজ নিতে হবে, নইলে test অ্যাকাউন্ট হিসেবে চিহ্নিত করতে হবে।
 
 ## d4ead6c deploy-এর আগে বাধ্যতামূলক (মালিক, ২০ নভেম্বর)
 
