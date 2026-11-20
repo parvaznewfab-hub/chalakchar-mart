@@ -285,3 +285,9 @@ TikTok এখন চালু হবে না। তাই secret বদলা�
   - নতুন কোডেও try/catch নেই। পরের Android build-এর আগে বাংলা error বার্তা যোগ করা দরকার।
   - আর vendor বা rider-এর আবেদন ব্যর্থ হলে কারিগরি ভাষায় লাল snackbar দেখায়
     ("Submit failed: [cloud_firestore/permission-denied] …")। এটা সহজ বাংলায় করা দরকার।
+
+## তালিকায় যোগ (মালিক, ২০ নভেম্বর, ধাপ B চলাকালীন)
+
+- **কম অগ্রাধিকার:** Cloud Functions-এর জন্য কম ক্ষমতার আলাদা একটা service account তৈরি করা, আর default compute account থেকে `Editor` সরিয়ে দেওয়া।
+  - কারণ: project-স্তরের `Editor` থাকায় compute, App Engine আর cloudservices account `gs://chalakchar-mart-backups`-সহ সব bucket পড়তে পারে। `firebase-adminsdk-fbsvc`-এর `storage.admin`-ও একই কাজ করে।
+  - backup bucket-এর জন্য IAM deny policy এখন লাগবে না (মালিকের সিদ্ধান্ত)। soft-delete-এর ৭ দিন থাকবে।
