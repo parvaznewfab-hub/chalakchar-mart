@@ -259,3 +259,19 @@ TikTok এখন চালু হবে না। তাই secret বদলা�
     থাকলে দোকানের পেজে দেখাবে, না থাকলে কিছু না।
   - যোগাযোগের জায়গায় দেখাবে ChalakChar support।
   - `ownerName` আর `commissionPercent` গোপন।
+- **লগইনের সময় platform (web, android) আর অ্যাপের version `users` ডকুমেন্টে লেখা।** force update-এর কাজের সাথে।
+  এখন `auth_service.dart:307, 327` শুধু `lastLoginAt` লেখে। ফলে কে কোন platform বা version থেকে আসে, জানা যায় না।
+- **সবশেষের `match /{document=**}` read rule আলাদা করে দেখা।** analytics.view বা staff role থাকলে এই rule প্রায় সব
+  collection পড়তে দেয়। ধাপ B-তে এটা বদলানো হচ্ছে না, শুধু নতুন private collection আর `vendorWithdrawRequests` বাদ
+  যাচ্ছে।
+  - নিজস্ব match নেই, তাই staff শুধু এই rule দিয়েই পড়তে পারে। লাইভ collection (২০ নভেম্বরের সংখ্যা):
+    `analytics_daily` (১১), `conversations` (৭, গ্রাহকের chat), `delivery_logs` (১), `marketplace_connections` (১),
+    `rateLimits` (২৩), `searchImportLog` (৪৮), `system_locks` (২), `whatsappProcessedMessages` (১)।
+  - কোডে নাম আছে কিন্তু লাইভে ডেটা নেই: `commissionLedger`, `messages`, `order_sources`, `product_sources`,
+    `recommendation_signals`, `reviews`, `vendor_earnings`। এর মধ্যে `order_sources` আর `product_sources`-এর নিজস্ব
+    match d4ead6c-এ আছে।
+  - আর যেসব collection-এর নিজস্ব match আছে, সেখানে এই rule "বাড়তি অনুমতি" হিসেবে যোগ হয়। কারণ Firestore rules-এ
+    যেকোনো একটা allow মিললেই পড়া যায়। ফলে staff role সব collection পড়তে পারে, এই rule-এ যেগুলো বাদ দেওয়া হয়নি।
+- **vendor-এর কাগজের token (২০ নভেম্বর):** মালিক console থেকে vendor-এর ৩টা ফাইলের পুরোনো token বাতিল করেছেন।
+  vendor ডকুমেন্টের লিংক এখন 403। console নিজে থেকে প্রতিটায় একটা নতুন token বানিয়েছে, যেটা কোথাও লেখা নেই।
+  rider-এর ২টা ফাইলে এখনো পুরোনো token আছে, ধাপ C-তে বাতিল হবে।
