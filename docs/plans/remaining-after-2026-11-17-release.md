@@ -275,3 +275,13 @@ TikTok এখন চালু হবে না। তাই secret বদলা�
 - **vendor-এর কাগজের token (২০ নভেম্বর):** মালিক console থেকে vendor-এর ৩টা ফাইলের পুরোনো token বাতিল করেছেন।
   vendor ডকুমেন্টের লিংক এখন 403। console নিজে থেকে প্রতিটায় একটা নতুন token বানিয়েছে, যেটা কোথাও লেখা নেই।
   rider-এর ২টা ফাইলে এখনো পুরোনো token আছে, ধাপ C-তে বাতিল হবে।
+- **Settings-এ "default commission %" ঘর** (মালিক, ২০ নভেম্বর)। নতুন vendor-এর শুরুর হার এখন কোডে লেখা ১০%
+  (`kDefaultVendorCommissionPercent`, audit-step-b-এর `lib/utils/private_profile_fields.dart`)। এটা admin থেকে ঠিক করা
+  যাবে। প্রতিটা vendor-এর হার মালিক নিজে admin → Vendors → Edit থেকে বসাবেন। এই ঘর ধাপ B-তে আছে, আর ০% বসালে ০%-ই থাকে।
+- **পুরোনো অ্যাপে Profile → "Seller request" চুপচাপ ব্যর্থ হয়।** `profile_page.dart:234` থেকে
+  `AuthService.requestSellerAccount` ডাকা হয়, কিন্তু কোনো try/catch নেই।
+  - ব্যর্থ হলে dialog খোলা থাকে, কোনো বার্তা দেখায় না।
+  - ধাপ B-এর rules লাইভে গেলে পুরোনো অ্যাপে এটা সবসময় ব্যর্থ হবে, কারণ ফোন আর ঠিকানা মূল ডকুমেন্টে যায়।
+  - নতুন কোডেও try/catch নেই। পরের Android build-এর আগে বাংলা error বার্তা যোগ করা দরকার।
+  - আর vendor বা rider-এর আবেদন ব্যর্থ হলে কারিগরি ভাষায় লাল snackbar দেখায়
+    ("Submit failed: [cloud_firestore/permission-denied] …")। এটা সহজ বাংলায় করা দরকার।
