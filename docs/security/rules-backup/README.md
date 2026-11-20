@@ -119,3 +119,25 @@ Hosting ফেরাতে:
 
 Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --region asia-south1 --project chalakchar-mart`।
 এতে admin-এর কাগজ খোলা বন্ধ হয়ে যায়, বাকি সব আগের মতো চলে।
+
+## 14b ধাপ C: সম্পূর্ণ (২০ নভেম্বর ২০২৬)
+
+- **IAM (১৩:৩০ UTC-র আশেপাশে):** service account `identity-docs-viewer` তৈরি হয়েছে, মালিকের অনুমোদনে। এর অনুমতি:
+  - custom role `identityDocsFirestoreGet` (শুধু `datastore.entities.get`)।
+  - default bucket-এ `storage.objectViewer`, condition ছাড়া।
+  - নিজের ওপর `iam.serviceAccountTokenCreator`।
+  - default compute account-এ কিছু যোগ হয়নি।
+- **Function:** `getIdentityDocumentUrl` চলে ১৩:৩৩ UTC থেকে, `identity-docs-viewer` দিয়ে।
+  - preview-এ ৫টা কাগজই খুলেছে।
+  - লাইভে vendor Trade License খুলেছে ১৪:০৯ UTC-তে। rider Front খুলেছে ১৪:৩৬ UTC-তে, token মোছার পরে।
+  - log-এ থাকে শুধু viewerUid, ownerId, kind, which আর at। কোনো path বা URL নেই।
+- **Hosting live:** version `caec3ea7c1d3fd7e`, ১৪:০৬ UTC।
+- **Download token বাতিল:** ১৪:৩৩ UTC-তে `functions/scripts/revokeIdentityDocTokens.js --apply` চলেছে।
+  - vendor-এর ৩টা আর rider-এর ২টা কাগজ, মোট ৫টা ফাইলের প্রতিটিতে ১টা করে token ছিল। এখন ০টা।
+  - script-এর নিজের যাচাই আর আবার dry-run, দুটোতেই "No download token left" এসেছে।
+  - পুরোনো link-এর 403 আলাদা করে খোলা হয়নি। token ০ থাকাকেই যথেষ্ট প্রমাণ ধরা হয়েছে (মালিকের সিদ্ধান্ত)। কারণ backup ফোল্ডারটা মালিক ইচ্ছা করে মুছেছেন।
+  - token-এর মান কোথাও print বা save করা হয়নি। পুরোনো token ফেরানোর কোনো উপায় ইচ্ছা করেই রাখা হয়নি।
+- **আবার দেখার উপায়:** `node scripts/revokeIdentityDocTokens.js` (dry-run) চালালে কোনো কাগজে নতুন token তৈরি হয়েছে কি না দেখা যায়। যেমন কেউ Console-এ ফাইল খুলে "Create new access token" চাপলে।
+- **বাকি (তালিকায়):**
+  - bucket-এ uniform access চালু করে prefix condition বসানো।
+  - rider Faruk-এর test কাগজ।
