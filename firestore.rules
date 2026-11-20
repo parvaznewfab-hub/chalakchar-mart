@@ -433,25 +433,19 @@ service cloud.firestore {
 
     /* ---------- 14b step B: private vendor / rider data ----------
        Personal and money fields live in vendor_private/{vendorId} and
-       delivery_partner_private/{uid}. The public docs may keep a value left
-       over from before the move script (older app builds re-send it), but no
-       new or changed value: each private key must be absent/empty or
-       untouched. Lists must match lib/utils/private_profile_fields.dart and
+       delivery_partner_private/{uid}. Step 6 (after the move script emptied
+       the public docs, 2026-11-20): the public docs may not hold ANY private
+       key, not even empty or unchanged, old download-link keys included.
+       Lists must match lib/utils/private_profile_fields.dart and
        functions/scripts/movePrivateProfiles.js. */
 
-    // Private keys this write adds or changes (removals are fine). Computed
-    // once per rule; Firestore stops at 1000 expressions per request, so the
-    // per-key check below only runs when a private key really was touched.
-    function touchedPrivateKeys(keys) {
-      let d = request.resource.data.diff(resource == null ? {} : resource.data);
-      return d.addedKeys().union(d.changedKeys()).intersection(keys.toSet());
+    // One keys().hasAny() per rule: cheap, far below the 1000-expression limit.
+    function noVendorPrivateKeys() {
+      return !request.resource.data.keys().hasAny(vendorAllPrivateKeys());
     }
 
-    // A touched private key is only OK when blanked ('' or null).
-    function blankIfTouched(touched, key) {
-      return !(key in touched)
-        || request.resource.data[key] == ''
-        || request.resource.data[key] == null;
+    function noRiderPrivateKeys() {
+      return !request.resource.data.keys().hasAny(riderAllPrivateKeys());
     }
 
     function vendorAllPrivateKeys() {
@@ -463,8 +457,8 @@ service cloud.firestore {
     }
 
     function vendorPrivateProfileKeys() {
-      // nidFront/nidBack/tradeLicense: old download links (read only now);
-      // the app stores new documents as Storage paths (*Path).
+      // nidFront/nidBack/tradeLicense: old download links, never written again;
+      // documents are Storage paths (*Path), in vendor_private only.
       return [
         'phone', 'email', 'address', 'ownerName', 'note',
         'nidFront', 'nidBack', 'tradeLicense',
@@ -482,39 +476,8 @@ service cloud.firestore {
       ];
     }
 
-    function noNewVendorPrivateKeys() {
-      let t = touchedPrivateKeys(vendorAllPrivateKeys());
-      return t.size() == 0
-        || (
-          blankIfTouched(t, 'phone') && blankIfTouched(t, 'email')
-          && blankIfTouched(t, 'address') && blankIfTouched(t, 'ownerName')
-          && blankIfTouched(t, 'nidFront') && blankIfTouched(t, 'nidBack')
-          && blankIfTouched(t, 'tradeLicense') && blankIfTouched(t, 'payoutAccount')
-          && blankIfTouched(t, 'payoutNumber') && blankIfTouched(t, 'note')
-          && blankIfTouched(t, 'nidFrontPath') && blankIfTouched(t, 'nidBackPath')
-          && blankIfTouched(t, 'tradeLicensePath')
-          && blankIfTouched(t, 'commissionPercent') && blankIfTouched(t, 'commissionRate')
-          && blankIfTouched(t, 'totalSales') && blankIfTouched(t, 'totalCommission')
-          && blankIfTouched(t, 'pendingBalance') && blankIfTouched(t, 'withdrawableBalance')
-          && blankIfTouched(t, 'withdrawPendingBalance') && blankIfTouched(t, 'deliveredOrders')
-          && blankIfTouched(t, 'totalPaidOut')
-          && blankIfTouched(t, 'cancelledOrders')
-        );
-    }
-
     function riderPrivateNidKeys() {
       return ['nidNumber', 'nidFrontUrl', 'nidBackUrl', 'nidFrontPath', 'nidBackPath'];
-    }
-
-    function noNewRiderPrivateKeys() {
-      let t = touchedPrivateKeys(riderAllPrivateKeys());
-      return t.size() == 0
-        || (
-          blankIfTouched(t, 'nidNumber') && blankIfTouched(t, 'nidFrontUrl')
-          && blankIfTouched(t, 'nidBackUrl') && blankIfTouched(t, 'nidFrontPath')
-          && blankIfTouched(t, 'nidBackPath') && blankIfTouched(t, 'address')
-          && blankIfTouched(t, 'email') && blankIfTouched(t, 'note')
-        );
     }
 
     // The vendor owner: the vendor doc id is their uid (vendor_apply_page),
@@ -956,13 +919,13 @@ service cloud.firestore {
         && request.resource.data.ownerId == request.auth.uid
         && request.resource.data.status in ['pending', 'submitted']
         && request.resource.data.isActive == false
-        && noNewVendorPrivateKeys();
+        && noVendorPrivateKeys();
 
       // canAnyOf, not can() x3: the old form ran past Firestore's 1000-expression
       // limit for every non-staff caller, so even an approved vendor's own
       // profile save was refused (found in step B, also true on live c34bd793).
       allow update: if canAnyOf(['vendors.edit', 'vendors.approve', 'vendors.status'])
-        && noNewVendorPrivateKeys();
+        && noVendorPrivateKeys();
 
       // Applicant/vendor owner can create or update own application while it is pending/rejected/submitted.
       // They cannot approve themselves or edit money/commission fields.
@@ -987,7 +950,7 @@ service cloud.firestore {
           'approvedAt',
           'suspendedAt'
         ])
-        && noNewVendorPrivateKeys();
+        && noVendorPrivateKeys();
 
       // Vendor owner can update only profile/docs fields, not approval/money/status fields.
       // (Profile/docs themselves now go to vendor_private, below.)
@@ -1006,7 +969,7 @@ service cloud.firestore {
           'rejectedAt',
           'suspendedAt'
         ])
-        && noNewVendorPrivateKeys();
+        && noVendorPrivateKeys();
 
       allow delete: if can('vendors.delete') || isSuperAdmin();
     }
@@ -1110,13 +1073,13 @@ service cloud.firestore {
         && request.resource.data.get('withdrawnAmount', 0) == 0
         && request.resource.data.get('pendingAmount', 0) == 0
         && request.resource.data.get('codDue', 0) == 0
-        && noNewRiderPrivateKeys();
+        && noRiderPrivateKeys();
 
       allow update: if (
           hasRole('admin')
           || canAnyOf(['delivery.approve', 'delivery.block', 'delivery.withdraw', 'delivery.settle_cod'])
         )
-        && noNewRiderPrivateKeys();
+        && noRiderPrivateKeys();
 
       // The rider: never their own approval or money fields directly...
       allow update: if signedIn()
@@ -1128,7 +1091,7 @@ service cloud.firestore {
           'totalDeliveries', 'totalEarning', 'withdrawnAmount', 'pendingAmount', 'codDue',
           'lastEarningSyncedAt', 'lastSyncedOrderId', 'lastWithdrawRequestId', 'lastCodSettlementAt'
         ])
-        && noNewRiderPrivateKeys();
+        && noRiderPrivateKeys();
 
       // ...only through these two checked steps of the rider app.
       // (Both allow money keys only, so private keys cannot change there.)

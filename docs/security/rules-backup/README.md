@@ -53,7 +53,17 @@ Console → Firestore → Rules → History → `230c48c3…` → Restore।
   - Console → Firestore → Rules → History থেকে ধাপ B-এর আগের ruleset-এ Restore করা যায়।
   - ধাপ A-এর লাইভ ruleset ছিল `c34bd793-1b54-472a-96bd-375352ac8f85`। ধাপ B deploy হলে নিচের টেবিলে সঠিক id লেখা হবে।
   - নিরাপদ বিকল্প হিসেবে `firestore.rules.rollback-step-b` ব্যবহার করা যায়।
-- **সরানোর script চলার পরে:** সবসময় **শুধু `firestore.rules.rollback-step-b`**।
+- **সরানোর script চলার পরে (2026-11-20 10:15 UTC থেকে):** ফেরানো যাবে শুধু দুটো ruleset-এ:
+  - **ধাপ ৬ বাতিল করতে:** ধাপ ২-এর ruleset `c1dedc27-106c-42fa-a55a-bff96182ec15`-এ ফিরতে হবে। এর কপি আছে `firestore.rules.live-step-b-2` ফাইলে (commit `4800640`, লাইভের সঙ্গে হুবহু মেলানো)।
+    এই ruleset-এ মূল ডকুমেন্টে গোপন key-এর মান খালি থাকতে পারে, বা আগের মান অপরিবর্তিত থাকতে পারে। নতুন মান লেখা যায় না।
+    ```sh
+    cp docs/security/rules-backup/firestore.rules.live-step-b-2 firestore.rules
+    firebase deploy --only firestore:rules --project chalakchar-mart
+    git checkout firestore.rules
+    ```
+    বিকল্প: Console → Firestore → Rules → History → `c1dedc27…` → Restore। এটা ছাড়া Console থেকে অন্য কোনো ruleset Restore করা যাবে না।
+  - **পুরো ধাপ B বাতিল করতে:** আগে `restorePrivateProfiles.js` চালাতে হবে, তারপর `firestore.rules.rollback-step-b` deploy করতে হবে।
+    পুরো ক্রম `docs/security/step-b-deploy-plan.md`-এর ধাপ ৫ঙ-তে আছে।
   - **`firestore.rules.rollback-keep-secrets` আর `firestore.rules.live-2026-11-17` তখন আর কখনো ব্যবহার করা যাবে না।** Console-এর
     History থেকে ধাপ B-এর আগের কোনো ruleset Restore করাও চলবে না।
   - কারণ: পুরোনো সব rules-এ `vendor_private` আর `delivery_partner_private`-এর কোনো match নেই। তাই সবশেষের

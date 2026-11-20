@@ -83,34 +83,77 @@ describe('step B: vendors', opts, () => {
     }));
   });
 
-  test('public vendor doc: harmless edits still work, also with old copies left in (pre-move)', async () => {
+  test('public vendor doc (step 6, after the move): harmless edits work; ANY private key refused, empty or same value too', async () => {
     allowed(await db('vendU2').update('vendors/vend2', { shopName: 'Shop Two!', shopArea: 'Chalakchar', updatedAt: SERVER_TS }));
-    // vend1 still has phone + nidFront in the public doc: an old build re-sends them unchanged.
-    allowed(await db('vendU1').update('vendors/vend1', {
-      shopName: 'Shop One!', phone: '01700000001', nidFront: 'https://example.invalid/nid?token=x',
-    }));
-    // ...or blanks them: also fine.
-    allowed(await db('vendU1').update('vendors/vend1', { phone: '' }));
-    // but not a changed value.
-    denied(await db('vendU1').update('vendors/vend1', { phone: '01799999999' }));
+    allowed(await db('vendU1').update('vendors/vend1', { shopName: 'Shop One!', updatedAt: SERVER_TS }));
+    // The value that was there before the move: refused now.
+    denied(await db('vendU1').update('vendors/vend1', { phone: '01700000001' }));
+    // Empty: refused now (step 2 allowed it).
+    denied(await db('vendU1').update('vendors/vend1', { phone: '' }));
+    denied(await db('admin').update('vendors/vend1', { note: null }));
+    // Old download-link keys: never written again, not even empty.
+    for (const key of ['nidFront', 'nidBack', 'tradeLicense']) {
+      denied(await db('vendU1').update('vendors/vend1', { [key]: '' }), `vendor ${key}`);
+      denied(await db('admin').update('vendors/vend1', { [key]: 'https://x' }), `admin ${key}`);
+    }
+    // *Path keys and money keys: private only.
+    denied(await db('admin').update('vendors/vend1', { nidFrontPath: 'vendors/vend1/documents/a.jpg' }));
+    denied(await db('admin').update('vendors/vend1', { totalSales: 0 }));
     allowed(await db('cust1').create('vendors/cust1', {
       ownerId: 'cust1', userId: 'cust1', shopName: 'S', shopArea: 'Ramgati', status: 'pending', isActive: false,
     }));
+    denied(await db('cust1').create('vendors/cust1', {
+      ownerId: 'cust1', userId: 'cust1', shopName: 'S', status: 'pending', isActive: false, note: '',
+    }));
   });
 
-  test('expression limit: big admin form save and blanking many old copies stay under 1000', async () => {
+  test('expression limit: big admin form saves stay under 1000', async () => {
     const form = {
       shopName: 'Shop One', shopArea: 'Chalakchar', businessType: 'Retail', status: 'approved',
       isActive: true, isVerified: true, rating: 4.5, totalOrders: 3, logoUrl: '', bannerUrl: '', updatedAt: SERVER_TS,
     };
     allowed(await db('admin').update('vendors/vend1', form));
     allowed(await db('vendU1').update('vendors/vend1', { shopName: 'S', shopArea: 'A', updatedAt: SERVER_TS }));
-    allowed(await db('admin').update('vendors/vend1', {
-      ...form, phone: '', nidFront: '', email: '', address: '', payoutAccount: '', note: '', ownerName: '',
-    }));
     allowed(await db('admin').update('deliveryPartners/rider1', {
-      name: 'R', phone: '018', status: 'approved', isActive: true, nidNumber: '', nidFrontUrl: '', address: '', email: '',
+      name: 'R', phone: '018', status: 'approved', isActive: true, preferredArea: 'Sadar', vehicleType: 'bike', updatedAt: SERVER_TS,
     }));
+  });
+
+  // What an old Android build or a still-open old website tab (d7d6761) sends
+  // after step 6: every save that carries a private key is refused (the user
+  // sees the old red "... permission-denied" snackbar); status-only admin
+  // actions keep working.
+  test('old app / old open page saves: refused when they carry private keys; status-only admin actions work', async () => {
+    // Old admin vendor dialog: whole form incl. phone, owner, payout, commission, links.
+    denied(await db('admin').set('vendors/vend1', {
+      shopName: 'Shop One', ownerName: 'O', phone: '017', email: 'a@b.c', address: 'Road', businessType: 'general',
+      commissionPercent: 10, commissionRate: 10, payoutAccount: 'bkash', note: '', ownerId: 'vendU1', userId: 'vendU1',
+      nidFront: 'https://x', nidBack: '', tradeLicense: '', status: 'approved', isActive: true, isVerified: true, updatedAt: SERVER_TS,
+    }, { merge: true }));
+    // Old vendor application (re-submit after rejection) with links + phone.
+    denied(await db('vendNew').set('vendors/vendNew', {
+      ownerId: 'vendNew', userId: 'vendNew', shopName: 'New Shop', ownerName: 'N', phone: '017', email: '', address: 'A',
+      payoutAccount: 'bkash', note: '', nidFront: 'https://x', nidBack: 'https://y', tradeLicense: '',
+      status: 'pending', isActive: false, isVerified: false, updatedAt: SERVER_TS,
+    }, { merge: true }));
+    // Old Profile -> seller request: phone, address, commission on the public doc.
+    denied(await db('cust1').set('vendors/cust1', {
+      ownerId: 'cust1', userId: 'cust1', shopName: 'S', phone: '017', address: 'A', commissionPercent: 10,
+      status: 'pending', isActive: false, isVerified: false, createdAt: SERVER_TS, updatedAt: SERVER_TS,
+    }, { merge: true }));
+    // Old rider application: NID number + links + address on the public doc.
+    denied(await db('cust1').set('deliveryPartners/cust1', {
+      uid: 'cust1', name: 'C', phone: '018', status: 'pending', isActive: false, nidNumber: '1', nidFrontUrl: 'https://x',
+      nidBackUrl: 'https://y', address: 'Home', email: '', note: '',
+      totalDeliveries: 0, totalEarning: 0, withdrawnAmount: 0, pendingAmount: 0, codDue: 0, createdAt: SERVER_TS,
+    }));
+    // Old admin rider approval that re-sends the NID number.
+    denied(await db('admin').update('deliveryPartners/rider2', { status: 'approved', isActive: true, nidNumber: '1' }));
+    // Status-only actions of the old admin pages: still fine.
+    allowed(await db('admin').update('vendors/vend2', {
+      status: 'approved', isActive: true, isVerified: true, approvedAt: SERVER_TS, updatedAt: SERVER_TS,
+    }));
+    allowed(await db('admin').update('deliveryPartners/rider2', { status: 'approved', isActive: true, approvedAt: SERVER_TS }));
   });
 
   test('commission %: vendors.edit (admin) and payout staff set it, 0 included; vendor and view-only staff cannot', async () => {
@@ -211,11 +254,17 @@ describe('step B: riders', opts, () => {
     allowed(await db('cust1').set('deliveryPartners/cust1', app));
   });
 
-  test('public rider doc: rider / admin cannot put a NEW private value back; old copy unchanged is fine', async () => {
+  test('public rider doc (step 6): no private key at all, not even the old value or empty; harmless edits work', async () => {
     denied(await db('rider1').update('deliveryPartners/rider1', { address: 'New home' }));
     denied(await db('admin').update('deliveryPartners/rider1', { nidNumber: '42' }));
     allowed(await db('rider1').update('deliveryPartners/rider1', { preferredArea: 'Sadar', updatedAt: SERVER_TS }));
-    allowed(await db('admin').update('deliveryPartners/rider1', { status: 'approved', nidNumber: '1234567890' }));
+    denied(await db('admin').update('deliveryPartners/rider1', { status: 'approved', nidNumber: '1234567890' }));
+    for (const key of ['nidFrontUrl', 'nidBackUrl', 'nidFrontPath', 'address', 'email', 'note']) {
+      denied(await db('rider1').update('deliveryPartners/rider1', { [key]: '' }), `rider ${key}`);
+      denied(await db('admin').update('deliveryPartners/rider1', { [key]: '' }), `admin ${key}`);
+    }
+    // name / phone / money stay public.
+    allowed(await db('admin').update('deliveryPartners/rider1', { name: 'Rider One', phone: '01800000001' }));
   });
 
   test('order-assign staff: public rider doc yes (name, phone), private no', async () => {

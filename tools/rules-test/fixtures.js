@@ -11,6 +11,21 @@ const STEP_B_ROLLBACK = /rollback-step-b/.test(RULES_FILE);
 const OLD_RULES = /rules-backup/.test(RULES_FILE) && !STEP_B_ROLLBACK;
 // The rollback file = old rules with only settings/app_secrets locked.
 const KEEP_SECRETS = /keep-secrets/.test(RULES_FILE);
+// Step 6 (current firestore.rules): the move script has run, so the public
+// vendor / rider docs hold no private key. Old copies (and the step B
+// rollback, which runs after the restore script) keep the pre-move docs.
+const POST_MOVE = !OLD_RULES && !STEP_B_ROLLBACK;
+const { VENDOR_PRIVATE_KEYS, RIDER_PRIVATE_KEYS } = require('../../functions/scripts/movePrivateProfiles');
+
+function withoutPrivateKeys(docs) {
+  const out = { ...docs };
+  for (const [p, data] of Object.entries(out)) {
+    const keys = p.startsWith('vendors/') ? VENDOR_PRIVATE_KEYS
+      : p.startsWith('deliveryPartners/') ? RIDER_PRIVATE_KEYS : null;
+    if (keys) out[p] = Object.fromEntries(Object.entries(data).filter(([k]) => !keys.includes(k)));
+  }
+  return out;
+}
 
 // Cast:
 //   cust1, cust2          ordinary customers
@@ -119,7 +134,7 @@ function baseDocs() {
 async function resetWorld() {
   await loadRules(RULES_FILE);
   await clearData();
-  await seed(baseDocs());
+  await seed(POST_MOVE ? withoutPrivateKeys(baseDocs()) : baseDocs());
 }
 
-module.exports = { resetWorld, RULES_FILE, OLD_RULES, KEEP_SECRETS, STEP_B_ROLLBACK };
+module.exports = { resetWorld, RULES_FILE, OLD_RULES, KEEP_SECRETS, STEP_B_ROLLBACK, POST_MOVE };
