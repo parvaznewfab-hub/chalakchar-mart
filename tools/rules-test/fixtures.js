@@ -32,6 +32,13 @@ const users = {
   'users/admin': u('admin'),
   'users/boss': u('superAdmin'),
   'users/analyst': u('staff', { permissions: ['analytics.view'] }),
+  // Step B staff: one permission each.
+  'users/vendStaff': u('staff', { permissions: ['vendors.view'] }),
+  'users/payStaff': u('staff', { permissions: ['vendors.payouts'] }),
+  'users/assignStaff': u('staff', { permissions: ['orders.assign_rider'] }),
+  'users/riderStaff': u('staff', { permissions: ['delivery.view'] }),
+  // A vendor applicant: owns vendors/vendNew (doc id = uid), not approved yet.
+  'users/vendNew': u('user'),
 };
 
 function baseDocs() {
@@ -42,6 +49,18 @@ function baseDocs() {
       nidFront: 'https://example.invalid/nid?token=x', status: 'approved', isActive: true, isVerified: true,
     },
     'vendors/vend2': { ownerId: 'vendU2', userId: 'vendU2', shopName: 'Shop Two', status: 'approved', isActive: true, isVerified: true },
+    // Step B: the private halves. vend1's public doc above still carries the
+    // old copies (state before the move script); vend2's is already clean.
+    'vendor_private/vend1': {
+      vendorId: 'vend1', phone: '01700000001', nidFront: 'https://example.invalid/nid?token=x',
+      payoutAccount: 'bkash 017', commissionPercent: 10, withdrawableBalance: 500,
+    },
+    'vendor_private/vend2': { vendorId: 'vend2', phone: '01700000002', payoutAccount: 'nagad 018' },
+    'vendors/vendNew': { ownerId: 'vendNew', userId: 'vendNew', shopName: 'New Shop', status: 'pending', isActive: false, isVerified: false },
+    'delivery_partner_private/rider1': {
+      uid: 'rider1', nidNumber: '1234567890', nidFrontUrl: 'https://example.invalid/r?token=y', address: 'House 9',
+    },
+    'delivery_partner_private/rider3': { uid: 'rider3', nidNumber: '555' },
     'deliveryPartners/rider1': {
       uid: 'rider1', name: 'Rider One', phone: '01800000001', nidNumber: '1234567890',
       nidFrontUrl: 'https://example.invalid/r?token=y', status: 'approved', isActive: true,

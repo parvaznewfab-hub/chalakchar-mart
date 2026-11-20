@@ -405,8 +405,9 @@ describe('deliveryPartners', opts, () => {
     if (r.status !== 404) throw new Error(`expected 404, got ${r.status}`);
   });
   test('apply: pending/inactive allowed (delivery_partner_apply_page.dart:177); self-approved refused', async () => {
+    // Step B: NID goes to delivery_partner_private, not here (see step_b.test.js).
     const app = {
-      uid: 'cust1', name: 'C', phone: '0', nidNumber: '1', status: 'pending', isActive: false,
+      uid: 'cust1', name: 'C', phone: '0', status: 'pending', isActive: false,
       totalDeliveries: 0, totalEarning: 0, withdrawnAmount: 0, pendingAmount: 0, codDue: 0,
       createdAt: SERVER_TS,
     };
@@ -429,7 +430,8 @@ describe('deliveryPartners', opts, () => {
 
 describe('vendorWithdrawRequests', opts, () => {
   const req = {
-    vendorId: 'vend1', vendorOwnerId: 'vendU1', vendorName: 'Shop One', vendorEmail: '', vendorPhone: '0',
+    // Step B: no vendorEmail/vendorPhone copies any more (see step_b.test.js).
+    vendorId: 'vend1', vendorOwnerId: 'vendU1', vendorName: 'Shop One',
     amount: 200, status: 'pending', note: '', payoutAccount: 'bkash', createdAt: SERVER_TS, updatedAt: SERVER_TS,
   };
   test('vendor can request for own vendor (vendor_withdraw_page.dart:197)', async () => {
@@ -473,7 +475,7 @@ describe('orders: admin', opts, () => {
   });
 });
 
-describe('vendors (unchanged until step B)', opts, () => {
+describe('vendors: public doc still readable (personal data moved out in step B)', opts, () => {
   test('shop page and product page still read the vendor without login', async () => {
     allowed(await db(null).get('vendors/vend1'));
     allowed(await db(null).query('vendors', [['isActive', '==', true]]));
