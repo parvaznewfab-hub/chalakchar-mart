@@ -42,12 +42,18 @@ test("rider keys: script == Dart == rules (NID keys + address/email/note)", () =
   assert.deepEqual([...RIDER_PRIVATE_KEYS].sort(), [...rules].sort());
 });
 
-test("every vendor key is in the public-doc guard of firestore.rules", () => {
+test("every private key is in the public-doc guard of firestore.rules (step 6: no private key at all)", () => {
   const src = fs.readFileSync(path.join(REPO, "firestore.rules"), "utf8");
-  const guard = src.match(/function noNewVendorPrivateKeys\(\) \{([\s\S]*?)\n    \}/)[1];
-  for (const key of VENDOR_PRIVATE_KEYS) assert.ok(guard.includes(`'${key}'`), `guard misses ${key}`);
-  const riderGuard = src.match(/function noNewRiderPrivateKeys\(\) \{([\s\S]*?)\n    \}/)[1];
-  for (const key of RIDER_PRIVATE_KEYS) assert.ok(riderGuard.includes(`'${key}'`), `rider guard misses ${key}`);
+  const body = (name) => src.match(new RegExp(`function ${name}\\(\\) \\{([\\s\\S]*?)\\n    \\}`))[1];
+  const listed = (text) => new Set([...text.matchAll(/'([A-Za-z]+)'/g)].map((m) => m[1]));
+  // The guards themselves: one keys().hasAny() over the full lists.
+  assert.match(body("noVendorPrivateKeys"), /keys\(\)\.hasAny\(vendorAllPrivateKeys\(\)\)/);
+  assert.match(body("noRiderPrivateKeys"), /keys\(\)\.hasAny\(riderAllPrivateKeys\(\)\)/);
+  assert.match(body("vendorAllPrivateKeys"), /vendorPrivateProfileKeys\(\)\.concat\(vendorPrivateMoneyKeys\(\)\)/);
+  const vendorKeys = listed(body("vendorPrivateProfileKeys") + body("vendorPrivateMoneyKeys"));
+  assert.deepEqual([...vendorKeys].sort(), [...VENDOR_PRIVATE_KEYS].sort());
+  const riderKeys = listed(body("riderPrivateNidKeys") + body("riderAllPrivateKeys"));
+  assert.deepEqual([...riderKeys].sort(), [...RIDER_PRIVATE_KEYS].sort());
 });
 
 // ---- the plan ----
