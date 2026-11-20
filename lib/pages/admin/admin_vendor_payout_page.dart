@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../services/private_profile_service.dart';
+
 class AdminVendorPayoutPage extends StatefulWidget {
   const AdminVendorPayoutPage({super.key});
 
@@ -73,7 +75,8 @@ class _AdminVendorPayoutPageState extends State<AdminVendorPayoutPage> {
     final batch = db.batch();
 
     final requestRef = db.collection('vendorWithdrawRequests').doc(requestId);
-    final vendorRef = db.collection('vendors').doc(vendorId);
+    // Balances are in vendor_private (14b step B).
+    final vendorRef = PrivateProfileService.vendorPrivateRef(vendorId);
     final payoutRef = db.collection('vendorPayouts').doc();
 
     batch.set(
@@ -99,8 +102,7 @@ class _AdminVendorPayoutPageState extends State<AdminVendorPayoutPage> {
       'requestId': requestId,
       'vendorId': vendorId,
       'vendorName': _text(data['vendorName'], 'Vendor'),
-      'vendorPhone': _text(data['vendorPhone']),
-      'vendorEmail': _text(data['vendorEmail']),
+      // No phone/email copies: vendorPayouts is readable by analytics staff.
       'amount': amount,
       'status': 'paid',
       'payoutAccount': data['payoutAccount'],
@@ -143,7 +145,7 @@ class _AdminVendorPayoutPageState extends State<AdminVendorPayoutPage> {
         SetOptions(merge: true));
 
     batch.set(
-        db.collection('vendors').doc(vendorId),
+        PrivateProfileService.vendorPrivateRef(vendorId),
         {
           'withdrawPendingBalance': FieldValue.increment(-amount),
           'withdrawableBalance': FieldValue.increment(amount),
@@ -330,12 +332,29 @@ class _AdminVendorPayoutPageState extends State<AdminVendorPayoutPage> {
     );
   }
 
+  // vendor_private per vendor, read once per page (14b step B).
+  final Map<String, Future<Map<String, dynamic>>> _privateByVendor = {};
+
+  Future<Map<String, dynamic>> _vendorPrivate(String vendorId) =>
+      _privateByVendor.putIfAbsent(vendorId, () => PrivateProfileService.vendorPrivate(vendorId));
+
   Widget _payoutCard(String requestId, Map<String, dynamic> data) {
+    // New requests carry no phone/email (14b step B); old ones may.
+    if (_text(data['vendorPhone']).isNotEmpty || _text(data['vendorId']).isEmpty) {
+      return _payoutCardWith(requestId, data, const <String, dynamic>{});
+    }
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _vendorPrivate(_text(data['vendorId'])),
+      builder: (context, snap) => _payoutCardWith(requestId, data, snap.data ?? const <String, dynamic>{}),
+    );
+  }
+
+  Widget _payoutCardWith(String requestId, Map<String, dynamic> data, Map<String, dynamic> private) {
     final status = _text(data['status'], 'pending');
     final amount = _toDouble(data['amount']);
     final vendorName = _text(data['vendorName'], 'Vendor');
-    final phone = _text(data['vendorPhone']);
-    final email = _text(data['vendorEmail']);
+    final phone = _text(data['vendorPhone'], _text(private['phone']));
+    final email = _text(data['vendorEmail'], _text(private['email']));
     final payoutAccount = data['payoutAccount'];
 
     return Card(

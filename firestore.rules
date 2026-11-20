@@ -455,7 +455,7 @@ service cloud.firestore {
     }
 
     function vendorAllPrivateKeys() {
-      return vendorPrivateProfileKeys().concat(vendorPrivateMoneyKeys()).concat(['note']);
+      return vendorPrivateProfileKeys().concat(vendorPrivateMoneyKeys());
     }
 
     function riderAllPrivateKeys() {
@@ -463,9 +463,12 @@ service cloud.firestore {
     }
 
     function vendorPrivateProfileKeys() {
+      // nidFront/nidBack/tradeLicense: old download links (read only now);
+      // the app stores new documents as Storage paths (*Path).
       return [
-        'phone', 'email', 'address', 'ownerName',
+        'phone', 'email', 'address', 'ownerName', 'note',
         'nidFront', 'nidBack', 'tradeLicense',
+        'nidFrontPath', 'nidBackPath', 'tradeLicensePath',
         'payoutAccount', 'payoutNumber'
       ];
     }
@@ -475,7 +478,7 @@ service cloud.firestore {
         'commissionPercent', 'commissionRate',
         'totalSales', 'totalCommission',
         'pendingBalance', 'withdrawableBalance', 'withdrawPendingBalance',
-        'deliveredOrders', 'cancelledOrders'
+        'totalPaidOut', 'deliveredOrders', 'cancelledOrders'
       ];
     }
 
@@ -488,10 +491,13 @@ service cloud.firestore {
           && blankIfTouched(t, 'nidFront') && blankIfTouched(t, 'nidBack')
           && blankIfTouched(t, 'tradeLicense') && blankIfTouched(t, 'payoutAccount')
           && blankIfTouched(t, 'payoutNumber') && blankIfTouched(t, 'note')
+          && blankIfTouched(t, 'nidFrontPath') && blankIfTouched(t, 'nidBackPath')
+          && blankIfTouched(t, 'tradeLicensePath')
           && blankIfTouched(t, 'commissionPercent') && blankIfTouched(t, 'commissionRate')
           && blankIfTouched(t, 'totalSales') && blankIfTouched(t, 'totalCommission')
           && blankIfTouched(t, 'pendingBalance') && blankIfTouched(t, 'withdrawableBalance')
           && blankIfTouched(t, 'withdrawPendingBalance') && blankIfTouched(t, 'deliveredOrders')
+          && blankIfTouched(t, 'totalPaidOut')
           && blankIfTouched(t, 'cancelledOrders')
         );
     }
@@ -1143,7 +1149,7 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.auth.uid == partnerId
         && request.resource.data.keys().hasOnly(
-          riderPrivateNidKeys().concat(['uid', 'address', 'email', 'createdAt', 'updatedAt'])
+          riderPrivateNidKeys().concat(['uid', 'address', 'email', 'note', 'createdAt', 'updatedAt'])
         );
       allow update: if signedIn()
         && request.auth.uid == partnerId

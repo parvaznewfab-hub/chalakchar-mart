@@ -5,6 +5,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 
 import 'notification_service.dart';
+import 'private_profile_service.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -374,22 +375,27 @@ class AuthService {
 
     final vendorRef = _db.collection('vendors').doc(user.uid);
 
+    // Public part only. Phone and address go to vendor_private (14b step B).
+    // Commission is not set here: the applicant may not write it, and
+    // VendorCommissionService uses 10% when it is missing.
     await vendorRef.set({
       'ownerId': user.uid,
+      'userId': user.uid,
       'shopName': shopName.trim(),
-      'phone': phone.trim(),
-      'address': address.trim(),
       'businessType': businessType,
       'status': 'pending',
       'isActive': false,
       'isVerified': false,
-      'commissionPercent': 10,
       'rating': 0,
-      'totalSales': 0,
       'totalOrders': 0,
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+
+    await PrivateProfileService.saveVendorPrivate(user.uid, {
+      'phone': phone.trim(),
+      'address': address.trim(),
+    });
 
     await _db.collection('users').doc(user.uid).set({
       'sellerStatus': 'pending',

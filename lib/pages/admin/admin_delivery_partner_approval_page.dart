@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/auth_service.dart';
+import '../../utils/private_profile_fields.dart';
 
 class AdminDeliveryPartnerApprovalPage extends StatefulWidget {
   const AdminDeliveryPartnerApprovalPage({super.key});
@@ -396,29 +397,6 @@ class _AdminDeliveryPartnerApprovalPageState
     }
   }
 
-  Future<void> _openUrl(String url, _DeliveryPermissions p) async {
-    if (!p.documents) {
-      _permissionDenied('delivery.documents permission required.');
-      return;
-    }
-
-    final clean = url.trim();
-    if (clean.isEmpty) {
-      _snack('Document image not found', error: true);
-      return;
-    }
-
-    final uri = Uri.tryParse(clean);
-    if (uri == null) {
-      _snack('Invalid image URL', error: true);
-      return;
-    }
-
-    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-      _snack('Could not open image', error: true);
-    }
-  }
-
   Future<void> _call(String phone, _DeliveryPermissions p) async {
     if (!p.contact) {
       _permissionDenied('delivery.contact permission required.');
@@ -527,6 +505,26 @@ class _PartnersTab extends StatelessWidget {
     final state = context.findAncestorStateOfType<_AdminDeliveryPartnerApprovalPageState>();
     final db = FirebaseFirestore.instance;
 
+    // NID, address, email, note are in delivery_partner_private (14b step B).
+    // Not readable (e.g. order staff) or not deployed yet: shown as empty.
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: db.collection(kRiderPrivateCollection).snapshots(),
+      builder: (context, privateSnap) {
+        final privateById = <String, Map<String, dynamic>>{
+          for (final d in privateSnap.data?.docs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+            d.id: d.data(),
+        };
+        return _partnersList(context, state, db, privateById);
+      },
+    );
+  }
+
+  Widget _partnersList(
+    BuildContext context,
+    _AdminDeliveryPartnerApprovalPageState? state,
+    FirebaseFirestore db,
+    Map<String, Map<String, dynamic>> privateById,
+  ) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: db.collection('deliveryPartners').orderBy('createdAt', descending: true).snapshots(),
       builder: (context, snapshot) {
@@ -548,8 +546,8 @@ class _PartnersTab extends StatelessWidget {
           itemCount: partners.length,
           itemBuilder: (context, index) {
             final doc = partners[index];
-            final data = doc.data();
             final uid = doc.id;
+            final data = mergePrivateFields(doc.data(), privateById[uid], kRiderPrivateKeys);
 
             final name = state?._text(data['name'], 'No Name') ?? 'No Name';
             final phone = state?._text(data['phone']) ?? '';
@@ -561,8 +559,9 @@ class _PartnersTab extends StatelessWidget {
             final status = state?._text(data['status'], 'pending') ?? 'pending';
             final documentStatus = state?._text(data['documentStatus'], 'not_submitted') ?? 'not_submitted';
 
-            final frontUrl = state?._text(data['nidFrontUrl']) ?? '';
-            final backUrl = state?._text(data['nidBackUrl']) ?? '';
+            // Storage paths only; no download link is used (14b step B).
+            final frontPath = _nidPath(data, 'Front');
+            final backPath = _nidPath(data, 'Back');
 
             final totalEarning = state?._toDouble(data['totalEarning']) ?? 0;
             final withdrawn = state?._toDouble(data['withdrawnAmount']) ?? 0;
@@ -599,7 +598,7 @@ class _PartnersTab extends StatelessWidget {
                     ),
                     if (note.isNotEmpty) _row(Icons.note, 'Note', note),
                     const SizedBox(height: 12),
-                    _documentSection(state, frontUrl, backUrl),
+                    _documentSection(frontPath, backPath),
                     const SizedBox(height: 12),
                     Wrap(
                       spacing: 10,
@@ -768,10 +767,16 @@ class _PartnersTab extends StatelessWidget {
     );
   }
 
+  /// nidFrontPath / nidBackPath, or the path inside an old nid*Url link.
+  static String _nidPath(Map<String, dynamic> data, String side) {
+    final path = (data['nid${side}Path'] ?? '').toString().trim();
+    if (path.isNotEmpty) return path;
+    return storagePathFromUrlOrPath(data['nid${side}Url']?.toString());
+  }
+
   Widget _documentSection(
-      _AdminDeliveryPartnerApprovalPageState? state,
-      String frontUrl,
-      String backUrl,
+      String frontPath,
+      String backPath,
       ) {
     return Container(
       width: double.infinity,
@@ -798,16 +803,8 @@ class _PartnersTab extends StatelessWidget {
             LayoutBuilder(
               builder: (context, c) {
                 final compact = c.maxWidth < 620;
-                final front = _imageCard(
-                  title: 'Front Side',
-                  url: frontUrl,
-                  onOpen: () => state?._openUrl(frontUrl, permissions),
-                );
-                final back = _imageCard(
-                  title: 'Back Side',
-                  url: backUrl,
-                  onOpen: () => state?._openUrl(backUrl, permissions),
-                );
+                final front = _imageCard(title: 'Front Side', path: frontPath);
+                final back = _imageCard(title: 'Back Side', path: backPath);
 
                 if (compact) {
                   return Column(children: [front, const SizedBox(height: 10), back]);
@@ -821,59 +818,46 @@ class _PartnersTab extends StatelessWidget {
     );
   }
 
+  /// On-file state only. No image is loaded from a download link any more
+  /// (a link carries a token that opens the file for anyone); viewing comes
+  /// in security step C (Storage SDK / short-lived signed URL).
   Widget _imageCard({
     required String title,
-    required String url,
-    required VoidCallback onOpen,
+    required String path,
   }) {
-    final hasImage = url.trim().isNotEmpty;
+    final hasImage = path.trim().isNotEmpty;
 
     return Container(
-      height: 190,
+      height: 110,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade300),
+        border: Border.all(color: hasImage ? Colors.green.shade200 : Colors.grey.shade300),
       ),
       clipBehavior: Clip.antiAlias,
       child: hasImage
-          ? Stack(
-        children: [
-          Positioned.fill(
-            child: Image.network(
-              url,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const Center(child: Text('Image load failed')),
-            ),
-          ),
-          Positioned(
-            left: 8,
-            right: 8,
-            bottom: 8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.62),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
+          ? Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Icon(Icons.check_circle_outline, color: Colors.green.shade700),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: onOpen,
-                    icon: const Icon(Icons.open_in_new, color: Colors.white, size: 16),
-                    label: const Text('Open', style: TextStyle(color: Colors.white)),
+                  Text('$title: on file', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Viewing documents in the admin panel comes in security step C.',
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                   ),
                 ],
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       )
           : Center(
         child: Text(

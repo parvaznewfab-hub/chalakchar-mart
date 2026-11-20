@@ -42,11 +42,21 @@ describe('step B: vendors', opts, () => {
     }, { merge: true }));
   });
 
-  test('vendor owner: cannot change commission, balances or admin note', async () => {
+  test('vendor owner: cannot change commission or balances', async () => {
     denied(await db('vendU1').update('vendor_private/vend1', { commissionPercent: 0 }));
     denied(await db('vendU1').update('vendor_private/vend1', { withdrawableBalance: 99999 }));
     denied(await db('vendU1').update('vendor_private/vend1', { totalSales: 1 }));
-    denied(await db('vendU1').update('vendor_private/vend1', { note: 'approved by me' }));
+    denied(await db('vendU1').update('vendor_private/vend1', { status: 'approved' }));
+  });
+
+  test('vendor owner: application note and document paths (vendor_apply_page) are allowed', async () => {
+    allowed(await db('vendU1').update('vendor_private/vend1', {
+      note: 'please call after 5pm',
+      nidFrontPath: 'vendors/vend1/documents/nid-front-1.jpeg',
+      updatedAt: SERVER_TS,
+    }));
+    // ...but never into the public doc.
+    denied(await db('vendU2').update('vendors/vend2', { nidFrontPath: 'vendors/vend2/documents/x.jpeg' }));
   });
 
   test('applicant (not approved, not isVendor yet) can create own private doc, without money keys', async () => {

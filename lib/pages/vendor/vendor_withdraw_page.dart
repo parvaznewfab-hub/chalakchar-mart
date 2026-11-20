@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../services/private_profile_service.dart';
+
 class VendorWithdrawPage extends StatefulWidget {
   const VendorWithdrawPage({super.key});
 
@@ -198,8 +200,7 @@ class _VendorWithdrawPageState extends State<VendorWithdrawPage> {
         'vendorId': vendorId,
         'vendorOwnerId': ownerUid,
         'vendorName': _text(vendor['shopName'] ?? vendor['name'], 'Vendor'),
-        'vendorEmail': _text(vendor['email']),
-        'vendorPhone': _text(vendor['phone']),
+        // No phone/email copies (14b step B): staff see them in vendor_private.
         'amount': amount,
         'status': 'pending',
         'note': noteController.text.trim(),
@@ -242,17 +243,18 @@ class _VendorWithdrawPageState extends State<VendorWithdrawPage> {
         backgroundColor: primary,
         foregroundColor: Colors.white,
       ),
-      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: db.collection('vendors').doc(vendorId).snapshots(),
+      body: StreamBuilder<Map<String, dynamic>?>(
+        // Public doc + vendor_private (payout account, balances; 14b step B).
+        stream: PrivateProfileService.vendorMergedStream(vendorId),
         builder: (context, vendorSnap) {
           if (vendorSnap.hasError) {
             return _errorCard('Vendor Withdraw load failed', vendorSnap.error.toString());
           }
-          if (!vendorSnap.hasData) {
+          if (vendorSnap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final vendor = vendorSnap.data!.data() ?? <String, dynamic>{};
+          final vendor = vendorSnap.data ?? <String, dynamic>{};
 
           return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: db.collection('orders').where('vendorIds', arrayContains: vendorId).snapshots(),
