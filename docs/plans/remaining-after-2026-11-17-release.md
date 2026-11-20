@@ -292,3 +292,10 @@ TikTok এখন চালু হবে না। তাই secret বদলা�
   - কারণ: project-স্তরের `Editor` থাকায় compute, App Engine আর cloudservices account `gs://chalakchar-mart-backups`-সহ সব bucket পড়তে পারে। `firebase-adminsdk-fbsvc`-এর `storage.admin`-ও একই কাজ করে।
   - backup bucket-এর জন্য IAM deny policy এখন লাগবে না (মালিকের সিদ্ধান্ত)। soft-delete-এর ৭ দিন থাকবে।
 - **কম অগ্রাধিকার:** rider Faruk-এর nidNumber ৯ অক্ষরের, সম্ভবত এটা test মান। আসল NID নিয়ে admin থেকে ঠিক করতে হবে। মানটা এখন আছে `delivery_partner_private`-এ।
+
+## d4ead6c deploy-এর আগে বাধ্যতামূলক (মালিক, ২০ নভেম্বর)
+
+- `product_sources` আর `product_import_keys` (আর d4ead6c-এর বাকি admin-only collection) catch-all `match /{document=**}`-এর বাদের তালিকায় যোগ করা।
+  - এগুলো বাদ না দিলে `analytics.view` বা যেকোনো staff role supplier আর cost-এর তথ্য পড়তে পারবে।
+  - এর জন্য emulator test লাগবে।
+- **নিয়ম:** d4ead6c নিয়ে সিদ্ধান্ত না হওয়া পর্যন্ত rules আর hosting deploy হবে শুধু `audit-step-c` থেকে, `wip/audit-step1` থেকে না। বিস্তারিত `docs/security/rules-backup/README.md`-এ (audit-step-c)।
