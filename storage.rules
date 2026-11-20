@@ -60,6 +60,60 @@ service firebase.storage {
         && vendorDoc(vendorId).data.ownerId == request.auth.uid;
     }
 
+    // ---- 14b step B: who may see vendor / rider identity documents ----
+    // Same roles as Firestore vendor_private / delivery_partner_private:
+    // superAdmin, admin (their default permissions include vendors.view and
+    // delivery.view), or an explicit permission (list or map form; the
+    // perms lists here have at most 4 entries).
+    function userHasAnyPermission(perms) {
+      let u = userDoc(request.auth.uid).data;
+      let role = u.get('role', '');
+      let roles = u.get('roles', []);
+      let granted = u.get('permissions', []);
+      return u.get('isActive', true) != false
+        && u.get('isBanned', false) != true
+        && (
+          role in ['superAdmin', 'super_admin', 'admin']
+          || (roles is list && roles.hasAny(['superAdmin', 'super_admin', 'admin']))
+          || (granted is list && granted.hasAny(perms))
+          || (granted is map && (
+              granted.get(perms[0], false) == true
+              || (perms.size() > 1 && granted.get(perms[1], false) == true)
+              || (perms.size() > 2 && granted.get(perms[2], false) == true)
+              || (perms.size() > 3 && granted.get(perms[3], false) == true)))
+        );
+    }
+
+    function canSeeVendorDocuments() {
+      return signedIn()
+        && userExists(request.auth.uid)
+        && userHasAnyPermission(['vendors.view', 'vendors.edit', 'vendors.approve', 'vendors.payouts']);
+    }
+
+    function canSeeRiderDocuments() {
+      return signedIn()
+        && userExists(request.auth.uid)
+        && userHasAnyPermission(['delivery.view', 'delivery.approve', 'delivery.block']);
+    }
+
+    function isSuperAdminStorage() {
+      return hasRole('superAdmin') || hasRole('super_admin');
+    }
+
+    // The vendor application is still open: no vendor doc yet, or it is
+    // pending / submitted / rejected / new (the states in which Firestore
+    // lets the applicant edit).
+    function vendorApplicationOpen(vendorId) {
+      return !firestore.exists(/databases/(default)/documents/vendors/$(vendorId))
+        || vendorDoc(vendorId).data.get('status', '') in ['pending', 'submitted', 'rejected', 'new'];
+    }
+
+    // The rider application is still open: no rider doc yet, or pending/rejected.
+    function riderApplicationOpen(uid) {
+      return !firestore.exists(/databases/(default)/documents/deliveryPartners/$(uid))
+        || firestore.get(/databases/(default)/documents/deliveryPartners/$(uid)).data.get('status', '') in ['pending', 'rejected'];
+    }
+
     function isJpegPngWebp() {
       return request.resource.contentType.matches('image/.*')
         || request.resource.contentType == 'application/octet-stream';
@@ -104,10 +158,13 @@ service firebase.storage {
     // =========================
     // DELIVERY PARTNER DOCUMENTS
     // =========================
+    // NID front/back. Read: the rider and rider managers only (14b step B;
+    // before, any staff role). Write: the rider while the application is
+    // open; afterwards nobody from the app (admin SDK still can).
     match /delivery_partner_documents/{uid}/{fileName} {
-      allow read: if isOwner(uid) || isStaff();
-      allow create, update: if isOwner(uid) && isImageUnder5MB();
-      allow delete: if isOwner(uid) || isStaff();
+      allow read: if isOwner(uid) || canSeeRiderDocuments();
+      allow create, update: if isOwner(uid) && riderApplicationOpen(uid) && isImageUnder5MB();
+      allow delete: if (isOwner(uid) && riderApplicationOpen(uid)) || isSuperAdminStorage();
     }
 
     // =========================
@@ -159,17 +216,18 @@ service firebase.storage {
     // Create/update also supports initial application path where vendorId == request.auth.uid.
     // =========================
     match /vendors/{vendorId}/documents/{fileName} {
-      // Seller application document upload.
-      // Supports both cases:
-      // 1) vendorId == Firebase Auth UID during first application
-      // 2) vendorId is a vendor document id where vendors/{vendorId}.ownerId == auth.uid
-      allow read: if isOwner(vendorId) || isVendorOwner(vendorId) || isStaff();
+      // NID front/back and trade license. vendorId is the owner's uid
+      // (vendor_apply_page) or a vendor doc whose ownerId is the caller.
+      // Read: the owner and vendor managers only (14b step B; before, any
+      // staff role). Write: the owner while the application is open.
+      allow read: if isOwner(vendorId) || isVendorOwner(vendorId) || canSeeVendorDocuments();
 
-      allow create, update: if signedIn()
-        && (request.auth.uid == vendorId || isVendorOwner(vendorId) || isStaff())
+      allow create, update: if (isOwner(vendorId) || isVendorOwner(vendorId))
+        && vendorApplicationOpen(vendorId)
         && isImageUnder5MB();
 
-      allow delete: if isOwner(vendorId) || isVendorOwner(vendorId) || isStaff();
+      allow delete: if ((isOwner(vendorId) || isVendorOwner(vendorId)) && vendorApplicationOpen(vendorId))
+        || isSuperAdminStorage();
     }
 
     // =========================
