@@ -399,7 +399,7 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
                                     _statCard(
                                       title: 'Not delivered yet',
                                       value: '৳${pendingWithdraw.toStringAsFixed(0)}',
-                                      subtitle: 'Becomes withdrawable on delivery',
+                                      subtitle: 'Paid after delivery',
                                       icon: Icons.hourglass_top_rounded,
                                       color: const Color(0xFF7C3AED),
                                     ),
@@ -686,7 +686,7 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
                       _statCard(
                         title: 'Not delivered yet',
                         value: '৳${pendingWithdraw.toStringAsFixed(0)}',
-                        subtitle: 'Becomes withdrawable on delivery',
+                        subtitle: 'Paid after delivery',
                         icon: Icons.hourglass_top_rounded,
                         color: const Color(0xFF7C3AED),
                       ),
@@ -838,7 +838,8 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
                   children: [
                     Text(
                       shopName,
-                      maxLines: 1,
+                      // Long shop names take a second line instead of "…".
+                      maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: Colors.white,
