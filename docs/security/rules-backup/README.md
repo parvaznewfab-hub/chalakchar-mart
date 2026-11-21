@@ -1,5 +1,11 @@
 # লাইভ rules-এর কপি
 
+> **কোথা থেকে deploy করতে হবে** (মালিকের নিয়ম, ২০ নভেম্বর ২০২৬): d4ead6c (product sources আর slugs) নিয়ে সিদ্ধান্ত না হওয়া পর্যন্ত
+> **rules আর hosting deploy হবে শুধু `audit-step-c` থেকে** (worktree `C:\FlutterProjects\cc_step_c`), **`wip/audit-step1` থেকে কখনো নয়।**
+> কারণ `wip/audit-step1`-এ d4ead6c আছে। সেখানকার `firestore.rules`-এ লাইভে না যাওয়া product নিয়ম আছে, আর hosting-এ আছে d4ead6c-এর কোড।
+> তা ছাড়া d4ead6c deploy-এর আগে `product_sources` আর `product_import_keys` catch-all-এর বাদের তালিকায় যোগ করা বাধ্যতামূলক।
+> functions-ও শুধু নাম ধরে (`--only functions:<name>`) deploy হবে, `audit-step-c` থেকে।
+
 ১৭ নভেম্বর ২০২৬-এ লাইভ থেকে নামানো (Firebase Rules API)।
 
 | ফাইল | লাইভ ruleset | লাইভে গেছে |
@@ -103,6 +109,35 @@ git checkout storage.rules
 | 2026-11-20 07:33 UTC (`4800640`) | Storage, ধাপ B | `2ce1afb0-379e-4ad8-82e3-206be53d8a01` | `fc245689-b129-4212-8538-115ae1d3298b` |
 | 2026-11-20 09:28 UTC (`4800640`, preview `step-b` থেকে clone) | Hosting live, ধাপ B | version `2ac61cbcad787dc7` | version `5718e9fbf1f0afea` |
 | 2026-11-20 10:39 UTC (`b6a44df`) | Firestore, ধাপ B ধাপ ৬ (মূল ডকুমেন্টে কোনো গোপন key নয়) | `cea420b6-9bc7-408e-8f36-e8bb9261277c` | `c1dedc27-106c-42fa-a55a-bff96182ec15` |
+| 2026-11-20 13:33 UTC (`4e90295`) | Function `getIdentityDocumentUrl` (নতুন; account `identity-docs-viewer`) | — | ছিল না |
+| 2026-11-20 14:06 UTC (`4e90295`, preview `step-c` থেকে clone) | Hosting live, ধাপ C | version `caec3ea7c1d3fd7e` | version `2ac61cbcad787dc7` |
 
-Hosting ফেরাতে: `firebase hosting:clone chalakchar-mart@5718e9fbf1f0afea chalakchar-mart:live --project chalakchar-mart`।
-সতর্কতা: পুরোনো website নতুন rules-এ vendor/rider আবেদন, withdraw আর seller request জমা দিতে পারে না।
+Hosting ফেরাতে:
+- ধাপ C-এর আগের অবস্থায় (ধাপ B): `firebase hosting:clone chalakchar-mart@2ac61cbcad787dc7 chalakchar-mart:live --project chalakchar-mart`।
+- ধাপ B-এর আগের অবস্থায়: `firebase hosting:clone chalakchar-mart@5718e9fbf1f0afea chalakchar-mart:live --project chalakchar-mart`।
+  - সতর্কতা: এই পুরোনো website নতুন rules-এ vendor/rider আবেদন, withdraw আর seller request জমা দিতে পারে না।
+
+Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --region asia-south1 --project chalakchar-mart`।
+এতে admin-এর কাগজ খোলা বন্ধ হয়ে যায়, বাকি সব আগের মতো চলে।
+
+## 14b ধাপ C: সম্পূর্ণ (২০ নভেম্বর ২০২৬)
+
+- **IAM (১৩:৩০ UTC-র আশেপাশে):** service account `identity-docs-viewer` তৈরি হয়েছে, মালিকের অনুমোদনে। এর অনুমতি:
+  - custom role `identityDocsFirestoreGet` (শুধু `datastore.entities.get`)।
+  - default bucket-এ `storage.objectViewer`, condition ছাড়া।
+  - নিজের ওপর `iam.serviceAccountTokenCreator`।
+  - default compute account-এ কিছু যোগ হয়নি।
+- **Function:** `getIdentityDocumentUrl` চলে ১৩:৩৩ UTC থেকে, `identity-docs-viewer` দিয়ে।
+  - preview-এ ৫টা কাগজই খুলেছে।
+  - লাইভে vendor Trade License খুলেছে ১৪:০৯ UTC-তে। rider Front খুলেছে ১৪:৩৬ UTC-তে, token মোছার পরে।
+  - log-এ থাকে শুধু viewerUid, ownerId, kind, which আর at। কোনো path বা URL নেই।
+- **Hosting live:** version `caec3ea7c1d3fd7e`, ১৪:০৬ UTC।
+- **Download token বাতিল:** ১৪:৩৩ UTC-তে `functions/scripts/revokeIdentityDocTokens.js --apply` চলেছে।
+  - vendor-এর ৩টা আর rider-এর ২টা কাগজ, মোট ৫টা ফাইলের প্রতিটিতে ১টা করে token ছিল। এখন ০টা।
+  - script-এর নিজের যাচাই আর আবার dry-run, দুটোতেই "No download token left" এসেছে।
+  - পুরোনো link-এর 403 আলাদা করে খোলা হয়নি। token ০ থাকাকেই যথেষ্ট প্রমাণ ধরা হয়েছে (মালিকের সিদ্ধান্ত)। কারণ backup ফোল্ডারটা মালিক ইচ্ছা করে মুছেছেন।
+  - token-এর মান কোথাও print বা save করা হয়নি। পুরোনো token ফেরানোর কোনো উপায় ইচ্ছা করেই রাখা হয়নি।
+- **আবার দেখার উপায়:** `node scripts/revokeIdentityDocTokens.js` (dry-run) চালালে কোনো কাগজে নতুন token তৈরি হয়েছে কি না দেখা যায়। যেমন কেউ Console-এ ফাইল খুলে "Create new access token" চাপলে।
+- **বাকি (তালিকায়):**
+  - bucket-এ uniform access চালু করে prefix condition বসানো।
+  - rider Faruk-এর test কাগজ।

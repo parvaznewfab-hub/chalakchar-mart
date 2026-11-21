@@ -4540,6 +4540,36 @@ exports.importAliExpressProduct = onRequest(
   }
 );
 
+// 14b step C: admin-only, 5-minute signed URL for a vendor / rider identity
+// document (functions/identity/identityDocumentUrl.js). Nothing is stored.
+const identityDocumentUrl = require("./identity/identityDocumentUrl");
+
+// Runs as its own service account (not the default compute one): Firestore
+// document get only, Storage objectViewer on the default bucket, and Token
+// Creator on itself for signBlob. Set up by the owner; see
+// docs/security/step-c-plan.md. Deploy fails if the account does not exist.
+const IDENTITY_DOCS_SERVICE_ACCOUNT = "identity-docs-viewer@chalakchar-mart.iam.gserviceaccount.com";
+
+exports.getIdentityDocumentUrl = onCall({
+  maxInstances: 2,
+  serviceAccount: IDENTITY_DOCS_SERVICE_ACCOUNT,
+}, async (request) => {
+  try {
+    return await identityDocumentUrl.getIdentityDocumentUrl(request.auth, request.data, {
+      db,
+      bucket: admin.storage().bucket(),
+      logger,
+      now: () => Date.now(),
+    });
+  } catch (error) {
+    if (error instanceof identityDocumentUrl.RequestError) {
+      throw new HttpsError(error.code, error.message);
+    }
+    logger.error("getIdentityDocumentUrl failed", { code: error?.code, message: error?.message });
+    throw new HttpsError("internal", "Could not open the document.");
+  }
+});
+
 exports.healthCheck = onRequest((req, res) => {
   cors(req, res, () => {
     res.status(200).json({

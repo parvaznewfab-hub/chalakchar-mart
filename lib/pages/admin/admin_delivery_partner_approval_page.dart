@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/auth_service.dart';
 import '../../utils/private_profile_fields.dart';
+import '../../widgets/identity_document_dialog.dart';
 
 class AdminDeliveryPartnerApprovalPage extends StatefulWidget {
   const AdminDeliveryPartnerApprovalPage({super.key});
@@ -598,7 +599,7 @@ class _PartnersTab extends StatelessWidget {
                     ),
                     if (note.isNotEmpty) _row(Icons.note, 'Note', note),
                     const SizedBox(height: 12),
-                    _documentSection(frontPath, backPath),
+                    _documentSection(uid, frontPath, backPath),
                     const SizedBox(height: 12),
                     Wrap(
                       spacing: 10,
@@ -775,6 +776,7 @@ class _PartnersTab extends StatelessWidget {
   }
 
   Widget _documentSection(
+      String riderId,
       String frontPath,
       String backPath,
       ) {
@@ -803,8 +805,8 @@ class _PartnersTab extends StatelessWidget {
             LayoutBuilder(
               builder: (context, c) {
                 final compact = c.maxWidth < 620;
-                final front = _imageCard(title: 'Front Side', path: frontPath);
-                final back = _imageCard(title: 'Back Side', path: backPath);
+                final front = _imageCard(context, riderId: riderId, which: 'nidFront', title: 'Front Side', path: frontPath);
+                final back = _imageCard(context, riderId: riderId, which: 'nidBack', title: 'Back Side', path: backPath);
 
                 if (compact) {
                   return Column(children: [front, const SizedBox(height: 10), back]);
@@ -818,10 +820,14 @@ class _PartnersTab extends StatelessWidget {
     );
   }
 
-  /// On-file state only. No image is loaded from a download link any more
-  /// (a link carries a token that opens the file for anyone); viewing comes
-  /// in security step C (Storage SDK / short-lived signed URL).
-  Widget _imageCard({
+  /// 14b step C: "on file" opens the image through the Cloud Function
+  /// getIdentityDocumentUrl (permission checked on the server, 5-minute
+  /// signed URL, path read from delivery_partner_private there). No download
+  /// link is stored or made here.
+  Widget _imageCard(
+    BuildContext context, {
+    required String riderId,
+    required String which,
     required String title,
     required String path,
   }) {
@@ -836,7 +842,15 @@ class _PartnersTab extends StatelessWidget {
       ),
       clipBehavior: Clip.antiAlias,
       child: hasImage
-          ? Padding(
+          ? InkWell(
+        onTap: () => showIdentityDocumentDialog(
+          context,
+          title: 'NID $title',
+          kind: 'rider',
+          ownerId: riderId,
+          which: which,
+        ),
+        child: Padding(
         padding: const EdgeInsets.all(12),
         child: Row(
           children: [
@@ -850,14 +864,16 @@ class _PartnersTab extends StatelessWidget {
                   Text('$title: on file', style: const TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
                   Text(
-                    'Viewing documents in the admin panel comes in security step C.',
+                    'Tap to view (link works 5 minutes).',
                     style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                   ),
                 ],
               ),
             ),
+            Icon(Icons.open_in_new, color: Colors.grey.shade500, size: 18),
           ],
         ),
+      ),
       )
           : Center(
         child: Text(
