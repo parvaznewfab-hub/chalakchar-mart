@@ -13,10 +13,22 @@ Only `web/index.html` changed. No rules, storage or functions.
 ## Preview
 - channel `seo1`: https://chalakchar-mart--seo1-ylaq8fyi.web.app (version e404b5f237649d80, expires 2026-11-28)
 
-## Go live (only with owner approval; check no security deploy is running)
-    firebase hosting:clone chalakchar-mart:seo1 chalakchar-mart:live
+## Live
+**Live since 2026-11-21 03:13:36 UTC: version `e404b5f237649d80`** (owner approved),
+via `firebase hosting:clone chalakchar-mart:seo1 chalakchar-mart:live`.
+Nothing else deployed (no rules, storage or functions).
 
-## Rollback
+Checked on live after the clone: new title, Bengali description, viewport,
+valid JSON-LD (Organization, WebSite); served index.html == seo-1 build;
+product/category/about-us/sitemap.xml/robots.txt byte-identical to before
+the clone; at 360px home, product, /cart and /login render (no white
+screen, no horizontal scroll, #home-seo removed after Flutter's first
+frame). www.chalakcharmart.com has no DNS record (existing issue, not checked).
+
+From now on a hosting rollback for any other work should return to
+`e404b5f237649d80`, not `caec3ea7c1d3fd7e`.
+
+## Rollback of seo-1
 Live before seo-1: version `caec3ea7c1d3fd7e` (step C, released 2026-11-20 14:06 UTC).
 
     firebase hosting:clone chalakchar-mart@caec3ea7c1d3fd7e chalakchar-mart:live
