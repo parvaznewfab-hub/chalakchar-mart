@@ -33,7 +33,7 @@ index.html now carries the same SEO data.
 
 ## Follow-ups (not in this branch)
 - After Flutter starts, the app sets document.title back to "ChalakChar Mart"
-  (lib/services/web_seo_service.dart); align it with the new title (lib change).
+  (MaterialApp `title:` in lib/main.dart:386); align it with the new title (lib change).
 - Soft 404s, category body links, breadcrumb category URL, brand on imported
   products, truncated titles, sitemap lastmod, canonical on 404: functions.
 - www.chalakcharmart.com DNS + redirect: Firebase Console.
