@@ -1517,11 +1517,55 @@ match /products/{productId} {
     }
 
     /* =========================
+       Server-only collections (14b step D)
+    ========================= */
+
+    // Written and read only by Cloud Functions (admin SDK, which bypasses
+    // rules). No app reads them (checked 2026-11-21), so no client may read or
+    // write them, admins included, and the catch-all below skips them.
+    //   conversations (+ messages): AI assistant / WhatsApp threads, customer
+    //     names, WhatsApp numbers and message text
+    //   marketplace_connections: AliExpress OAuth access / refresh tokens
+    //   rateLimits: per-IP counters (ids hold IP addresses)
+    //   whatsappProcessedMessages: WhatsApp message id dedupe
+    //   delivery_logs: order / rider / customer ids and totals
+    //   searchImportLog: search-import queries and waiting user ids
+    match /conversations/{conversationId} {
+      allow read, write: if false;
+
+      match /messages/{messageId} {
+        allow read, write: if false;
+      }
+    }
+
+    match /marketplace_connections/{connectionId} {
+      allow read, write: if false;
+    }
+
+    match /rateLimits/{limitId} {
+      allow read, write: if false;
+    }
+
+    match /whatsappProcessedMessages/{messageId} {
+      allow read, write: if false;
+    }
+
+    match /delivery_logs/{logId} {
+      allow read, write: if false;
+    }
+
+    match /searchImportLog/{logId} {
+      allow read, write: if false;
+    }
+
+    /* =========================
        Default deny
     ========================= */
 
     // Analytics staff/admin needs to read multiple collections for totals/charts.
     // Write remains denied here; write permissions are controlled above.
+    // (Step E, later: replace this "everything except" list with an allow-list
+    // of what staff / analytics.view may read. See docs/security/rules-backup/README.md.)
     match /{document=**} {
       // Never the API tokens, which have their own rule above.
       allow read: if request.path != /databases/$(database)/documents/settings/app_secrets
@@ -1532,6 +1576,9 @@ match /products/{productId} {
         && document[0] != 'vendor_private'
         && document[0] != 'delivery_partner_private'
         && document[0] != 'vendorWithdrawRequests'
+        // Nor the server-only collections (14b step D).
+        && !(document[0] in ['conversations', 'marketplace_connections', 'rateLimits',
+          'whatsappProcessedMessages', 'delivery_logs', 'searchImportLog'])
         && signedIn()
         && userExists(request.auth.uid)
         && (can('analytics.view') || hasRole('staff'));
