@@ -1,0 +1,105 @@
+exports.onOrderStatusUpdated = onDocumentUpdated("orders/{orderId}", async (event) => {
+  const orderId = event.params.orderId;
+  const before = event.data.before.data() || {};
+  const after = event.data.after.data() || {};
+
+  const oldStatus = before.status;
+  const newStatus = after.status;
+
+  if (oldStatus === newStatus) return;
+
+  const orderRef = db.collection("orders").doc(orderId);
+
+  if (
+    (newStatus === "confirmed" || newStatus === "delivered") &&
+    after.stockReduced !== true
+  ) {
+    await reduceProductStockOnce(orderRef, after);
+  }
+
+  await notifyUser(
+    after.userId,
+    customerTemplates.orderStatus(orderId, newStatus).title,
+    customerTemplates.orderStatus(orderId, newStatus).body,
+    {
+      type: "order_status",
+      orderId,
+      status: newStatus,
+    }
+  );
+
+  if (newStatus === "ready_for_pickup") {
+    await notifyAdmins(
+      "Rider Action Needed 🚚",
+      `Order #${orderId.substring(0, 8)} is ready for delivery.`,
+      {
+        type: "rider_order",
+        orderId,
+      }
+    );
+  }
+
+  if (newStatus === "assigned_to_rider" && after.deliveryPartnerId) {
+    await notifyRider(
+      after.deliveryPartnerId,
+      "New Delivery Assigned 🚚",
+      `Order #${orderId.substring(0, 8)} assigned to you.`,
+      {
+        type: "delivery_assigned",
+        orderId,
+      }
+    );
+  }
+
+  if (newStatus === "picked_up") {
+    await notifyUser(
+      after.userId,
+      customerTemplates.orderPickedUp(orderId).title,
+      customerTemplates.orderPickedUp(orderId).body,
+      {
+        type: "picked_up",
+        orderId,
+      }
+    );
+  }
+
+  if (newStatus === "delivered") {
+    await db.collection("delivery_logs").add({
+      orderId,
+      userId: after.userId || null,
+      riderId: after.deliveryPartnerId || null,
+      status: "delivered",
+      paymentMethod: after.paymentMethod || "",
+      total: toNumber(after.total || after.grandTotal || after.finalTotal),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await notifyUser(
+      after.userId,
+      customerTemplates.orderDelivered(orderId).title,
+      customerTemplates.orderDelivered(orderId).body,
+      {
+        type: "order_delivered",
+        orderId,
+      }
+    );
+
+    if (after.deliveryPartnerId) {
+      await notifyRider(
+        after.deliveryPartnerId,
+        "Delivery Completed 💰",
+        `Order #${orderId.substring(0, 8)} completed successfully.`,
+        {
+          type: "delivery_completed",
+          orderId,
+        }
+      );
+    }
+  }
+
+  logger.info("Order status automation completed", {
+    orderId,
+    oldStatus,
+    newStatus,
+  });
+});

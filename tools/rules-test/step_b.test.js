@@ -172,17 +172,21 @@ describe('step B: vendors', opts, () => {
     denied(await db('vendStaff').set('vendor_private/vend1', { phone: 'x' }, { merge: true }));
   });
 
-  test('vendors.payouts staff: reads private, changes money fields only', async () => {
+  test('vendors.payouts staff: reads private; balances only through a payout step (ledger-1)', async () => {
     allowed(await db('payStaff').get('vendor_private/vend1'));
-    allowed(await db('payStaff').update('vendor_private/vend1', { withdrawableBalance: 300, updatedAt: SERVER_TS }));
+    // vend1 has withdrawableBalance 500: pay 200 out.
+    allowed(await db('payStaff').update('vendor_private/vend1', { withdrawableBalance: 300, totalPaidOut: 200, updatedAt: SERVER_TS }));
+    // Just changing the balance (the old rule allowed it): refused.
+    denied(await db('payStaff').update('vendor_private/vend1', { withdrawableBalance: 900, updatedAt: SERVER_TS }));
     denied(await db('payStaff').update('vendor_private/vend1', { payoutAccount: 'staff account' }));
     denied(await db('payStaff').update('vendor_private/vend1', { nidFront: 'x' }));
   });
 
-  test('admin (default permissions) and superAdmin: read and write everything', async () => {
+  test('admin (default permissions) and superAdmin: read and write everything except the balances (ledger-1)', async () => {
     allowed(await db('admin').query('vendor_private'));
     allowed(await db('admin').update('vendor_private/vend1', { commissionPercent: 12, note: 'ok' }));
-    allowed(await db('boss').set('vendor_private/vend2', { phone: '0', totalSales: 1 }, { merge: true }));
+    allowed(await db('boss').set('vendor_private/vend2', { phone: '0' }, { merge: true }));
+    denied(await db('boss').set('vendor_private/vend2', { phone: '0', totalSales: 1 }, { merge: true }));
   });
 
   test('analytics staff / order-assign staff (catch-all rule): no private, no payout requests', async () => {

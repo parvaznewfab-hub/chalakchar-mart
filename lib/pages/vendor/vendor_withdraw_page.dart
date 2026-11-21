@@ -3,8 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/private_profile_service.dart';
-import '../../utils/private_profile_fields.dart';
 import '../../utils/user_error_message.dart';
+import '../../utils/vendor_balance.dart';
 
 class VendorWithdrawPage extends StatefulWidget {
   const VendorWithdrawPage({super.key});
@@ -78,13 +78,6 @@ class _VendorWithdrawPageState extends State<VendorWithdrawPage> {
     return double.tryParse(v.toString()) ?? 0;
   }
 
-  int _toInt(dynamic v, [int fallback = 1]) {
-    if (v == null) return fallback;
-    if (v is int) return v;
-    if (v is num) return v.toInt();
-    return int.tryParse(v.toString()) ?? fallback;
-  }
-
   String _text(dynamic v, [String fallback = '']) {
     final t = (v ?? '').toString().trim();
     return t.isEmpty ? fallback : t;
@@ -98,65 +91,6 @@ class _VendorWithdrawPageState extends State<VendorWithdrawPage> {
         backgroundColor: error ? Colors.red : primary,
       ),
     );
-  }
-
-  double _vendorItemTotal(Map<String, dynamic> order) {
-    final items = order['items'];
-    if (items is! List) return 0;
-
-    double total = 0;
-    for (final raw in items) {
-      if (raw is! Map) continue;
-      final item = Map<String, dynamic>.from(raw);
-      if (_text(item['vendorId']) != vendorId) continue;
-      final price = _toDouble(item['price'] ?? item['sellingPrice']);
-      final qty = _toInt(item['qty'] ?? item['quantity']);
-      total += price * qty;
-    }
-    return total;
-  }
-
-  Map<String, double> _calculateMoney({
-    required List<QueryDocumentSnapshot<Map<String, dynamic>>> orders,
-    required List<QueryDocumentSnapshot<Map<String, dynamic>>> requests,
-    required Map<String, dynamic> vendor,
-  }) {
-    double deliveredSales = 0;
-
-    for (final doc in orders) {
-      final data = doc.data();
-      final status = _text(data['status']).toLowerCase();
-      final deliveryStatus = _text(data['deliveryStatus']).toLowerCase();
-      if (status == 'delivered' || deliveryStatus == 'delivered') {
-        deliveredSales += _vendorItemTotal(data);
-      }
-    }
-
-    // Admin-set rate (0% stays 0%); 10% only when never set.
-    final commissionPercent = vendorCommissionPercent(vendor);
-    final commission = deliveredSales * commissionPercent / 100;
-
-    double pending = 0;
-    double paid = 0;
-    for (final doc in requests) {
-      final data = doc.data();
-      final amount = _toDouble(data['amount']);
-      final status = _text(data['status']).toLowerCase();
-      if (status == 'pending') pending += amount;
-      if (status == 'approved' || status == 'paid' || status == 'completed') paid += amount;
-    }
-
-    final manualWithdrawable = _toDouble(vendor['withdrawableBalance']);
-    final calculatedAvailable = deliveredSales - commission - pending - paid;
-    final available = manualWithdrawable > 0 ? manualWithdrawable : calculatedAvailable;
-
-    return {
-      'totalSales': deliveredSales,
-      'commission': commission,
-      'pending': pending,
-      'paid': paid,
-      'available': available < 0 ? 0 : available,
-    };
   }
 
   Future<void> _submitWithdraw({
@@ -260,17 +194,8 @@ class _VendorWithdrawPageState extends State<VendorWithdrawPage> {
 
           final vendor = vendorSnap.data ?? <String, dynamic>{};
 
+          // ledger-1: all money from vendor_private; no sums from orders here.
           return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: db.collection('orders').where('vendorIds', arrayContains: vendorId).snapshots(),
-            builder: (context, orderSnap) {
-              if (orderSnap.hasError) {
-                return _errorCard('Orders load failed', orderSnap.error.toString());
-              }
-              if (!orderSnap.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: db
                     .collection('vendorWithdrawRequests')
                 // IMPORTANT: Query by vendorOwnerId, not vendorId.
@@ -295,23 +220,17 @@ class _VendorWithdrawPageState extends State<VendorWithdrawPage> {
                     return bt.compareTo(at);
                   });
 
-                  final money = _calculateMoney(
-                    orders: orderSnap.data!.docs,
-                    requests: requests,
-                    vendor: vendor,
+                  final money = VendorBalance.from(
+                    vendor,
+                    requested: pendingRequestTotal(requests.map((d) => d.data())),
                   );
 
                   return ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
-                      _balanceCard(
-                        balance: money['available'] ?? 0,
-                        pending: money['pending'] ?? 0,
-                        totalSales: money['totalSales'] ?? 0,
-                        totalCommission: money['commission'] ?? 0,
-                      ),
+                      _balanceCard(money),
                       const SizedBox(height: 16),
-                      _requestCard(vendor, money['available'] ?? 0),
+                      _requestCard(vendor, money),
                       const SizedBox(height: 16),
                       const Text(
                         'Withdraw History',
@@ -323,8 +242,6 @@ class _VendorWithdrawPageState extends State<VendorWithdrawPage> {
                   );
                 },
               );
-            },
-          );
         },
       ),
     );
@@ -358,30 +275,41 @@ class _VendorWithdrawPageState extends State<VendorWithdrawPage> {
     );
   }
 
-  Widget _balanceCard({
-    required double balance,
-    required double pending,
-    required double totalSales,
-    required double totalCommission,
-  }) {
+  Widget _balanceCard(VendorBalance money) {
+    final debt = money.inDebt;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: _cardDecoration(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Available Balance', style: TextStyle(color: Colors.grey)),
+          Text(debt ? 'Balance (you owe)' : 'Available Balance',
+              style: TextStyle(color: debt ? Colors.red.shade700 : Colors.grey)),
           const SizedBox(height: 4),
           Text(
-            '৳${balance.toStringAsFixed(0)}',
-            style: const TextStyle(fontSize: 30, fontWeight: FontWeight.bold, color: primary),
+            debt ? '-৳${(-money.withdrawable).toStringAsFixed(0)}' : '৳${money.available.toStringAsFixed(0)}',
+            style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold, color: debt ? Colors.red.shade700 : primary),
           ),
+          if (debt)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                'An order was returned after its money was paid out. New withdrawals open again once this is cleared by new delivered orders.',
+                style: TextStyle(color: Colors.red.shade700, fontSize: 12.5),
+              ),
+            ),
           const Divider(height: 28),
           Row(
             children: [
-              Expanded(child: _miniStat('Pending', pending)),
-              Expanded(child: _miniStat('Total Sales', totalSales)),
-              Expanded(child: _miniStat('Commission', totalCommission)),
+              Expanded(child: _miniStat('Orders not delivered', money.pendingOrders)),
+              Expanded(child: _miniStat('Requested', money.requested)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(child: _miniStat('Total Sales', money.totalSales)),
+              Expanded(child: _miniStat('Commission', money.totalCommission)),
             ],
           ),
         ],
@@ -400,7 +328,7 @@ class _VendorWithdrawPageState extends State<VendorWithdrawPage> {
     );
   }
 
-  Widget _requestCard(Map<String, dynamic> vendor, double balance) {
+  Widget _requestCard(Map<String, dynamic> vendor, VendorBalance money) {
     final payoutAccount = _text(vendor['payoutAccount'] ?? vendor['payoutNumber']);
 
     return Container(
@@ -441,7 +369,9 @@ class _VendorWithdrawPageState extends State<VendorWithdrawPage> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: submitting || balance <= 0 ? null : () => _submitWithdraw(vendor: vendor, available: balance),
+              onPressed: submitting || !money.canWithdraw
+                  ? null
+                  : () => _submitWithdraw(vendor: vendor, available: money.available),
               style: ElevatedButton.styleFrom(
                 backgroundColor: primary,
                 foregroundColor: Colors.white,

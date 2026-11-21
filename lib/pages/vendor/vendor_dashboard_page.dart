@@ -222,8 +222,10 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
           final status = _text(vendor['status'], 'pending');
           final withdrawableBalance =
           _toDouble(vendor['withdrawableBalance']);
-          final pendingWithdraw =
-          _toDouble(vendor['withdrawPendingBalance']).abs();
+          // ledger-1: money from vendor_private only (the ledger functions
+          // write it). pendingBalance = orders not delivered yet.
+          final pendingWithdraw = _toDouble(vendor['pendingBalance']);
+          final inDebt = withdrawableBalance < 0;
           final totalCommission =
           _toDouble(vendor['totalCommission']);
 
@@ -345,9 +347,6 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
                     }
                   }
 
-                  final calculatedWithdrawable =
-                  (revenue - pendingWithdraw - totalCommission)
-                      .clamp(0.0, double.infinity);
 
                   return SingleChildScrollView(
                     padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
@@ -405,16 +404,18 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
                                       color: const Color(0xFF16A34A),
                                     ),
                                     _statCard(
-                                      title: 'Withdrawable',
-                                      value: '৳${calculatedWithdrawable.toStringAsFixed(0)}',
-                                      subtitle: 'Available balance',
+                                      title: inDebt ? 'You owe' : 'Withdrawable',
+                                      value: inDebt
+                                          ? '-৳${(-withdrawableBalance).toStringAsFixed(0)}'
+                                          : '৳${withdrawableBalance.toStringAsFixed(0)}',
+                                      subtitle: inDebt ? 'A returned order after payout' : 'Available balance',
                                       icon: Icons.account_balance_wallet_outlined,
-                                      color: const Color(0xFF0D9488),
+                                      color: inDebt ? Colors.red : const Color(0xFF0D9488),
                                     ),
                                     _statCard(
-                                      title: 'Pending Withdraw',
+                                      title: 'Not delivered yet',
                                       value: '৳${pendingWithdraw.toStringAsFixed(0)}',
-                                      subtitle: 'Waiting admin',
+                                      subtitle: 'Becomes withdrawable on delivery',
                                       icon: Icons.hourglass_top_rounded,
                                       color: const Color(0xFF7C3AED),
                                     ),
@@ -699,9 +700,9 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
                         color: const Color(0xFF0D9488),
                       ),
                       _statCard(
-                        title: 'Pending Withdraw',
+                        title: 'Not delivered yet',
                         value: '৳${pendingWithdraw.toStringAsFixed(0)}',
-                        subtitle: 'Waiting admin',
+                        subtitle: 'Becomes withdrawable on delivery',
                         icon: Icons.hourglass_top_rounded,
                         color: const Color(0xFF7C3AED),
                       ),

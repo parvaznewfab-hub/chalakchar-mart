@@ -1443,48 +1443,9 @@ async function reduceProductStockOnce(orderRef, orderData) {
   await batch.commit();
 }
 
-async function createVendorCommissions(orderId, orderData) {
-  const items = Array.isArray(orderData.items) ? orderData.items : [];
-  if (items.length === 0) return;
-
-  const commissionDefaultPercent = toNumber(orderData.commissionPercent || 10);
-  const grouped = {};
-
-  for (const item of items) {
-    const vendorId = item.vendorId || orderData.vendorId;
-    if (!vendorId) continue;
-
-    const price = toNumber(item.price);
-    const qty = toNumber(item.qty || 1);
-    const lineTotal = price * qty;
-
-    if (!grouped[vendorId]) grouped[vendorId] = 0;
-    grouped[vendorId] += lineTotal;
-  }
-
-  const batch = db.batch();
-
-  for (const [vendorId, grossAmount] of Object.entries(grouped)) {
-    const commissionAmount = grossAmount * (commissionDefaultPercent / 100);
-    const vendorNetAmount = grossAmount - commissionAmount;
-
-    const ref = db.collection("vendor_earnings").doc(`${orderId}_${vendorId}`);
-
-    batch.set(ref, {
-      orderId,
-      vendorId,
-      grossAmount,
-      commissionPercent: commissionDefaultPercent,
-      commissionAmount,
-      vendorNetAmount,
-      status: "pending",
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true });
-  }
-
-  await batch.commit();
-}
+// (ledger-1) createVendorCommissions / vendor_earnings removed: nobody read
+// them and they used the order's (client) commission rate. The vendor
+// commission ledger is functions/ledger/ (onOrderCreatedLedger, onOrderStatusLedger).
 
 async function updateDailyAnalytics(orderData) {
   const now = new Date();
@@ -4597,6 +4558,31 @@ exports.onNotificationCreated = onDocumentCreated("notifications/{notificationId
   });
 });
 
+// Vendor commission ledger (ledger-1): server only. Prices are checked again
+// from products/, the rate comes from vendor_private, everything in one
+// transaction per event and idempotent (functions/ledger/ledgerTriggers.js).
+const ledgerTriggers = require("./ledger/ledgerTriggers");
+
+exports.onOrderCreatedLedger = onDocumentCreated("orders/{orderId}", async (event) => {
+  const result = await ledgerTriggers.onOrderCreated({
+    orderId: event.params.orderId,
+    eventId: event.id,
+    deps: { db, FieldValue: admin.firestore.FieldValue },
+  });
+  logger.info("commission ledger: order created", { orderId: event.params.orderId, ...result });
+});
+
+exports.onOrderStatusLedger = onDocumentUpdated("orders/{orderId}", async (event) => {
+  const result = await ledgerTriggers.onOrderUpdated({
+    orderId: event.params.orderId,
+    before: event.data.before.data() || {},
+    after: event.data.after.data() || {},
+    eventId: event.id,
+    deps: { db, FieldValue: admin.firestore.FieldValue },
+  });
+  if (!result.skipped) logger.info("commission ledger: status", { orderId: event.params.orderId, ...result });
+});
+
 exports.onNewOrderCreated = onDocumentCreated("orders/{orderId}", async (event) => {
   const orderId = event.params.orderId;
   const order = event.data?.data() || {};
@@ -4648,10 +4634,6 @@ exports.onOrderStatusUpdated = onDocumentUpdated("orders/{orderId}", async (even
     after.stockReduced !== true
   ) {
     await reduceProductStockOnce(orderRef, after);
-  }
-
-  if (newStatus === "confirmed") {
-    await createVendorCommissions(orderId, after);
   }
 
   await notifyUser(

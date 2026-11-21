@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/private_profile_service.dart';
+import '../../utils/vendor_balance.dart';
 
 class AdminVendorPayoutPage extends StatefulWidget {
   const AdminVendorPayoutPage({super.key});
@@ -65,52 +66,74 @@ class _AdminVendorPayoutPageState extends State<AdminVendorPayoutPage> {
     final ok = await _confirm(
       title: 'Approve payout?',
       message:
-          'This will mark the payout as paid and reduce vendor pending withdraw balance.',
+          'This marks the payout as paid and takes ৳${amount.toStringAsFixed(2)} from the vendor withdrawable balance.',
       confirmText: 'Approve',
       danger: false,
     );
 
     if (ok != true) return;
 
-    final batch = db.batch();
-
+    // ledger-1: one transaction. The balance is read again here, and the
+    // rules only allow "withdrawableBalance down by exactly what totalPaidOut
+    // goes up, never below 0".
     final requestRef = db.collection('vendorWithdrawRequests').doc(requestId);
-    // Balances are in vendor_private (14b step B).
     final vendorRef = PrivateProfileService.vendorPrivateRef(vendorId);
     final payoutRef = db.collection('vendorPayouts').doc();
+    String? blocked;
 
-    batch.set(
-        requestRef,
-        {
+    try {
+      await db.runTransaction((tx) async {
+        final privateSnap = await tx.get(vendorRef);
+        final private = privateSnap.data() ?? const <String, dynamic>{};
+        final withdrawable = _toDouble(private['withdrawableBalance']);
+        final paidOut = _toDouble(private['totalPaidOut']);
+        blocked = payoutBlockedReason(withdrawable: withdrawable, amount: amount);
+        if (blocked != null) return;
+
+        tx.set(
+            requestRef,
+            {
+              'status': 'paid',
+              'approvedAt': FieldValue.serverTimestamp(),
+              'paidAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true));
+
+        tx.set(
+            vendorRef,
+            {
+              'withdrawableBalance': withdrawable - amount,
+              'totalPaidOut': paidOut + amount,
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true));
+
+        tx.set(payoutRef, {
+          'requestId': requestId,
+          'vendorId': vendorId,
+          'vendorName': _text(data['vendorName'], 'Vendor'),
+          // No phone/email copies: vendorPayouts is readable by analytics staff.
+          'amount': amount,
           'status': 'paid',
-          'approvedAt': FieldValue.serverTimestamp(),
-          'paidAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true));
+          'payoutAccount': data['payoutAccount'],
+          'note': _text(data['note']),
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      });
+    } catch (e) {
+      debugPrint('[vendor payout] failed: $e');
+      _snack('Payout failed. Please try again.');
+      return;
+    }
 
-    batch.set(
-        vendorRef,
-        {
-          'withdrawPendingBalance': FieldValue.increment(-amount),
-          'totalPaidOut': FieldValue.increment(amount),
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true));
-
-    batch.set(payoutRef, {
-      'requestId': requestId,
-      'vendorId': vendorId,
-      'vendorName': _text(data['vendorName'], 'Vendor'),
-      // No phone/email copies: vendorPayouts is readable by analytics staff.
-      'amount': amount,
-      'status': 'paid',
-      'payoutAccount': data['payoutAccount'],
-      'note': _text(data['note']),
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    await batch.commit();
+    _privateByVendor.remove(vendorId);
+    if (blocked != null) {
+      _snack(blocked!);
+      if (mounted) setState(() {});
+      return;
+    }
+    if (mounted) setState(() {});
     _snack('Payout approved and marked as paid');
   }
 
@@ -126,35 +149,19 @@ class _AdminVendorPayoutPageState extends State<AdminVendorPayoutPage> {
 
     final ok = await _confirm(
       title: 'Reject payout?',
-      message: 'This will return the amount to vendor withdrawable balance.',
+      message: 'The request is closed. The vendor balance does not change (a request never takes money out of it).',
       confirmText: 'Reject',
       danger: true,
     );
 
     if (ok != true) return;
 
-    final batch = db.batch();
-
-    batch.set(
-        db.collection('vendorWithdrawRequests').doc(requestId),
-        {
-          'status': 'rejected',
-          'rejectedAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true));
-
-    batch.set(
-        PrivateProfileService.vendorPrivateRef(vendorId),
-        {
-          'withdrawPendingBalance': FieldValue.increment(-amount),
-          'withdrawableBalance': FieldValue.increment(amount),
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true));
-
-    await batch.commit();
-    _snack('Payout request rejected and balance returned');
+    await db.collection('vendorWithdrawRequests').doc(requestId).set({
+      'status': 'rejected',
+      'rejectedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    _snack('Payout request rejected');
   }
 
   Future<bool?> _confirm({
@@ -339,8 +346,8 @@ class _AdminVendorPayoutPageState extends State<AdminVendorPayoutPage> {
       _privateByVendor.putIfAbsent(vendorId, () => PrivateProfileService.vendorPrivate(vendorId));
 
   Widget _payoutCard(String requestId, Map<String, dynamic> data) {
-    // New requests carry no phone/email (14b step B); old ones may.
-    if (_text(data['vendorPhone']).isNotEmpty || _text(data['vendorId']).isEmpty) {
+    // vendor_private: contact and (ledger-1) the withdrawable balance.
+    if (_text(data['vendorId']).isEmpty) {
       return _payoutCardWith(requestId, data, const <String, dynamic>{});
     }
     return FutureBuilder<Map<String, dynamic>>(
@@ -356,6 +363,10 @@ class _AdminVendorPayoutPageState extends State<AdminVendorPayoutPage> {
     final phone = _text(data['vendorPhone'], _text(private['phone']));
     final email = _text(data['vendorEmail'], _text(private['email']));
     final payoutAccount = data['payoutAccount'];
+    final withdrawable = _toDouble(private['withdrawableBalance']);
+    final blocked = private.isEmpty
+        ? null
+        : payoutBlockedReason(withdrawable: withdrawable, amount: amount);
 
     return Card(
       elevation: 0,
@@ -414,8 +425,19 @@ class _AdminVendorPayoutPageState extends State<AdminVendorPayoutPage> {
                 _chip(_dateText(data['createdAt']), Colors.indigo),
                 if (phone.isNotEmpty) _chip(phone, Colors.teal),
                 if (email.isNotEmpty) _chip(email, Colors.deepPurple),
+                if (private.isNotEmpty)
+                  _chip(
+                    withdrawable < 0
+                        ? 'Owes ৳${(-withdrawable).toStringAsFixed(0)}'
+                        : 'Balance ৳${withdrawable.toStringAsFixed(0)}',
+                    withdrawable <= 0 ? Colors.red : Colors.green,
+                  ),
               ],
             ),
+            if (status == 'pending' && blocked != null) ...[
+              const SizedBox(height: 8),
+              Text(blocked, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700)),
+            ],
             const SizedBox(height: 12),
             if (payoutAccount != null)
               Container(
@@ -439,7 +461,7 @@ class _AdminVendorPayoutPageState extends State<AdminVendorPayoutPage> {
               children: [
                 if (status == 'pending')
                   ElevatedButton.icon(
-                    onPressed: () => _approveRequest(requestId, data),
+                    onPressed: blocked != null ? null : () => _approveRequest(requestId, data),
                     icon: const Icon(Icons.verified_rounded),
                     label: const Text('Mark Paid'),
                     style: ElevatedButton.styleFrom(
