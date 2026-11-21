@@ -4562,12 +4562,15 @@ exports.onNotificationCreated = onDocumentCreated("notifications/{notificationId
 // from products/, the rate comes from vendor_private, everything in one
 // transaction per event and idempotent (functions/ledger/ledgerTriggers.js).
 const ledgerTriggers = require("./ledger/ledgerTriggers");
+// Modular import: works the same in production and in the Functions emulator
+// (whose admin.firestore wrapper has no FieldValue).
+const { FieldValue: LedgerFieldValue } = require("firebase-admin/firestore");
 
 exports.onOrderCreatedLedger = onDocumentCreated("orders/{orderId}", async (event) => {
   const result = await ledgerTriggers.onOrderCreated({
     orderId: event.params.orderId,
     eventId: event.id,
-    deps: { db, FieldValue: admin.firestore.FieldValue },
+    deps: { db, FieldValue: LedgerFieldValue },
   });
   logger.info("commission ledger: order created", { orderId: event.params.orderId, ...result });
 });
@@ -4578,7 +4581,7 @@ exports.onOrderStatusLedger = onDocumentUpdated("orders/{orderId}", async (event
     before: event.data.before.data() || {},
     after: event.data.after.data() || {},
     eventId: event.id,
-    deps: { db, FieldValue: admin.firestore.FieldValue },
+    deps: { db, FieldValue: LedgerFieldValue },
   });
   if (!result.skipped) logger.info("commission ledger: status", { orderId: event.params.orderId, ...result });
 });
