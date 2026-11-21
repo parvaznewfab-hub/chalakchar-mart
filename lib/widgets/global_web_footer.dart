@@ -359,7 +359,7 @@ class GlobalWebFooter extends StatelessWidget {
 
   Widget _assetLogo() {
     return Image.asset(
-      'assets/images/logo_horizontal_dark.png',
+      'assets/images/logo_compact_dark.png',
       height: 52,
       errorBuilder: (_, __, ___) => Container(
         height: 52,

@@ -52,7 +52,9 @@ class _LoginPageState extends State<LoginPage> {
   final AuthService _authService = AuthService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  final Color primaryColor = const Color(0xFF32A8C7);
+  // Brand green card; secondary text in brand cream (7.6:1 on the green).
+  final Color primaryColor = const Color(0xFF135C2A);
+  static const Color _cardMutedText = Color(0xFFFFF7E8);
 
   String? verificationId;
   bool loading = false;
@@ -640,11 +642,7 @@ class _LoginPageState extends State<LoginPage> {
                   width: panelWidth,
                   padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 40),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF32A8C7), Color(0xFF1592B3)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
+                    color: primaryColor,
                     borderRadius: BorderRadius.circular(24),
                     boxShadow: [
                       BoxShadow(
@@ -657,23 +655,12 @@ class _LoginPageState extends State<LoginPage> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // The logo carries the shop name (Bangla + English).
-                      Container(
-                        constraints: const BoxConstraints(maxWidth: 280),
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.18),
-                              blurRadius: 12,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
+                      // The logo carries the shop name (Bangla + English);
+                      // transparent, drawn straight on the green card.
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 260),
                         child: Image.asset(
-                          'assets/images/logo_horizontal_light.png',
+                          'assets/images/logo_compact_dark.png',
                           semanticLabel: 'চালাকচর মার্ট — ChalakChar Mart',
                           fit: BoxFit.contain,
                         ),
@@ -692,7 +679,7 @@ class _LoginPageState extends State<LoginPage> {
                         _pageSubtitle,
                         textAlign: TextAlign.center,
                         style: const TextStyle(
-                          color: Colors.white70,
+                          color: _cardMutedText,
                           fontWeight: FontWeight.w600,
                           height: 1.35,
                         ),
@@ -844,7 +831,7 @@ class _LoginPageState extends State<LoginPage> {
                             decoration: const InputDecoration(
                               filled: true,
                               fillColor: Colors.white,
-                              prefixIcon: Icon(Icons.card_giftcard, color: Color(0xFF32A8C7)),
+                              prefixIcon: Icon(Icons.card_giftcard, color: Color(0xFF135C2A)),
                               hintText: 'Referral Code (Optional)',
                               hintStyle: TextStyle(
                                 color: Color(0xFF9CA3AF),
@@ -864,7 +851,7 @@ class _LoginPageState extends State<LoginPage> {
                           child: Text(
                             'Optional: enter a friend referral code before OTP or Google signup.',
                             style: TextStyle(
-                              color: Colors.white70,
+                              color: _cardMutedText,
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
                             ),
@@ -877,7 +864,7 @@ class _LoginPageState extends State<LoginPage> {
                       RichText(
                         textAlign: TextAlign.center,
                         text: TextSpan(
-                          style: const TextStyle(color: Colors.white70, fontSize: 10.5),
+                          style: const TextStyle(color: _cardMutedText, fontSize: 10.5),
                           children: [
                             const TextSpan(text: 'By continuing you agree to our '),
                             _policyTextSpan('Terms of Service', const TermsConditionsPage()),
@@ -962,7 +949,7 @@ class _LoginPageState extends State<LoginPage> {
 
                       Text(
                         widget.createAccountMode ? 'or create account with' : 'or continue with',
-                        style: const TextStyle(color: Colors.white70),
+                        style: const TextStyle(color: _cardMutedText),
                       ),
 
                       const SizedBox(height: 15),

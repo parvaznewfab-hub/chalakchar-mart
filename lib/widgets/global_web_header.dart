@@ -397,14 +397,11 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
       );
     }
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
-      child: Image.asset(
-        'assets/images/logo_horizontal_dark.png',
-        height: 44,
-        semanticLabel: siteName,
-        errorBuilder: (_, __, ___) => _fallbackLogo(),
-      ),
+    return Image.asset(
+      'assets/images/logo_compact_dark.png',
+      height: 44,
+      semanticLabel: siteName,
+      errorBuilder: (_, __, ___) => _fallbackLogo(),
     );
   }
 

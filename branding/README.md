@@ -5,8 +5,10 @@
 
 | ফাইল | কোথায় বসবে |
 |---|---|
-| logo-horizontal-light-1200x360.png | লগইন পাতা, সাদা পটভূমির অন্য পাতা (স্বচ্ছ পটভূমি) |
-| logo-horizontal-dark-1200x360.png | গাঢ় পটভূমি, ইমেইল বা invoice-এর মাথা |
+| logo-compact-light-900x240.png | ছোট জায়গা, সাদা পটভূমি: লগইন কার্ড (tagline নেই, স্বচ্ছ পটভূমি) |
+| logo-compact-dark-900x240.png | ছোট জায়গা, গাঢ় পটভূমি: web-এর header আর footer (tagline নেই, স্বচ্ছ পটভূমি) |
+| logo-horizontal-light-1200x360.png | বড় জায়গা, সাদা পটভূমি (tagline সহ, স্বচ্ছ পটভূমি) |
+| logo-horizontal-dark-1200x360.png | বড় জায়গা: ইমেইল বা invoice-এর মাথা (সবুজ পটভূমিসহ) |
 | logo-square-1024.png, logo-square-512.png | splash screen, সোশ্যাল মিডিয়ার প্রোফাইল ছবি |
 | icon-rounded-512/192/96/48.png | web/icons/Icon-512.png, Icon-192.png ইত্যাদি |
 | icon-maskable-512/192.png | web/icons/Icon-maskable-512.png, Icon-maskable-192.png |
