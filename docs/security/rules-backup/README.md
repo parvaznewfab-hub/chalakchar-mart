@@ -182,7 +182,7 @@ Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --re
 ### AliExpress token নতুন করে নেওয়া (মালিক করবেন কি না ঠিক করবেন)
 
 - **নতুন token নেওয়ার ধাপ:**
-  1. `https://chalakcharmart.com/api/aliexpress/start` (function `aliexpressOAuthStart`)-এ import API key দিয়ে GET পাঠাতে হয়, header `x-api-key` বা যেভাবে `extractImportApiKey` নেয়।
+  1. `https://chalakcharmart.com/api/aliexpress/start` (function `aliexpressOAuthStart`)-এ import API key দিয়ে GET পাঠাতে হয়: header `x-import-api-key: <key>` অথবা `Authorization: Bearer <key>`।
   2. উত্তরে একটা `authorizationUrl` আসে, ১৫ মিনিট কাজ করে, `force_auth=true` সহ।
   3. browser-এ সেটা খুলে AliExpress seller account দিয়ে অনুমতি দিতে হয়।
   4. callback (`aliexpressOAuthCallback`) `/auth/token/security/create` দিয়ে নতুন access আর refresh token এনে `marketplace_connections/aliexpress`-এ লিখে দেয়।
