@@ -2,13 +2,166 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
+import 'seo_titles.dart';
 import 'web_seo_dom.dart' as dom;
+
+/// The head writes [WebSeoService]'s page-level methods make; tests swap in
+/// a fake through [WebSeoService.debugDom].
+class SeoDom {
+  const SeoDom();
+
+  void setDocumentTitle(String title) => dom.setDocumentTitle(title);
+  String getDocumentTitle() => dom.getDocumentTitle();
+  void setMetaByName(String name, String content) =>
+      dom.setMetaByName(name, content);
+  void setMetaByProperty(String property, String content) =>
+      dom.setMetaByProperty(property, content);
+  void setCanonical(String url) => dom.setCanonical(url);
+  void removeElementById(String id) => dom.removeElementById(id);
+}
 
 class WebSeoService {
   WebSeoService._();
 
   static const String siteName = 'ChalakChar Mart';
   static const String baseUrl = 'https://chalakcharmart.com';
+  static const String _defaultImage = '$baseUrl/icons/Icon-512.png';
+
+  @visibleForTesting
+  static SeoDom? debugDom;
+  @visibleForTesting
+  static bool? debugIsWeb;
+
+  static SeoDom get _dom => debugDom ?? const SeoDom();
+  static bool get _isWeb => debugIsWeb ?? kIsWeb;
+
+  static String? _currentTitle;
+
+  /// Category names by URL slug, learned on category pages, so a category
+  /// page reached again by Back gets its real name, not the slug's.
+  static final Map<String, String> _categoryNames = {};
+
+  /// The page title the app last set; before that, the title the server
+  /// sent. MaterialApp.onGenerateTitle returns this, so a root rebuild
+  /// (theme switch, ...) keeps the page's title instead of overwriting it.
+  static String get currentTitle {
+    final current = _currentTitle;
+    if (current != null) return current;
+    if (!_isWeb) return siteName;
+    final served = _dom.getDocumentTitle().trim();
+    return served.isEmpty ? siteName : served;
+  }
+
+  @visibleForTesting
+  static void debugReset() {
+    _currentTitle = null;
+    _categoryNames.clear();
+    debugDom = null;
+    debugIsWeb = null;
+  }
+
+  /// Title and description for a non-product [path], same as the server's
+  /// HTML for it (see [SeoTitles]).
+  static SeoPageText pageTextForPath(String path) {
+    final clean = path.length > 1 && path.endsWith('/')
+        ? path.substring(0, path.length - 1)
+        : path;
+    if (clean.isEmpty || clean == '/') {
+      return const SeoPageText(
+        title: SeoTitles.homeTitle,
+        description: SeoTitles.homeDescription,
+      );
+    }
+    final policy = SeoTitles.policyPages[clean];
+    if (policy != null) return policy;
+
+    final segments = Uri(path: clean).pathSegments;
+    if (segments.length == 2 && segments.first == 'category') {
+      final slug = _categorySlug(segments[1]);
+      final name = _categoryNames[slug] ?? SeoTitles.nameFromSlug(slug);
+      return SeoPageText(
+        title: SeoTitles.categoryTitle(name),
+        description: SeoTitles.categoryDescription(name),
+      );
+    }
+    // /cart, /login and other app-only routes get index.html, whose
+    // description is the home one.
+    return const SeoPageText(
+      title: siteName,
+      description: SeoTitles.homeDescription,
+    );
+  }
+
+  static String _categorySlug(String raw) {
+    var value = raw;
+    try {
+      value = Uri.decodeComponent(raw);
+    } catch (_) {}
+    return value
+        .trim()
+        .toLowerCase()
+        .replaceAll('&', 'and')
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'-+'), '-')
+        .replaceAll(RegExp(r'^-|-$'), '');
+  }
+
+  /// Writes every page-level head tag for a non-product page, so nothing a
+  /// product page set (description, og:*, twitter:*, JSON-LD) is left behind.
+  static void setPageSeo({
+    required String path,
+    required String title,
+    required String description,
+  }) {
+    if (!_isWeb) return;
+    final d = _dom;
+    final url = '$baseUrl${path.isEmpty ? '/' : path}';
+    _currentTitle = title;
+    d.setDocumentTitle(title);
+    d.setMetaByName('title', title);
+    d.setMetaByName('description', description);
+    d.setMetaByProperty('og:title', title);
+    d.setMetaByProperty('og:description', description);
+    d.setMetaByProperty('og:type', 'website');
+    d.setMetaByProperty('og:url', url);
+    d.setMetaByProperty('og:image', _defaultImage);
+    d.setMetaByName('twitter:title', title);
+    d.setMetaByName('twitter:description', description);
+    d.setMetaByName('twitter:image', _defaultImage);
+    d.setCanonical(url);
+    d.removeElementById('product-json-ld');
+  }
+
+  /// Category page, once its real name is known (the route observer used
+  /// the slug's name until then). [exists] false: the server's 404 title
+  /// and noindex.
+  static void setCategorySeo({
+    required String slug,
+    required String name,
+    String? description,
+    bool exists = true,
+  }) {
+    if (!_isWeb) return;
+    final path = '/category/${_categorySlug(slug)}';
+    if (!exists) {
+      if (_currentTitle == SeoTitles.notFoundTitle) return;
+      setPageSeo(
+        path: path,
+        title: SeoTitles.notFoundTitle,
+        description: SeoTitles.notFoundDescription,
+      );
+      setRobots('noindex, follow');
+      return;
+    }
+    _categoryNames[_categorySlug(slug)] = name.trim();
+    final title = SeoTitles.categoryTitle(name);
+    if (_currentTitle == title) return;
+    setPageSeo(
+      path: path,
+      title: title,
+      description: SeoTitles.categoryDescription(name, description),
+    );
+  }
 
   static String _text(dynamic value, [String fallback = '']) {
     final result = (value ?? '').toString().trim();
@@ -47,18 +200,16 @@ class WebSeoService {
   /// Used to mark private/user-specific routes (e.g. /login, /cart) as
   /// noindex while leaving the rest of the site indexable.
   static void setRobots(String content) {
-    if (!kIsWeb) return;
-    dom.setMetaByName('robots', content);
+    if (!_isWeb) return;
+    _dom.setMetaByName('robots', content);
   }
 
-  /// Clears what [setProductSeo] set when the visitor moves to a non-product
-  /// page in-app: generic title, canonical for [path], no product JSON-LD.
+  /// Head tags for a non-product [path] after in-app navigation: the same
+  /// title/description the server sends for it, canonical for [path], and
+  /// nothing left over from a product page.
   static void resetPageSeo(String path) {
-    if (!kIsWeb) return;
-    dom.setDocumentTitle(siteName);
-    dom.setMetaByProperty('og:type', 'website');
-    dom.setCanonical('$baseUrl${path.isEmpty ? '/' : path}');
-    dom.removeElementById('product-json-ld');
+    final text = pageTextForPath(path);
+    setPageSeo(path: path, title: text.title, description: text.description);
   }
 
   static void setProductSeo({
@@ -67,7 +218,7 @@ class WebSeoService {
     required double price,
     required int stock,
   }) {
-    if (!kIsWeb) return;
+    if (!_isWeb) return;
 
     final productName = _text(product['name'], 'Product');
     final metaTitle = _text(
@@ -93,6 +244,7 @@ class WebSeoService {
         ? 'https://schema.org/InStock'
         : 'https://schema.org/OutOfStock';
 
+    _currentTitle = metaTitle;
     dom.setDocumentTitle(metaTitle);
     dom.setMetaByName('title', metaTitle);
     dom.setMetaByName('description', metaDescription);
