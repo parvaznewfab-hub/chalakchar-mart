@@ -180,7 +180,7 @@ class ProductCard extends StatelessWidget {
     final product = ProductService.normalizeProductData(data);
 
     final imageKey = GlobalKey();
-    const primaryColor = Color(0xFF32A8C7);
+    const primaryColor = Color(0xFF1E7A3A);
 
     final name = _text(product['name'], 'Product Name');
     final strength = _text(product['strength']);
@@ -436,7 +436,7 @@ class _PriceBlock extends StatelessWidget {
 
   static const TextStyle _priceStyle = TextStyle(
     fontWeight: FontWeight.bold,
-    color: Color(0xFF32A8C7),
+    color: Color(0xFF1E7A3A),
     fontSize: ProductCard._priceFontSize,
     height: ProductCard._priceLineHeight,
   );

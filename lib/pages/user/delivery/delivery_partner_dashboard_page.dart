@@ -20,7 +20,7 @@ class _DeliveryPartnerDashboardPageState
 
   String get riderId => FirebaseAuth.instance.currentUser?.uid ?? '';
 
-  static const Color primary = Color(0xFF32A8C7);
+  static const Color primary = Color(0xFF1E7A3A);
   static const Color darkText = Color(0xFF0F172A);
   static const Color pageBg = Color(0xFFF5F7FA);
 
@@ -358,7 +358,7 @@ class _DeliveryPartnerDashboardPageState
       backgroundColor: pageBg,
       appBar: AppBar(
         title: const Text('Delivery Dashboard'),
-        backgroundColor: const Color(0xFF32A8C7),
+        backgroundColor: const Color(0xFF1E7A3A),
         foregroundColor: Colors.white,
         actions: [
           IconButton(
@@ -479,7 +479,7 @@ class _DeliveryPartnerDashboardPageState
       padding: EdgeInsets.all(isDesktop ? 22 : 16),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF32A8C7), Color(0xFF1592B3)],
+          colors: [Color(0xFF1E7A3A), Color(0xFF135C2A)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),

@@ -1191,7 +1191,7 @@ class _RecentOrdersList extends StatelessWidget {
                 backgroundColor: const Color(0xFFEAF6FA),
                 child: Text(
                   doc.id.substring(0, 2).toUpperCase(),
-                  style: const TextStyle(color: Color(0xFF1592B3), fontWeight: FontWeight.bold),
+                  style: const TextStyle(color: Color(0xFF135C2A), fontWeight: FontWeight.bold),
                 ),
               ),
               title: Text(
@@ -1308,7 +1308,7 @@ class _AdminSidebar extends StatelessWidget {
               child: const Row(
                 children: [
                   CircleAvatar(
-                    backgroundColor: Color(0xFF32A8C7),
+                    backgroundColor: Color(0xFF1E7A3A),
                     child: Icon(Icons.admin_panel_settings_rounded, color: Colors.white),
                   ),
                   SizedBox(width: 12),
@@ -1333,7 +1333,7 @@ class _AdminSidebar extends StatelessWidget {
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     child: Material(
-                      color: selected ? const Color(0xFF32A8C7) : Colors.transparent,
+                      color: selected ? const Color(0xFF1E7A3A) : Colors.transparent,
                       borderRadius: BorderRadius.circular(14),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(14),

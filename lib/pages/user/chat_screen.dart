@@ -13,7 +13,7 @@ class ChatPanel extends StatefulWidget {
 }
 
 class _ChatPanelState extends State<ChatPanel> {
-  static const Color primary = Color(0xFF32A8C7);
+  static const Color primary = Color(0xFF1E7A3A);
   static const Color accent = Color(0xFFFF9900);
 
   final TextEditingController _controller = TextEditingController();

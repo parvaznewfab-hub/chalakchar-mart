@@ -45,7 +45,7 @@ class _MyAddressPageState extends State<MyAddressPage> {
             child: Container(
               width: double.infinity,
               decoration: BoxDecoration(
-                color: const Color(0xFF32A8C7),
+                color: const Color(0xFF1E7A3A),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Material(
@@ -114,7 +114,7 @@ class _MyAddressPageState extends State<MyAddressPage> {
                           },
                           child: RadioListTile<String>(
                             value: "profile_default",
-                            activeColor: const Color(0xFF32A8C7),
+                            activeColor: const Color(0xFF1E7A3A),
                             title: Text(
                               "Default (from Profile)",
                               style: TextStyle(
@@ -157,7 +157,7 @@ class _MyAddressPageState extends State<MyAddressPage> {
 
                           return RadioListTile<String>(
                             value: doc.id,
-                            activeColor: const Color(0xFF32A8C7),
+                            activeColor: const Color(0xFF1E7A3A),
                             title: Row(
                               children: [
                                 Text(
@@ -199,7 +199,7 @@ class _MyAddressPageState extends State<MyAddressPage> {
                 ? null
                 : () => Navigator.pop(context, selectedAddressId),
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF32A8C7),
+              backgroundColor: const Color(0xFF1E7A3A),
               disabledBackgroundColor: Colors.grey.shade300,
               minimumSize: const Size(double.infinity, 50),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),

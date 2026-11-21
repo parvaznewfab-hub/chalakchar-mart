@@ -397,7 +397,7 @@ class _AdminVendorPayoutPageState extends State<AdminVendorPayoutPage> {
                   style: const TextStyle(
                     fontWeight: FontWeight.w900,
                     fontSize: 18,
-                    color: Color(0xFF32A8C7),
+                    color: Color(0xFF1E7A3A),
                   ),
                 ),
               ],

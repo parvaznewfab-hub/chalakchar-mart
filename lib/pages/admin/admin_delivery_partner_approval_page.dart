@@ -67,7 +67,7 @@ class _AdminDeliveryPartnerApprovalPageState
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
-        backgroundColor: error ? Colors.red : const Color(0xFF32A8C7),
+        backgroundColor: error ? Colors.red : const Color(0xFF1E7A3A),
       ),
     );
   }
@@ -467,7 +467,7 @@ class _AdminDeliveryPartnerApprovalPageState
             backgroundColor: const Color(0xFFF5F7FA),
             appBar: AppBar(
               title: const Text('Delivery Partner Management'),
-              backgroundColor: const Color(0xFF32A8C7),
+              backgroundColor: const Color(0xFF1E7A3A),
               foregroundColor: Colors.white,
               actions: [
                 IconButton(
@@ -716,8 +716,8 @@ class _PartnersTab extends StatelessWidget {
         final header = Row(
           children: [
             CircleAvatar(
-              backgroundColor: const Color(0xFF32A8C7).withValues(alpha: 0.12),
-              child: const Icon(Icons.delivery_dining, color: Color(0xFF32A8C7)),
+              backgroundColor: const Color(0xFF1E7A3A).withValues(alpha: 0.12),
+              child: const Icon(Icons.delivery_dining, color: Color(0xFF1E7A3A)),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -793,7 +793,7 @@ class _PartnersTab extends StatelessWidget {
         children: [
           const Row(
             children: [
-              Icon(Icons.verified_user_outlined, color: Color(0xFF32A8C7)),
+              Icon(Icons.verified_user_outlined, color: Color(0xFF1E7A3A)),
               SizedBox(width: 8),
               Text('NID / ID Verification Images', style: TextStyle(fontWeight: FontWeight.w900)),
             ],

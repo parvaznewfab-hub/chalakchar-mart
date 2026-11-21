@@ -63,7 +63,7 @@ class VariantSelector extends StatefulWidget {
 }
 
 class _VariantSelectorState extends State<VariantSelector> {
-  static const Color _primary = Color(0xFF32A8C7);
+  static const Color _primary = Color(0xFF1E7A3A);
   static const Color _darkText = Color(0xFF111827);
   static const Color _mutedText = Color(0xFF6B7280);
   static const double _spacing = 10;

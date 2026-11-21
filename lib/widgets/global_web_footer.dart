@@ -11,7 +11,8 @@ class GlobalWebFooter extends StatelessWidget {
   static const Color _bottomBg = Color(0xFF08111F);
   static const Color _card = Color(0xFF111C2E);
   static const Color _muted = Color(0xFFB8C4D9);
-  static const Color _accent = Color(0xFF32A8C7);
+  // Brand orange: 8:1 on the dark footer (brand green is only 2.2:1 here).
+  static const Color _accent = Color(0xFFF29A1F);
 
   Future<void> _openUrl(BuildContext context, String url) async {
     final fixedUrl = _url(url);

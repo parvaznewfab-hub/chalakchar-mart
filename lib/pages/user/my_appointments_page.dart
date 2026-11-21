@@ -220,9 +220,9 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
             child: ChoiceChip(
               selected: active,
               label: Text(e.value),
-              selectedColor: const Color(0xFF32A8C7).withValues(alpha: 0.18),
+              selectedColor: const Color(0xFF1E7A3A).withValues(alpha: 0.18),
               labelStyle: TextStyle(
-                color: active ? const Color(0xFF1592B3) : Colors.black87,
+                color: active ? const Color(0xFF135C2A) : Colors.black87,
                 fontWeight: FontWeight.w800,
               ),
               onSelected: (_) => setState(() => _statusFilter = e.key),
@@ -356,7 +356,7 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
   Widget _infoRow(IconData icon, String label, String value) {
     return Row(
       children: [
-        Icon(icon, size: 19, color: const Color(0xFF1592B3)),
+        Icon(icon, size: 19, color: const Color(0xFF135C2A)),
         const SizedBox(width: 8),
         SizedBox(
           width: 82,
@@ -394,7 +394,7 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
             Icon(
               Icons.event_busy_outlined,
               size: 58,
-              color: Color(0xFF32A8C7),
+              color: Color(0xFF1E7A3A),
             ),
             SizedBox(height: 12),
             Text(

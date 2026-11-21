@@ -311,7 +311,7 @@ class _AdminMarketingPageState extends State<AdminMarketingPage> {
                     Text('FB: ${_text(captions['facebook'])}', maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.grey.shade800)),
                   if (productUrl.isNotEmpty) ...[
                     const SizedBox(height: 5),
-                    Text(productUrl, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF32A8C7), fontSize: 12)),
+                    Text(productUrl, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF1E7A3A), fontSize: 12)),
                   ],
                   const SizedBox(height: 5),
                   Text('Updated: ${_date(data['updatedAt'] ?? data['createdAt'])}', style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),

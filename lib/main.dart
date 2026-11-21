@@ -202,18 +202,18 @@ class MyApp extends StatelessWidget {
               height: 78,
               width: 78,
               decoration: BoxDecoration(
-                color: const Color(0xFF32A8C7).withValues(alpha: 0.10),
+                color: const Color(0xFF1E7A3A).withValues(alpha: 0.10),
                 borderRadius: BorderRadius.circular(24),
               ),
               child: const Icon(
                 Icons.business_rounded,
-                color: Color(0xFF1592B3),
+                color: Color(0xFF135C2A),
                 size: 42,
               ),
             ),
             const SizedBox(height: 18),
             const CircularProgressIndicator(
-              color: Color(0xFF32A8C7),
+              color: Color(0xFF1E7A3A),
             ),
             const SizedBox(height: 16),
             Text(
@@ -319,7 +319,7 @@ class MyApp extends StatelessWidget {
     return ThemeData(
       useMaterial3: true,
       fontFamilyFallback: _fontFallback,
-      colorSchemeSeed: const Color(0xFF32A8C7),
+      colorSchemeSeed: const Color(0xFF1E7A3A),
       brightness: Brightness.light,
       scaffoldBackgroundColor: const Color(0xFFF5F7FB),
       appBarTheme: const AppBarTheme(
@@ -345,7 +345,7 @@ class MyApp extends StatelessWidget {
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF32A8C7),
+          backgroundColor: const Color(0xFF1E7A3A),
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
@@ -359,7 +359,7 @@ class MyApp extends StatelessWidget {
     return ThemeData(
       useMaterial3: true,
       fontFamilyFallback: _fontFallback,
-      colorSchemeSeed: const Color(0xFF32A8C7),
+      colorSchemeSeed: const Color(0xFF1E7A3A),
       brightness: Brightness.dark,
       scaffoldBackgroundColor: const Color(0xFF0F172A),
       appBarTheme: const AppBarTheme(

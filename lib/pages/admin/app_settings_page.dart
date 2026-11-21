@@ -1085,7 +1085,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
         onChanged: canEditSettings ? onChanged : null,
         dense: true,
         contentPadding: EdgeInsets.zero,
-        secondary: Icon(icon, color: const Color(0xFF1592B3)),
+        secondary: Icon(icon, color: const Color(0xFF135C2A)),
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
         subtitle: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
       ),
@@ -1131,8 +1131,8 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
             Row(
               children: [
                 CircleAvatar(
-                  backgroundColor: const Color(0xFF32A8C7).withValues(alpha: 0.12),
-                  child: Icon(icon, color: const Color(0xFF1592B3)),
+                  backgroundColor: const Color(0xFF1E7A3A).withValues(alpha: 0.12),
+                  child: Icon(icon, color: const Color(0xFF135C2A)),
                 ),
                 const SizedBox(width: 12),
                 Text(
@@ -1169,7 +1169,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       child: SwitchListTile(
         value: value,
         onChanged: canEditSettings ? onChanged : null,
-        secondary: icon == null ? null : Icon(icon, color: danger ? Colors.red : const Color(0xFF1592B3)),
+        secondary: icon == null ? null : Icon(icon, color: danger ? Colors.red : const Color(0xFF135C2A)),
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
         subtitle: Text(subtitle),
       ),
@@ -1636,7 +1636,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       ),
       child: Row(
         children: [
-          Icon(icon, color: const Color(0xFF1592B3)),
+          Icon(icon, color: const Color(0xFF135C2A)),
           const SizedBox(width: 10),
           Expanded(
             child: Column(

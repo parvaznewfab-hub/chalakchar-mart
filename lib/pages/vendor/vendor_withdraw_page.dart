@@ -23,7 +23,7 @@ class _VendorWithdrawPageState extends State<VendorWithdrawPage> {
   String vendorId = '';
   String ownerUid = '';
 
-  static const Color primary = Color(0xFF32A8C7);
+  static const Color primary = Color(0xFF1E7A3A);
 
   @override
   void initState() {

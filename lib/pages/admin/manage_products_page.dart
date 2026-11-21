@@ -1808,12 +1808,12 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: hasVideo
-                        ? const Color(0xFF32A8C7).withValues(alpha: 0.07)
+                        ? const Color(0xFF1E7A3A).withValues(alpha: 0.07)
                         : Colors.white,
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
                       color: hasVideo
-                          ? const Color(0xFF32A8C7).withValues(alpha: 0.25)
+                          ? const Color(0xFF1E7A3A).withValues(alpha: 0.25)
                           : const Color(0xFFE5E7EB),
                     ),
                   ),

@@ -581,7 +581,7 @@ class _SearchPageState extends State<SearchPage> {
       ),
       child: Row(
         children: [
-          const Icon(Icons.manage_search_rounded, color: Color(0xFF32A8C7)),
+          const Icon(Icons.manage_search_rounded, color: Color(0xFF1E7A3A)),
           const SizedBox(width: 8),
           Expanded(
             child: Text(

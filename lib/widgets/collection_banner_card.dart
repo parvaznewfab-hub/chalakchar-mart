@@ -97,7 +97,7 @@ class CollectionBannerCard extends StatelessWidget {
   /// uses the default [Image.network] with a placeholder on error.
   final Widget? Function(BuildContext context, String url)? imageBuilder;
 
-  static const Color _accent = Color(0xFF32A8C7);
+  static const Color _accent = Color(0xFF1E7A3A);
 
   /// Card width at which 4 items go in one row instead of 2x2.
   static const double _oneRowBreakpoint = 600;

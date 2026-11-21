@@ -9,7 +9,7 @@ import '../../services/referral_service.dart';
 class ChalakCharCashWalletPage extends StatefulWidget {
   const ChalakCharCashWalletPage({super.key});
 
-  static const Color primary = Color(0xFF32A8C7);
+  static const Color primary = Color(0xFF1E7A3A);
 
   @override
   State<ChalakCharCashWalletPage> createState() =>

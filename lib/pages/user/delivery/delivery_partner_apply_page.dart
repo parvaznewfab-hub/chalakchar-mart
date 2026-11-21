@@ -59,7 +59,7 @@ class _DeliveryPartnerApplyPageState extends State<DeliveryPartnerApplyPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
-        backgroundColor: error ? Colors.red : const Color(0xFF32A8C7),
+        backgroundColor: error ? Colors.red : const Color(0xFF1E7A3A),
       ),
     );
   }
@@ -227,7 +227,7 @@ class _DeliveryPartnerApplyPageState extends State<DeliveryPartnerApplyPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Join as Delivery Partner'),
-        backgroundColor: const Color(0xFF32A8C7),
+        backgroundColor: const Color(0xFF1E7A3A),
         foregroundColor: Colors.white,
       ),
       body: user == null
@@ -358,7 +358,7 @@ class _DeliveryPartnerApplyPageState extends State<DeliveryPartnerApplyPage> {
                               : const Icon(Icons.send),
                           label: Text(loading ? 'Submitting...' : 'Submit Application'),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF32A8C7),
+                            backgroundColor: const Color(0xFF1E7A3A),
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -449,7 +449,7 @@ class _DeliveryPartnerApplyPageState extends State<DeliveryPartnerApplyPage> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: hasImage ? const Color(0xFF32A8C7) : Colors.grey.shade300,
+            color: hasImage ? const Color(0xFF1E7A3A) : Colors.grey.shade300,
             width: hasImage ? 1.5 : 1,
           ),
         ),
@@ -500,7 +500,7 @@ class _DeliveryPartnerApplyPageState extends State<DeliveryPartnerApplyPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.cloud_upload_outlined, size: 44, color: Color(0xFF32A8C7)),
+              const Icon(Icons.cloud_upload_outlined, size: 44, color: Color(0xFF1E7A3A)),
               const SizedBox(height: 12),
               Text(
                 title,
@@ -529,13 +529,13 @@ class _DeliveryPartnerApplyPageState extends State<DeliveryPartnerApplyPage> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF32A8C7).withValues(alpha: 0.10),
+        color: const Color(0xFF1E7A3A).withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF32A8C7).withValues(alpha: 0.25)),
+        border: Border.all(color: const Color(0xFF1E7A3A).withValues(alpha: 0.25)),
       ),
       child: const Row(
         children: [
-          Icon(Icons.info_outline, color: Color(0xFF32A8C7)),
+          Icon(Icons.info_outline, color: Color(0xFF1E7A3A)),
           SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -571,7 +571,7 @@ class _DeliveryPartnerApplyPageState extends State<DeliveryPartnerApplyPage> {
 
   InputDecoration _inputDecoration(IconData icon) {
     return InputDecoration(
-      prefixIcon: Icon(icon, color: const Color(0xFF32A8C7)),
+      prefixIcon: Icon(icon, color: const Color(0xFF1E7A3A)),
       filled: true,
       fillColor: Colors.white,
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
@@ -581,7 +581,7 @@ class _DeliveryPartnerApplyPageState extends State<DeliveryPartnerApplyPage> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFF32A8C7), width: 1.4),
+        borderSide: const BorderSide(color: Color(0xFF1E7A3A), width: 1.4),
       ),
     );
   }

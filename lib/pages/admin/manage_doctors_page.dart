@@ -975,7 +975,7 @@ class _ManageDoctorsPageState extends State<ManageDoctorsPage> {
               radius: 34,
               backgroundColor: const Color(0xFFEAF6FA),
               backgroundImage: imageUrl.isNotEmpty ? NetworkImage(imageUrl) : null,
-              child: imageUrl.isEmpty ? const Icon(Icons.person, size: 34, color: Color(0xFF1592B3)) : null,
+              child: imageUrl.isEmpty ? const Icon(Icons.person, size: 34, color: Color(0xFF135C2A)) : null,
             ),
             const SizedBox(width: 14),
             Expanded(

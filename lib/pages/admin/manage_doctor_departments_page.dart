@@ -629,7 +629,7 @@ class _ManageDoctorDepartmentsPageState extends State<ManageDoctorDepartmentsPag
         child: Text(
           _text(data['name'], '?').substring(0, 1).toUpperCase(),
           style: const TextStyle(
-            color: Color(0xFF1592B3),
+            color: Color(0xFF135C2A),
             fontSize: 24,
             fontWeight: FontWeight.bold,
           ),

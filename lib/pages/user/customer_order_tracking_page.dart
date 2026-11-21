@@ -99,7 +99,7 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
         title: const Text('অর্ডার ট্র্যাক'),
-        backgroundColor: const Color(0xFF32A8C7),
+        backgroundColor: const Color(0xFF1E7A3A),
         foregroundColor: Colors.white,
       ),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -223,7 +223,7 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
     return _simpleCard(
       title: 'ডেলিভারির অগ্রগতি',
       icon: Icons.timeline,
-      iconColor: const Color(0xFF32A8C7),
+      iconColor: const Color(0xFF1E7A3A),
       child: Column(
         children: List.generate(steps.length, (index) {
           final active = index <= currentIndex;
@@ -238,14 +238,14 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
                 children: [
                   CircleAvatar(
                     radius: 15,
-                    backgroundColor: active ? const Color(0xFF32A8C7) : Colors.grey.shade300,
+                    backgroundColor: active ? const Color(0xFF1E7A3A) : Colors.grey.shade300,
                     child: Icon(icon, color: Colors.white, size: 16),
                   ),
                   if (index != steps.length - 1)
                     Container(
                       width: 2,
                       height: 30,
-                      color: active ? const Color(0xFF32A8C7) : Colors.grey.shade300,
+                      color: active ? const Color(0xFF1E7A3A) : Colors.grey.shade300,
                     ),
                 ],
               ),
@@ -290,7 +290,7 @@ class _CustomerOrderTrackingPageState extends State<CustomerOrderTrackingPage> {
       child: Row(
         children: [
           const CircleAvatar(
-            backgroundColor: Color(0xFF32A8C7),
+            backgroundColor: Color(0xFF1E7A3A),
             child: Icon(Icons.person, color: Colors.white),
           ),
           const SizedBox(width: 12),

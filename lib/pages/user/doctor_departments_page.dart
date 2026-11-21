@@ -8,7 +8,7 @@ class DoctorDepartmentsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final db = FirebaseFirestore.instance;
-    const Color primaryColor = Color(0xFF32A8C7);
+    const Color primaryColor = Color(0xFF1E7A3A);
     double screenWidth = MediaQuery.of(context).size.width;
     bool isDesktop = screenWidth >= 1024;
 

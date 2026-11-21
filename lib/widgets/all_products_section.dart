@@ -24,7 +24,7 @@ class AllProductsSection extends StatefulWidget {
 
 class _AllProductsSectionState extends State<AllProductsSection> {
   static const int _pageSize = 20;
-  static const Color _accent = Color(0xFF32A8C7);
+  static const Color _accent = Color(0xFF1E7A3A);
 
   int _shown = _pageSize;
   late final Future<List<String>> _categoryNames = CategoryService.activeCategoryNames();
@@ -170,7 +170,7 @@ class _TrustRow extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, color: const Color(0xFF32A8C7), size: isDesktop ? 28 : 24),
+              Icon(icon, color: const Color(0xFF1E7A3A), size: isDesktop ? 28 : 24),
               const SizedBox(height: 6),
               Text(
                 title,

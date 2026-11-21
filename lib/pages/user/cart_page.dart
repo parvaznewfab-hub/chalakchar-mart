@@ -102,7 +102,7 @@ class _CartPageState extends State<CartPage> {
   void _showSuccess(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: const Color(0xFF32A8C7)),
+      SnackBar(content: Text(message), backgroundColor: const Color(0xFF1E7A3A)),
     );
   }
 
@@ -300,7 +300,7 @@ class _CartPageState extends State<CartPage> {
                   }
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF32A8C7),
+                  backgroundColor: const Color(0xFF1E7A3A),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
@@ -800,7 +800,7 @@ class _CartPageState extends State<CartPage> {
               decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
               child: const Row(
                 children: [
-                  Icon(Icons.login_rounded, color: Color(0xFF32A8C7), size: 20),
+                  Icon(Icons.login_rounded, color: Color(0xFF1E7A3A), size: 20),
                   SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -859,7 +859,7 @@ class _CartPageState extends State<CartPage> {
                     Text(
                       '৳${price.toStringAsFixed(0)}',
                       style: const TextStyle(
-                        color: Color(0xFF32A8C7),
+                        color: Color(0xFF1E7A3A),
                         fontWeight: FontWeight.bold,
                         fontSize: 15,
                       ),
@@ -946,7 +946,7 @@ class _CartPageState extends State<CartPage> {
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Color(0xFF32A8C7), size: 22),
+                      icon: const Icon(Icons.delete_outline, color: Color(0xFF1E7A3A), size: 22),
                       onPressed: () async {
                         await GuestCartService.removeItem(itemId);
                         await _refreshGuestCart();
@@ -1118,14 +1118,14 @@ class _CartPageState extends State<CartPage> {
                     const Text("CART SUBTOTAL", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                     Text(
                       "৳${total.toStringAsFixed(0)}",
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF32A8C7)),
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E7A3A)),
                     ),
                   ],
                 ),
                 ElevatedButton(
                   onPressed: _showLoginPopupForCheckout,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF32A8C7),
+                    backgroundColor: const Color(0xFF1E7A3A),
                     padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 15),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
@@ -1167,7 +1167,7 @@ class _CartPageState extends State<CartPage> {
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Material(
-        color: const Color(0xFF32A8C7),
+        color: const Color(0xFF1E7A3A),
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           onTap: () => _selectAddress(userId),
@@ -1243,13 +1243,13 @@ class _CartPageState extends State<CartPage> {
                   onTap: () => _showCouponDialog(totalAmount),
                   child: Row(
                     children: [
-                      const Icon(Icons.confirmation_number_outlined, color: Color(0xFF32A8C7), size: 24),
+                      const Icon(Icons.confirmation_number_outlined, color: Color(0xFF1E7A3A), size: 24),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
                           _appliedCouponCode == null ? "Apply a coupon" : "Coupon: $_appliedCouponCode Applied!",
                           style: const TextStyle(
-                            color: Color(0xFF32A8C7),
+                            color: Color(0xFF1E7A3A),
                             fontWeight: FontWeight.w600,
                             fontSize: 16,
                           ),
@@ -1366,7 +1366,7 @@ class _CartPageState extends State<CartPage> {
           ),
         ),
         const SizedBox(height: 4),
-        Container(width: 40, height: 3, color: const Color(0xFF32A8C7)),
+        Container(width: 40, height: 3, color: const Color(0xFF1E7A3A)),
       ],
     );
   }
@@ -1521,7 +1521,7 @@ class _CartPageState extends State<CartPage> {
                     Text(
                       "৳${price.toStringAsFixed(0)}",
                       style: const TextStyle(
-                        color: Color(0xFF32A8C7),
+                        color: Color(0xFF1E7A3A),
                         fontWeight: FontWeight.bold,
                         fontSize: 15,
                       ),
@@ -1639,7 +1639,7 @@ class _CartPageState extends State<CartPage> {
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Color(0xFF32A8C7), size: 22),
+                      icon: const Icon(Icons.delete_outline, color: Color(0xFF1E7A3A), size: 22),
                       onPressed: () => db.collection('cart').doc(userId).collection('items').doc(itemId).delete(),
                     ),
                   ],
@@ -1753,14 +1753,14 @@ class _CartPageState extends State<CartPage> {
                     const Text("TOTAL AMOUNT", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                     Text(
                       "৳${finalTotal.toStringAsFixed(0)}",
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF32A8C7)),
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E7A3A)),
                     ),
                   ],
                 ),
                 ElevatedButton(
                   onPressed: _placingOrder ? null : () => _placeOrder(finalTotal),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF32A8C7),
+                    backgroundColor: const Color(0xFF1E7A3A),
                     padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 15),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),

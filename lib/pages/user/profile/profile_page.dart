@@ -333,7 +333,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _tile(IconData icon, String label, String value) {
     return Card(
       child: ListTile(
-        leading: Icon(icon, color: const Color(0xFF32A8C7)),
+        leading: Icon(icon, color: const Color(0xFF1E7A3A)),
         title: Text(label),
         subtitle: Text(value.trim().isEmpty ? 'Not set' : value),
       ),
@@ -343,7 +343,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _action(IconData icon, String title, VoidCallback onTap) {
     return Card(
       child: ListTile(
-        leading: Icon(icon, color: const Color(0xFF32A8C7)),
+        leading: Icon(icon, color: const Color(0xFF1E7A3A)),
         title: Text(title),
         trailing: const Icon(Icons.chevron_right),
         onTap: onTap,

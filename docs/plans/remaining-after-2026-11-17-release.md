@@ -135,3 +135,40 @@
   (`channelResults`, `lastError`)। মালিক পরে দেখবেন। (১৮ নভেম্বরের হিসাব: মোট ১০২টা,
   সব completed; posted ৩৯, not_requested ৪০, partial_failed ২৩।)
 
+## Android release-এর প্রথম কাজ (মালিক, ২১ নভেম্বর ২০২৬)
+Android release-এর প্রথম কাজ: package-এর নাম com.chalakcharmart.abdullahpharmacy
+থেকে বদলানো, Firebase-এ নতুন Android অ্যাপ, SHA, Google আর Facebook লগইন।
+অ্যাপ কখনো Play Store-এ প্রকাশ হয়নি, তাই নাম বদলানো যায়। brand-1 branch-এ
+বদলানো হয়নি।
+
+এখনকার অবস্থা (brand-1, ২১ নভেম্বর দেখা):
+- আসল Android package (`applicationId` আর `namespace`) এখনই
+  `com.chalakcharmart.chalakchar_mart`। Firebase-এর Android অ্যাপ
+  (`1:1036870421759:android:6504de8a…`) আর `google-services.json`-ও এই নামে, একটা
+  SHA-1 সহ।
+- `com.chalakcharmart.abdullahpharmacy` আছে শুধু অব্যবহৃত
+  `android/app/src/main/kotlin/com/chalakcharmart/abdullahpharmacy/MainActivity.kt`-এ
+  (Initial commit থেকে; manifest-এর `.MainActivity` namespace ধরে
+  `chalakchar_mart`-এরটা চালায়) আর linux-এর নামে।
+- তাই আগে ঠিক করতে হবে: `com.chalakcharmart.chalakchar_mart` রাখা হবে, নাকি নতুন
+  কোনো নাম (Play Store-এ প্রথম প্রকাশের পর আর বদলানো যাবে না)।
+
+নাম বদলালে যা যা বদলাতে হবে:
+- `android/app/build.gradle.kts`: `namespace` আর `applicationId`।
+- `android/app/src/main/kotlin/com/chalakcharmart/<নাম>/MainActivity.kt`: ফোল্ডার আর
+  `package` লাইন। অব্যবহৃত `abdullahpharmacy/MainActivity.kt` মুছে ফেলা।
+- `android/app/google-services.json`: Firebase-এ নতুন নামে Android অ্যাপ যোগ করে
+  নতুন ফাইল।
+- `lib/firebase_options.dart`: `android`-এর `appId` (`flutterfire configure` দিয়ে)।
+- Firebase-এ নতুন অ্যাপে debug, release আর Play App Signing-এর SHA-1 ও SHA-256।
+  Google লগইনের OAuth Android client নতুন package আর SHA দিয়ে।
+- Facebook লগইন: Meta app-এর Android settings-এ নতুন package, class name
+  (`<নাম>.MainActivity`) আর key hash। `res/values/strings.xml`-এর
+  `facebook_app_id` আর `facebook_client_token` একই থাকে।
+- `linux/CMakeLists.txt` (`BINARY_NAME`, `APPLICATION_ID`) আর
+  `linux/runner/my_application.cc` (জানালার শিরোনাম "abdullahpharmacy")।
+- iOS আলাদা: bundle id `com.chalakcharmart.chalakcharMart`
+  (`ios/Runner.xcodeproj/project.pbxproj`, `lib/firebase_options.dart`)।
+- পরে পরীক্ষা: FCM notification, Google আর Facebook লগইন, ফোন OTP (Play Integrity /
+  SHA), release build।
+

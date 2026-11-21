@@ -876,7 +876,7 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
                   ? Text(
                       name.isNotEmpty ? name[0].toUpperCase() : '?',
                       style: TextStyle(
-                        color: active ? const Color(0xFF1592B3) : Colors.red,
+                        color: active ? const Color(0xFF135C2A) : Colors.red,
                         fontWeight: FontWeight.bold,
                         fontSize: 20,
                       ),

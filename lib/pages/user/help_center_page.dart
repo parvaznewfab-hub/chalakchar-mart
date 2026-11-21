@@ -193,7 +193,7 @@ class _HelpCenterPageState extends State<HelpCenterPage> {
                         width: double.infinity,
                         decoration: const BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [Color(0xFF32A8C7), Color(0xFF6DD5FA)],
+                            colors: [Color(0xFF1E7A3A), Color(0xFF135C2A)],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
@@ -328,7 +328,7 @@ class _HelpCenterPageState extends State<HelpCenterPage> {
           const Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.storefront, color: Color(0xFF32A8C7), size: 30),
+              Icon(Icons.storefront, color: Color(0xFF1E7A3A), size: 30),
               SizedBox(width: 12),
               Expanded(
                 child: Text(
@@ -384,7 +384,7 @@ class _HelpCenterPageState extends State<HelpCenterPage> {
             builder: (context, snap) => Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.email_outlined, color: Color(0xFF32A8C7), size: 22),
+                const Icon(Icons.email_outlined, color: Color(0xFF1E7A3A), size: 22),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
@@ -412,7 +412,7 @@ class _HelpCenterPageState extends State<HelpCenterPage> {
               icon: const Icon(Icons.map_outlined),
               label: const Text("View on Map"),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF32A8C7),
+                backgroundColor: const Color(0xFF1E7A3A),
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 13),
                 shape: RoundedRectangleBorder(

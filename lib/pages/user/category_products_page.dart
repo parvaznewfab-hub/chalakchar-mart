@@ -474,7 +474,7 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
     required int allCount,
     required int Function(SubcategoryModel) countFor,
   }) {
-    const accent = Color(0xFF32A8C7);
+    const accent = Color(0xFF1E7A3A);
 
     Widget avatar(SubcategoryModel? sub) {
       final url = sub?.imageUrl ?? '';
@@ -511,7 +511,7 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
           selectedColor: accent.withValues(alpha: 0.16),
           labelStyle: TextStyle(
             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-            color: isSelected ? const Color(0xFF1592B3) : Colors.black87,
+            color: isSelected ? const Color(0xFF135C2A) : Colors.black87,
           ),
           onSelected: (_) => _selectSub(sub?.slug),
         ),
@@ -551,8 +551,8 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
       child: Row(
         children: [
           CircleAvatar(
-            backgroundColor: const Color(0xFF32A8C7).withValues(alpha: 0.12),
-            child: const Icon(Icons.category_rounded, color: Color(0xFF32A8C7)),
+            backgroundColor: const Color(0xFF1E7A3A).withValues(alpha: 0.12),
+            child: const Icon(Icons.category_rounded, color: Color(0xFF1E7A3A)),
           ),
           const SizedBox(width: 12),
           Expanded(

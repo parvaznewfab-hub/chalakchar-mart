@@ -74,7 +74,7 @@ Future<Uint8List> _drawTestImage(int w, int h) async {
   final recorder = ui.PictureRecorder();
   final canvas = ui.Canvas(recorder);
   final rect = ui.Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble());
-  canvas.drawRect(rect, ui.Paint()..color = const ui.Color(0xFF32A8C7));
+  canvas.drawRect(rect, ui.Paint()..color = const ui.Color(0xFF1E7A3A));
   canvas.drawRect(
     rect.deflate(6),
     ui.Paint()
@@ -127,7 +127,7 @@ Widget section(List<CategoryModel> categories, double width) {
             onPressed: () {},
             child: const Text(
               'See All',
-              style: TextStyle(color: Color(0xFF32A8C7), fontWeight: FontWeight.bold),
+              style: TextStyle(color: Color(0xFF1E7A3A), fontWeight: FontWeight.bold),
             ),
           ),
         ],

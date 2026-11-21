@@ -205,11 +205,11 @@ class _MainNavigationState extends State<MainNavigation> {
                         children: [
                           CircleAvatar(
                             radius: 24,
-                            backgroundColor: const Color(0xFF32A8C7).withValues(alpha: 0.14),
+                            backgroundColor: const Color(0xFF1E7A3A).withValues(alpha: 0.14),
                             child: Text(
                               firstLetter,
                               style: const TextStyle(
-                                color: Color(0xFF32A8C7),
+                                color: Color(0xFF1E7A3A),
                                 fontWeight: FontWeight.w900,
                                 fontSize: 20,
                               ),
@@ -250,7 +250,7 @@ class _MainNavigationState extends State<MainNavigation> {
                                 _showLoginPopup();
                               },
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF32A8C7),
+                                backgroundColor: const Color(0xFF1E7A3A),
                                 foregroundColor: Colors.white,
                                 elevation: 0,
                               ),
@@ -391,10 +391,10 @@ class _MainNavigationState extends State<MainNavigation> {
           height: 42,
           width: 42,
           decoration: BoxDecoration(
-            color: const Color(0xFF32A8C7).withValues(alpha: 0.10),
+            color: const Color(0xFF1E7A3A).withValues(alpha: 0.10),
             borderRadius: BorderRadius.circular(13),
           ),
-          child: Icon(icon, color: const Color(0xFF32A8C7)),
+          child: Icon(icon, color: const Color(0xFF1E7A3A)),
         ),
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
         subtitle: Text(
@@ -479,19 +479,19 @@ class _MainNavigationState extends State<MainNavigation> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         decoration: BoxDecoration(
-          color: const Color(0xFF32A8C7).withValues(alpha: 0.08),
+          color: const Color(0xFF1E7A3A).withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFF32A8C7).withValues(alpha: 0.14)),
+          border: Border.all(color: const Color(0xFF1E7A3A).withValues(alpha: 0.14)),
         ),
         child: const Row(
           children: [
-            Icon(Icons.login_rounded, color: Color(0xFF32A8C7)),
+            Icon(Icons.login_rounded, color: Color(0xFF1E7A3A)),
             SizedBox(width: 12),
             Expanded(
               child: Text(
                 'Login / Sign up',
                 style: TextStyle(
-                  color: Color(0xFF32A8C7),
+                  color: Color(0xFF1E7A3A),
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -580,7 +580,7 @@ class _MainNavigationState extends State<MainNavigation> {
       // Phones/tablets open chat from the bottom nav instead.
       floatingActionButton: showBottomNav ? null : FloatingActionButton(
         heroTag: 'ai_chat_fab',
-        backgroundColor: const Color(0xFF32A8C7),
+        backgroundColor: const Color(0xFF1E7A3A),
         tooltip: _chatOpen ? 'বন্ধ করুন' : 'AI সহকারী',
         onPressed: () => setState(() => _chatOpen = !_chatOpen),
         child: Icon(
@@ -684,7 +684,7 @@ class _MainNavigationState extends State<MainNavigation> {
             BottomNavigationBarItem(
               icon: Icon(
                 _chatOpen ? Icons.keyboard_arrow_down_rounded : Icons.chat_bubble_outline_rounded,
-                color: const Color(0xFF32A8C7),
+                color: const Color(0xFF1E7A3A),
               ),
               label: _chatOpen ? 'Close' : 'Chat',
             ),
@@ -740,10 +740,10 @@ class _LoginRequiredPage extends StatelessWidget {
                 children: [
                   CircleAvatar(
                     radius: 34,
-                    backgroundColor: const Color(0xFF32A8C7).withValues(alpha: 0.12),
+                    backgroundColor: const Color(0xFF1E7A3A).withValues(alpha: 0.12),
                     child: const Icon(
                       Icons.lock_outline_rounded,
-                      color: Color(0xFF32A8C7),
+                      color: Color(0xFF1E7A3A),
                       size: 34,
                     ),
                   ),
@@ -773,7 +773,7 @@ class _LoginRequiredPage extends StatelessWidget {
                       icon: const Icon(Icons.login_rounded),
                       label: const Text('Login / Sign up'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF32A8C7),
+                        backgroundColor: const Color(0xFF1E7A3A),
                         foregroundColor: Colors.white,
                         elevation: 0,
                         padding: const EdgeInsets.symmetric(vertical: 13),

@@ -56,7 +56,7 @@ class VendorShopPage extends StatelessWidget {
               SliverAppBar(
                 expandedHeight: 230,
                 pinned: true,
-                backgroundColor: const Color(0xFF32A8C7),
+                backgroundColor: const Color(0xFF1E7A3A),
                 foregroundColor: Colors.white,
                 title: Text(shopName, maxLines: 1, overflow: TextOverflow.ellipsis),
                 flexibleSpace: FlexibleSpaceBar(
@@ -83,7 +83,7 @@ class VendorShopPage extends StatelessWidget {
                               backgroundColor: Colors.white,
                               backgroundImage: logo.isNotEmpty ? NetworkImage(logo) : null,
                               child: logo.isEmpty
-                                  ? const Icon(Icons.store, size: 34, color: Color(0xFF32A8C7))
+                                  ? const Icon(Icons.store, size: 34, color: Color(0xFF1E7A3A))
                                   : null,
                             ),
                             const SizedBox(width: 12),
@@ -144,7 +144,7 @@ class VendorShopPage extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
-          colors: [Color(0xFF32A8C7), Color(0xFF197B96)],
+          colors: [Color(0xFF1E7A3A), Color(0xFF135C2A)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -190,7 +190,7 @@ class VendorShopPage extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.support_agent, color: Color(0xFF32A8C7)),
+          const Icon(Icons.support_agent, color: Color(0xFF1E7A3A)),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -203,7 +203,7 @@ class VendorShopPage extends StatelessWidget {
           if (phone.isNotEmpty)
             IconButton(
               tooltip: 'Call ChalakChar support',
-              icon: const Icon(Icons.call, color: Color(0xFF32A8C7)),
+              icon: const Icon(Icons.call, color: Color(0xFF1E7A3A)),
               onPressed: () => launchUrl(Uri(scheme: 'tel', path: phone)),
             ),
         ],
@@ -301,7 +301,7 @@ class VendorShopPage extends StatelessWidget {
                   Text(
                     '৳${price.toStringAsFixed(0)}',
                     style: const TextStyle(
-                      color: Color(0xFF32A8C7),
+                      color: Color(0xFF1E7A3A),
                       fontWeight: FontWeight.bold,
                     ),
                   ),

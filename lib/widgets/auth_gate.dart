@@ -32,7 +32,7 @@ class AuthGate extends StatelessWidget {
             builder: (context, roleSnap) {
               if (roleSnap.connectionState == ConnectionState.waiting) {
                 return const Scaffold(
-                  body: Center(child: CircularProgressIndicator(color: Color(0xFF32A8C7))),
+                  body: Center(child: CircularProgressIndicator(color: Color(0xFF1E7A3A))),
                 );
               }
               

@@ -23,7 +23,7 @@ class CategorySidebar extends StatefulWidget {
     this.onSelectActiveSub,
   });
 
-  static const Color _accent = Color(0xFF32A8C7);
+  static const Color _accent = Color(0xFF1E7A3A);
 
   @override
   State<CategorySidebar> createState() => _CategorySidebarState();

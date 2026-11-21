@@ -62,7 +62,7 @@ class DataDeletionPage extends StatelessWidget {
                             children: [
                               const Icon(
                                 Icons.privacy_tip_rounded,
-                                color: Color(0xFF32A8C7),
+                                color: Color(0xFF1E7A3A),
                                 size: 42,
                               ),
                               const SizedBox(height: 14),
@@ -154,7 +154,7 @@ class DataDeletionPage extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.check_circle_rounded, size: 18, color: Color(0xFF32A8C7)),
+                const Icon(Icons.check_circle_rounded, size: 18, color: Color(0xFF1E7A3A)),
                 const SizedBox(width: 8),
                 Expanded(child: Text(text, style: const TextStyle(height: 1.5))),
               ],

@@ -68,7 +68,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
   Future<List<bool>>? _reviewEligibilityFuture;
   int _reviewEligibilityVersion = 0;
 
-  static const Color _primaryColor = Color(0xFF32A8C7);
+  static const Color _primaryColor = Color(0xFF1E7A3A);
   static const Color _darkText = Color(0xFF111827);
   static const Color _softBg = Color(0xFFF6F8FB);
   static const Color _borderColor = Color(0xFFE5E7EB);
@@ -322,7 +322,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
       SnackBar(
         content: Text(msg),
         behavior: SnackBarBehavior.floating,
-        backgroundColor: const Color(0xFF32A8C7),
+        backgroundColor: const Color(0xFF1E7A3A),
       ),
     );
   }
@@ -465,7 +465,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
                 Text(
                   'Submit review and get ৳${_reviewRewardAmount.toStringAsFixed(0)} ChalakChar Cash',
                   style: const TextStyle(
-                    color: Color(0xFF32A8C7),
+                    color: Color(0xFF1E7A3A),
                     fontWeight: FontWeight.w700,
                     fontSize: 12,
                   ),
@@ -490,7 +490,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
                         if (context.mounted) Navigator.pop(context);
                       },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF32A8C7),
+                  backgroundColor: const Color(0xFF1E7A3A),
                   foregroundColor: Colors.white,
                 ),
                 child: _submittingReview
@@ -1729,10 +1729,10 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
                   onTap: () => _openVideo(videoUrl),
                   child: Container(
                     decoration: BoxDecoration(
-                      color: const Color(0xFF32A8C7).withValues(alpha: 0.10),
+                      color: const Color(0xFF1E7A3A).withValues(alpha: 0.10),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: const Color(0xFF32A8C7),
+                        color: const Color(0xFF1E7A3A),
                         width: 1.5,
                       ),
                     ),
@@ -1744,7 +1744,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
                           videoThumbnail,
                           fit: BoxFit.cover,
                           errorBuilder: (_, __, ___) => Container(
-                            color: const Color(0xFF32A8C7)
+                            color: const Color(0xFF1E7A3A)
                                 .withValues(alpha: 0.10),
                           ),
                         ),
@@ -1787,7 +1787,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: selected
-                          ? const Color(0xFF32A8C7)
+                          ? const Color(0xFF1E7A3A)
                           : Colors.grey.shade300,
                       width: selected ? 2 : 1,
                     ),
@@ -1902,7 +1902,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
               _miniChip(_text(data['type']), Colors.blueGrey),
             if (_text(data['generic']).isNotEmpty)
               _miniChip('Generic: ${_text(data['generic'])}',
-                  const Color(0xFF32A8C7)),
+                  const Color(0xFF1E7A3A)),
             if (_text(data['manufacturer']).isNotEmpty)
               _miniChip(_text(data['manufacturer']), Colors.deepPurple),
           ],
@@ -1982,7 +1982,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
                 style: const TextStyle(
                   fontWeight: FontWeight.w900,
                   fontSize: 26,
-                  color: Color(0xFF32A8C7),
+                  color: Color(0xFF1E7A3A),
                 ),
               ),
               if (discount > 0) ...[
@@ -2511,10 +2511,10 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
               width: double.infinity,
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: const Color(0xFF32A8C7).withValues(alpha: 0.08),
+                color: const Color(0xFF1E7A3A).withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                    color: const Color(0xFF32A8C7).withValues(alpha: 0.20)),
+                    color: const Color(0xFF1E7A3A).withValues(alpha: 0.20)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2546,7 +2546,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
                     label: Text(
                         _submittingReview ? 'Submitting...' : 'Write Review'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF32A8C7),
+                      backgroundColor: const Color(0xFF1E7A3A),
                       foregroundColor: Colors.white,
                       elevation: 0,
                       shape: RoundedRectangleBorder(
@@ -2775,7 +2775,7 @@ class _ProductVideoDialogState extends State<_ProductVideoDialog> {
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
                 children: [
-                  const Icon(Icons.play_circle_fill, color: Color(0xFF32A8C7)),
+                  const Icon(Icons.play_circle_fill, color: Color(0xFF1E7A3A)),
                   const SizedBox(width: 8),
                   const Expanded(
                     child: Text('Product Video',

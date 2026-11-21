@@ -598,7 +598,7 @@ class _AdminDoctorAppointmentsPageState extends State<AdminDoctorAppointmentsPag
               Row(
                 children: [
                   CircleAvatar(
-                    backgroundColor: const Color(0xFF32A8C7),
+                    backgroundColor: const Color(0xFF1E7A3A),
                     child: Text(
                       '$serial',
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),

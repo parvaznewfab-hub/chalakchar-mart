@@ -134,7 +134,7 @@ class MarketplaceHomeSection extends StatelessWidget {
                   Text(
                     '৳${price.toStringAsFixed(0)}',
                     style: const TextStyle(
-                      color: Color(0xFF32A8C7),
+                      color: Color(0xFF1E7A3A),
                       fontWeight: FontWeight.bold,
                     ),
                   ),

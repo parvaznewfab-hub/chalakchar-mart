@@ -13,7 +13,7 @@ class MyListsPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text("My Lists"),
-        backgroundColor: const Color(0xFF32A8C7),
+        backgroundColor: const Color(0xFF1E7A3A),
         foregroundColor: Colors.white,
       ),
       body: user == null

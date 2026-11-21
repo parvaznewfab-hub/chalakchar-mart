@@ -88,7 +88,7 @@ class _VendorApplyPageState extends State<VendorApplyPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: error ? Colors.red : const Color(0xFF32A8C7),
+        backgroundColor: error ? Colors.red : const Color(0xFF1E7A3A),
       ),
     );
   }
@@ -364,7 +364,7 @@ class _VendorApplyPageState extends State<VendorApplyPage> {
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
         title: const Text('Seller Account Application'),
-        backgroundColor: const Color(0xFF32A8C7),
+        backgroundColor: const Color(0xFF1E7A3A),
         foregroundColor: Colors.white,
       ),
       body: LayoutBuilder(
@@ -507,7 +507,7 @@ class _VendorApplyPageState extends State<VendorApplyPage> {
                       : 'UPDATE APPLICATION',
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF32A8C7),
+                  backgroundColor: const Color(0xFF1E7A3A),
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -607,7 +607,7 @@ class _VendorApplyPageState extends State<VendorApplyPage> {
         children: [
           Row(
             children: [
-              const Icon(Icons.verified_user, color: Color(0xFF32A8C7)),
+              const Icon(Icons.verified_user, color: Color(0xFF1E7A3A)),
               const SizedBox(width: 8),
               const Expanded(child: Text('Application Status', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
               _statusChip(status),

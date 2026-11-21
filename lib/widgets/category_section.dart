@@ -57,7 +57,7 @@ class CategorySection extends StatelessWidget {
                 child: const Text(
                   "View all",
                   style: TextStyle(
-                    color: Color(0xFF32A8C7),
+                    color: Color(0xFF1E7A3A),
                     fontWeight: FontWeight.bold,
                     fontSize: 14,
                   ),

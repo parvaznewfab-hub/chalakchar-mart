@@ -63,7 +63,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
   static const Color dark = Color(0xFF131921);
   static const Color dark2 = Color(0xFF232F3E);
   static const Color accent = Color(0xFFFF9900);
-  static const Color primary = Color(0xFF32A8C7);
+  static const Color primary = Color(0xFF1E7A3A);
 
   @override
   void dispose() {
@@ -391,15 +391,16 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
     if (logoUrl.isNotEmpty) {
       return Image.network(
         logoUrl,
-        height: 44,
+        height: 56,
         fit: BoxFit.contain,
         errorBuilder: (_, __, ___) => _fallbackLogo(),
       );
     }
 
+    // 56 + _HoverBox padding 8 = 64, inside mainBarHeight (86).
     return Image.asset(
       'assets/images/logo_compact_dark.png',
-      height: 44,
+      height: 56,
       semanticLabel: siteName,
       errorBuilder: (_, __, ___) => _fallbackLogo(),
     );

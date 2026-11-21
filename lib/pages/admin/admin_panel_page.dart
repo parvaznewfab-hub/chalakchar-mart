@@ -189,7 +189,7 @@ class _AdminPanelState extends State<AdminPanel> {
                 : ElevatedButton(
                     onPressed: addProduct,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF32A8C7),
+                      backgroundColor: const Color(0xFF1E7A3A),
                       minimumSize: const Size(double.infinity, 50),
                     ),
                     child: const Text("Add Product", style: TextStyle(color: Colors.white)),

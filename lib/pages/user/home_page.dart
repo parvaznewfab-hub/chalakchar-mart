@@ -131,7 +131,7 @@ class _ProductHomePageState extends State<ProductHomePage> {
                 ),
               );
             },
-            child: const Icon(Icons.shopping_bag, size: 40, color: Color(0xFF32A8C7)),
+            child: const Icon(Icons.shopping_bag, size: 40, color: Color(0xFF1E7A3A)),
           ),
         );
       },
@@ -301,7 +301,7 @@ class _ProductHomePageState extends State<ProductHomePage> {
                         child: _modernSourceButton(
                           icon: Icons.camera_alt_rounded,
                           label: "Camera",
-                          color: const Color(0xFF32A8C7),
+                          color: const Color(0xFF1E7A3A),
                           onTap: () {
                             Navigator.pop(context);
                             _uploadList(ImageSource.camera);
@@ -560,7 +560,7 @@ class _ProductHomePageState extends State<ProductHomePage> {
   Widget build(BuildContext context) {
     final double width = MediaQuery.of(context).size.width;
     final bool isDesktopWeb = kIsWeb && width >= 1024;
-    const Color primaryColor = Color(0xFF32A8C7);
+    const Color primaryColor = Color(0xFF1E7A3A);
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -719,7 +719,7 @@ class _ProductHomePageState extends State<ProductHomePage> {
                           child: const Text(
                             "See All",
                             style: TextStyle(
-                                color: Color(0xFF32A8C7),
+                                color: Color(0xFF1E7A3A),
                                 fontWeight: FontWeight.bold),
                           ),
                         ),
@@ -823,7 +823,7 @@ class _ProductHomePageState extends State<ProductHomePage> {
               ),
             ],
             border: Border.all(
-              color: const Color(0xFF32A8C7).withValues(alpha: 0.15),
+              color: const Color(0xFF1E7A3A).withValues(alpha: 0.15),
               width: 0.5,
             ),
           ),
@@ -902,7 +902,7 @@ if (featureEnabled(fs, Feature.health)) ...[
   }
 
   Widget _webWalletBanner() {
-    const accent = Color(0xFF32A8C7);
+    const accent = Color(0xFF1E7A3A);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -987,10 +987,10 @@ if (featureEnabled(fs, Feature.health)) ...[
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           decoration: BoxDecoration(
-            color: const Color(0xFF32A8C7).withValues(alpha: 0.06),
+            color: const Color(0xFF1E7A3A).withValues(alpha: 0.06),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: const Color(0xFF32A8C7).withValues(alpha: 0.12),
+              color: const Color(0xFF1E7A3A).withValues(alpha: 0.12),
             ),
           ),
           child: Row(
@@ -998,10 +998,10 @@ if (featureEnabled(fs, Feature.health)) ...[
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF32A8C7).withValues(alpha: 0.12),
+                  color: const Color(0xFF1E7A3A).withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Icon(icon, color: const Color(0xFF32A8C7), size: 42),
+                child: Icon(icon, color: const Color(0xFF1E7A3A), size: 42),
               ),
               const SizedBox(width: 20),
               Expanded(
@@ -1044,7 +1044,7 @@ if (featureEnabled(fs, Feature.health)) ...[
                           ),
                         ),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF32A8C7),
+                          backgroundColor: const Color(0xFF1E7A3A),
                           foregroundColor: Colors.white,
                           elevation: 0,
                           padding: const EdgeInsets.symmetric(horizontal: 22),

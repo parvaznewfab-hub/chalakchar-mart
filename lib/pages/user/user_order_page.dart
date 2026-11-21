@@ -194,7 +194,7 @@ class OrderPage extends StatelessWidget {
               style: const TextStyle(
                 fontWeight: FontWeight.w900,
                 fontSize: 16,
-                color: Color(0xFF32A8C7),
+                color: Color(0xFF1E7A3A),
               ),
             ),
           ],
@@ -248,7 +248,7 @@ class OrderPage extends StatelessWidget {
                   'সর্বমোট',
                   formatTaka(totals['grandTotal']!),
                   isBold: true,
-                  valueColor: const Color(0xFF32A8C7),
+                  valueColor: const Color(0xFF1E7A3A),
                 ),
 
                 const Divider(height: 24),
@@ -434,7 +434,7 @@ class OrderPage extends StatelessWidget {
             icon: const Icon(Icons.local_shipping_outlined),
             label: const Text('অর্ডার ট্র্যাক করুন'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF32A8C7),
+              backgroundColor: const Color(0xFF1E7A3A),
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(vertical: 13),
               shape: RoundedRectangleBorder(
@@ -504,14 +504,14 @@ class OrderPage extends StatelessWidget {
           final active = i <= activeIndex;
           return Row(
             children: [
-              _timelineDot(active, active ? const Color(0xFF32A8C7) : Colors.grey),
+              _timelineDot(active, active ? const Color(0xFF1E7A3A) : Colors.grey),
               const SizedBox(width: 6),
               Text(
                 steps[i],
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: active ? FontWeight.bold : FontWeight.w500,
-                  color: active ? const Color(0xFF32A8C7) : Colors.grey,
+                  color: active ? const Color(0xFF1E7A3A) : Colors.grey,
                 ),
               ),
               if (i != steps.length - 1)
@@ -519,7 +519,7 @@ class OrderPage extends StatelessWidget {
                   margin: const EdgeInsets.symmetric(horizontal: 8),
                   height: 2,
                   width: 24,
-                  color: active ? const Color(0xFF32A8C7) : Colors.grey.shade300,
+                  color: active ? const Color(0xFF1E7A3A) : Colors.grey.shade300,
                 ),
             ],
           );
@@ -577,7 +577,7 @@ class OrderPage extends StatelessWidget {
     } else if (status == 'cancelled' || status == 'rejected') {
       color = Colors.red;
     } else if (status == 'confirmed' || status == 'assigned_to_rider') {
-      color = const Color(0xFF32A8C7);
+      color = const Color(0xFF1E7A3A);
     }
 
     return Container(

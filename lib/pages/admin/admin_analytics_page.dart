@@ -451,8 +451,8 @@ class _AdminAnalyticsPageState extends State<AdminAnalyticsPage> {
             Row(
               children: [
                 CircleAvatar(
-                  backgroundColor: const Color(0xFF32A8C7).withValues(alpha: 0.12),
-                  child: Icon(icon, color: const Color(0xFF1592B3)),
+                  backgroundColor: const Color(0xFF1E7A3A).withValues(alpha: 0.12),
+                  child: Icon(icon, color: const Color(0xFF135C2A)),
                 ),
                 const SizedBox(width: 12),
                 Expanded(

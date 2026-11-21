@@ -603,11 +603,11 @@ class _AdminListsPageState extends State<AdminListsPage> {
                 Row(
                   children: [
                     CircleAvatar(
-                      backgroundColor: const Color(0xFF32A8C7).withValues(alpha: 0.12),
+                      backgroundColor: const Color(0xFF1E7A3A).withValues(alpha: 0.12),
                       child: Text(
                         name.isNotEmpty ? name[0].toUpperCase() : '?',
                         style: const TextStyle(
-                          color: Color(0xFF1592B3),
+                          color: Color(0xFF135C2A),
                           fontWeight: FontWeight.bold,
                         ),
                       ),
