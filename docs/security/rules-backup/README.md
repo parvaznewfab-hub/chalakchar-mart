@@ -7,7 +7,9 @@
 > functions-ও শুধু নাম ধরে (`--only functions:<name>`) deploy হবে, `audit-step-c` থেকে।
 >
 > **২১ নভেম্বর থেকে:** Firestore rules যাবে `audit-step-d` থেকে (worktree `C:\FlutterProjects\cc_stepd`)। এটা `audit-step-c`-এর ওপর তৈরি, তাই d4ead6c এতে নেই।
-> hosting লাইভে এখন SEO-র version `e404b5f237649d80` (branch `seo-1`, অন্য session)। hosting rollback লাগলে এতে ফিরতে হবে, `caec3ea7c1d3fd7e`-এ নয়।
+> hosting-এর মালিকানা এখন SEO session-এর (branch `seo-1`, অন্য worktree)।
+> ২১ নভেম্বর ০৩:১৩ UTC-তে লাইভ ছিল `e404b5f237649d80`। ০৩:৫৩:২৩ UTC-তে লাইভে এসেছে `907a86861815b27e`, এটা seo2 preview-এর version।
+> ধাপ D থেকে এটা আসেনি, ধাপ D শুধু rules deploy করেছে। hosting rollback-এর লক্ষ্য SEO session ঠিক করবে, `caec3ea7c1d3fd7e`-এ নয়।
 > ধাপ D-তে hosting, storage বা functions কিছুই deploy হবে না।
 
 ১৭ নভেম্বর ২০২৬-এ লাইভ থেকে নামানো (Firebase Rules API)।
@@ -115,6 +117,7 @@ git checkout storage.rules
 | 2026-11-20 10:39 UTC (`b6a44df`) | Firestore, ধাপ B ধাপ ৬ (মূল ডকুমেন্টে কোনো গোপন key নয়) | `cea420b6-9bc7-408e-8f36-e8bb9261277c` | `c1dedc27-106c-42fa-a55a-bff96182ec15` |
 | 2026-11-20 13:33 UTC (`4e90295`) | Function `getIdentityDocumentUrl` (নতুন; account `identity-docs-viewer`) | — | ছিল না |
 | 2026-11-20 14:06 UTC (`4e90295`, preview `step-c` থেকে clone) | Hosting live, ধাপ C | version `caec3ea7c1d3fd7e` | version `2ac61cbcad787dc7` |
+| 2026-11-21 03:53 UTC (`3e71922`, branch `audit-step-d`) | Firestore, ধাপ D (শুধু server-এর collection বন্ধ) | `d63b3d4b-a15c-4667-a00a-c19a6733b5ed` | `cea420b6-9bc7-408e-8f36-e8bb9261277c` |
 
 Hosting ফেরাতে:
 - ধাপ C-এর আগের অবস্থায় (ধাপ B): `firebase hosting:clone chalakchar-mart@2ac61cbcad787dc7 chalakchar-mart:live --project chalakchar-mart`।
@@ -146,7 +149,23 @@ Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --re
   - bucket-এ uniform access চালু করে prefix condition বসানো।
   - rider Faruk-এর test কাগজ।
 
-## 14b ধাপ D: শুধু server-এর collection বন্ধ (deploy-এর আগে লেখা; deploy-এর পর সময় আর id যোগ হবে)
+## 14b ধাপ D: শুধু server-এর collection বন্ধ (লাইভ ২১ নভেম্বর ২০২৬, ০৩:৫৩ UTC)
+
+- **Export:** `gs://chalakchar-mart-backups/step-d-20261121-0351`। ০৩:৫২:০২ UTC-তে শেষ, SUCCESSFUL, ১০১টা ডকুমেন্ট।
+  - এতে আছে ছয়টা collection আর `messages`।
+  - bucket-এর lifecycle অনুযায়ী ৩০ দিন পর নিজে থেকে মুছে যাবে।
+- **Deploy:** `firebase deploy --only firestore:rules`, `cc_stepd` থেকে (commit `3e71922`), ০৩:৫৩:৩২ UTC-তে।
+  - আগের ruleset ছিল `cea420b6-9bc7-408e-8f36-e8bb9261277c`, এখন `d63b3d4b-a15c-4667-a00a-c19a6733b5ed`।
+  - hosting, storage বা functions কিছুই deploy হয়নি।
+- **লাইভে যাচাই:**
+  - ০৩:৫৪:৩১ UTC-তে customer অ্যাপের AI chat-এ (`chatWithAssistant`, লগইন ছাড়া guestId দিয়ে) একটা সাধারণ প্রশ্ন পাঠানো হয়েছে। HTTP 200 এসেছে, উত্তর এসেছে।
+  - `conversations`-এ নতুন thread তৈরি হয়েছে, তাতে customer আর bot-এর ২টা বার্তা লেখা হয়েছে। অর্থাৎ functions আগের মতোই লিখতে পারে।
+  - লগইন ছাড়া `conversations`, `marketplace_connections` আর `rateLimits` পড়তে গেলে 403 আসে।
+  - admin-এর পাতাগুলো মালিক নিজে দেখবেন। WhatsApp-এর পরীক্ষাও মালিক নিজে করবেন।
+- **AliExpress token: বদলানো হবে না** (মালিকের সিদ্ধান্ত, ২১ নভেম্বর ২০২৬)।
+  - কারণ: যে ৩টা account token পড়তে পারত (superAdmin, admin আর staff), সবগুলোই বিশ্বস্ত।
+  - ধাপ D-র rules দিয়ে ফাঁকটা বন্ধ হয়েছে।
+  - নতুন token নেওয়ার পদ্ধতি নিচে লেখা আছে, পরে কখনো লাগলে কাজে আসবে।
 
 **কী বদলেছে (শুধু `firestore.rules`):** ছয়টা collection-এর জন্য নিজের নিয়ম যোগ হয়েছে, `allow read, write: if false`। একই সঙ্গে catch-all `match /{document=**}`-এর বাদের তালিকাতেও এগুলো যোগ হয়েছে:
 
@@ -179,7 +198,7 @@ Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --re
   - ধাপ D-র বদল শুধু নতুন বন্ধ করা নিয়ম, data বদলায় না। তাই ফেরানো নিরাপদ।
   - তবে মনে রাখতে হবে: ফেরালে staff আবার AliExpress-এর token পড়তে পারবে।
 
-### AliExpress token নতুন করে নেওয়া (মালিক করবেন কি না ঠিক করবেন)
+### AliExpress token নতুন করে নেওয়া (দরকার হলে; ২১ নভেম্বর সিদ্ধান্ত: এখন বদলানো হবে না)
 
 - **নতুন token নেওয়ার ধাপ:**
   1. `https://chalakcharmart.com/api/aliexpress/start` (function `aliexpressOAuthStart`)-এ import API key দিয়ে GET পাঠাতে হয়: header `x-import-api-key: <key>` অথবা `Authorization: Bearer <key>`।
