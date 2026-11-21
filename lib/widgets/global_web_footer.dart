@@ -362,6 +362,7 @@ class GlobalWebFooter extends StatelessWidget {
     return Image.asset(
       'assets/images/logo_compact_dark.png',
       height: 52,
+      width: 195, // 900x240 file; fixed so the footer does not shift on load
       errorBuilder: (_, __, ___) => Container(
         height: 52,
         width: 52,

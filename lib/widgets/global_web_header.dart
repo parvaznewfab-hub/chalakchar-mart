@@ -401,6 +401,7 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
     return Image.asset(
       'assets/images/logo_compact_dark.png',
       height: 56,
+      width: 210, // 900x240 file; fixed so the header row does not shift on load
       semanticLabel: siteName,
       errorBuilder: (_, __, ___) => _fallbackLogo(),
     );

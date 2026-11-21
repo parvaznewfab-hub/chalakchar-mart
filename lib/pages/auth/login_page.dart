@@ -656,13 +656,18 @@ class _LoginPageState extends State<LoginPage> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       // The logo carries the shop name (Bangla + English);
-                      // transparent, drawn straight on the green card.
+                      // transparent, drawn straight on the green card. The
+                      // aspect ratio (900x240 file) reserves its space so the
+                      // card does not jump when the image finishes loading.
                       ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 260),
-                        child: Image.asset(
-                          'assets/images/logo_compact_dark.png',
-                          semanticLabel: 'চালাকচর মার্ট — ChalakChar Mart',
-                          fit: BoxFit.contain,
+                        child: AspectRatio(
+                          aspectRatio: 900 / 240,
+                          child: Image.asset(
+                            'assets/images/logo_compact_dark.png',
+                            semanticLabel: 'চালাকচর মার্ট — ChalakChar Mart',
+                            fit: BoxFit.contain,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 14),
