@@ -37,7 +37,7 @@ class ThermalInvoiceService {
     );
 
     printer.text(
-      'abdullahpharmacy.com',
+      'chalakcharmart.com',
       styles: const PosStyles(align: PosAlign.center),
     );
 

@@ -210,7 +210,7 @@ class _HelpCenterPageState extends State<HelpCenterPage> {
                     const Padding(
                       padding: EdgeInsets.all(16),
                       child: Text(
-                        "কিভাবে ঔষধ অর্ডার করবেন??",
+                        "কিভাবে অর্ডার করবেন?",
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,

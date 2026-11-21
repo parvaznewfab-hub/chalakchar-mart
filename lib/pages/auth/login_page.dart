@@ -657,12 +657,13 @@ class _LoginPageState extends State<LoginPage> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // The logo carries the shop name (Bangla + English).
                       Container(
-                        width: 85,
-                        height: 85,
+                        constraints: const BoxConstraints(maxWidth: 280),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          shape: BoxShape.circle,
                           color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
                           boxShadow: [
                             BoxShadow(
                               color: Colors.black.withValues(alpha: 0.18),
@@ -670,22 +671,14 @@ class _LoginPageState extends State<LoginPage> {
                               offset: const Offset(0, 4),
                             ),
                           ],
-                          image: const DecorationImage(
-                            image: AssetImage('assets/images/chalakchar_mart_logo.png'),
-                            fit: BoxFit.cover,
-                          ),
+                        ),
+                        child: Image.asset(
+                          'assets/images/logo_horizontal_light.png',
+                          semanticLabel: 'চালাকচর মার্ট — ChalakChar Mart',
+                          fit: BoxFit.contain,
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'ChalakChar Mart',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 19,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 14),
                       Text(
                         _pageTitle,
                         style: const TextStyle(

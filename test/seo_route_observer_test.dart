@@ -115,12 +115,12 @@ void main() {
     expect(fake.byName['description'], SeoTitles.homeDescription);
     expect(fake.byName['twitter:title'], SeoTitles.homeTitle);
     expect(fake.byName['twitter:description'], SeoTitles.homeDescription);
-    expect(fake.byName['twitter:image'], 'https://chalakcharmart.com/icons/Icon-512.png');
+    expect(fake.byName['twitter:image'], 'https://chalakcharmart.com/og-image-1200x630.png');
     expect(fake.byProperty['og:title'], SeoTitles.homeTitle);
     expect(fake.byProperty['og:description'], SeoTitles.homeDescription);
     expect(fake.byProperty['og:type'], 'website');
     expect(fake.byProperty['og:url'], 'https://chalakcharmart.com/');
-    expect(fake.byProperty['og:image'], 'https://chalakcharmart.com/icons/Icon-512.png');
+    expect(fake.byProperty['og:image'], 'https://chalakcharmart.com/og-image-1200x630.png');
     expect(fake.canonical, 'https://chalakcharmart.com/');
     expect(fake.elementIds, isNot(contains('product-json-ld')));
   });

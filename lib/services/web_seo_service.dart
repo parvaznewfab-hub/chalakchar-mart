@@ -25,7 +25,7 @@ class WebSeoService {
 
   static const String siteName = 'ChalakChar Mart';
   static const String baseUrl = 'https://chalakcharmart.com';
-  static const String _defaultImage = '$baseUrl/icons/Icon-512.png';
+  static const String _defaultImage = '$baseUrl/og-image-1200x630.png';
 
   @visibleForTesting
   static SeoDom? debugDom;
@@ -186,7 +186,7 @@ class WebSeoService {
     final imageUrl = _text(product['imageUrl'] ?? product['image']);
     if (imageUrl.startsWith('http')) return imageUrl;
 
-    return '$baseUrl/icons/Icon-512.png';
+    return '$baseUrl/og-image-1200x630.png';
   }
 
   static String _cleanDescription(String value) {
