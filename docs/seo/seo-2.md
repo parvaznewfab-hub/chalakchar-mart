@@ -46,10 +46,27 @@ routes and the product page doesn't re-set its tags, so the previous page's
 title stays until the product page rebuilds. Fixing it touches product SEO
 code (d4ead6c area); left for after d4ead6c.
 
-## Go live (owner approval; only after step D rules deploy is done)
-    firebase hosting:clone chalakchar-mart:seo2 chalakchar-mart:live
+## Live
+**Live since 2026-11-21 03:53:23 UTC: version `907a86861815b27e`** (owner
+approved after step D rules deploy), via
+`firebase hosting:clone chalakchar-mart:seo2 chalakchar-mart:live`.
+Nothing else deployed (no rules, storage or functions).
 
-## Rollback
+Checked on live after the clone:
+- served index.html and main.dart.js == seo-2 build; product, category,
+  about-us, sitemap.xml, robots.txt byte-identical to before the clone.
+- 360px and desktop: home, category, product, about-us document.title ==
+  server `<title>`; /cart and /login "ChalakChar Mart" + noindex; no white
+  screen, no horizontal scroll, #home-seo removed.
+- In-app: category -> tap product card -> browser Back (360px and desktop):
+  title, description, og:type/url/image, canonical back to the category's,
+  product JSON-LD removed.
+- Admin pages: owner checks (Google login).
+
+From now on a hosting rollback for any other work should return to
+`907a86861815b27e`.
+
+## Rollback of seo-2
 Live before seo-2: `e404b5f237649d80` (seo-1).
 
     firebase hosting:clone chalakchar-mart@e404b5f237649d80 chalakchar-mart:live
