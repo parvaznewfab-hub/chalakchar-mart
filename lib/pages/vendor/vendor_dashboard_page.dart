@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../services/private_profile_service.dart';
+import '../../utils/vendor_balance.dart';
 import 'vendor_orders_page.dart';
 import 'vendor_products_page.dart';
 import 'vendor_withdraw_page.dart';
@@ -225,7 +226,9 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
           // ledger-1: money from vendor_private only (the ledger functions
           // write it). pendingBalance = orders not delivered yet.
           final pendingWithdraw = _toDouble(vendor['pendingBalance']);
-          final inDebt = withdrawableBalance < 0;
+          // ledger-1: revenue = vendor_private.totalSales (the ledger
+          // functions keep it), never summed from orders on the device.
+          final totalSales = _toDouble(vendor['totalSales']);
           final totalCommission =
           _toDouble(vendor['totalCommission']);
 
@@ -316,26 +319,14 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
                   int pendingOrders = 0;
                   int processingOrders = 0;
                   int completedOrders = 0;
-                  double revenue = 0;
 
                   for (final orderDoc in orders) {
                     final order = orderDoc.data();
                     final vendorStatus = _text(order['vendorStatus']).toLowerCase();
                     final statusText = _text(order['status'], 'pending').toLowerCase();
 
-                    final items = order['items'];
-                    double vendorOrderTotal = 0;
-                    if (items is List) {
-                      for (final item in items) {
-                        if (item is Map && _text(item['vendorId']) == _vendorId) {
-                          vendorOrderTotal += _toDouble(item['price']) * _toInt(item['qty']);
-                        }
-                      }
-                    }
-
                     if (statusText == 'delivered' || vendorStatus == 'delivered') {
                       completedOrders++;
-                      revenue += vendorOrderTotal;
                     } else if (
                     statusText == 'pending' ||
                         vendorStatus == 'pending' ||
@@ -359,7 +350,7 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
                             _topBanner(
                               shopName: shopName,
                               status: status,
-                              revenue: revenue,
+                              revenue: totalSales,
                               orders: orders.length,
                             ),
                             const SizedBox(height: 18),
@@ -378,7 +369,8 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
                                   crossAxisCount: count,
                                   shrinkWrap: true,
                                   physics: const NeverScrollableScrollPhysics(),
-                                  childAspectRatio: width < 480 ? 1.05 : width > 1100 ? 2.1 : 1.85,
+                                  // Taller on phones so titles can take two lines.
+                                  childAspectRatio: width < 480 ? 0.9 : width > 1100 ? 2.1 : 1.85,
                                   crossAxisSpacing: 12,
                                   mainAxisSpacing: 12,
                                   children: [
@@ -398,20 +390,12 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
                                     ),
                                     _statCard(
                                       title: 'Revenue',
-                                      value: '৳${revenue.toStringAsFixed(0)}',
+                                      value: '৳${totalSales.toStringAsFixed(0)}',
                                       subtitle: '${orders.length} total orders',
                                       icon: Icons.payments_outlined,
                                       color: const Color(0xFF16A34A),
                                     ),
-                                    _statCard(
-                                      title: inDebt ? 'You owe' : 'Withdrawable',
-                                      value: inDebt
-                                          ? '-৳${(-withdrawableBalance).toStringAsFixed(0)}'
-                                          : '৳${withdrawableBalance.toStringAsFixed(0)}',
-                                      subtitle: inDebt ? 'A returned order after payout' : 'Available balance',
-                                      icon: Icons.account_balance_wallet_outlined,
-                                      color: inDebt ? Colors.red : const Color(0xFF0D9488),
-                                    ),
+                                    _withdrawableCard(vendor),
                                     _statCard(
                                       title: 'Not delivered yet',
                                       value: '৳${pendingWithdraw.toStringAsFixed(0)}',
@@ -674,7 +658,7 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
                     crossAxisCount: count,
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    childAspectRatio: width < 480 ? 1.05 : 1.9,
+                    childAspectRatio: width < 480 ? 0.9 : 1.9,
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 12,
                     children: [
@@ -1010,6 +994,45 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
     );
   }
 
+  /// ledger-1: the withdrawable card shows what can be requested now:
+  /// vendor_private.withdrawableBalance minus the vendor's pending requests
+  /// (same numbers as the Withdraw page). Debt shows in red.
+  Widget _withdrawableCard(Map<String, dynamic> vendor) {
+    final ownerUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: ownerUid.isEmpty
+          ? const Stream<QuerySnapshot<Map<String, dynamic>>>.empty()
+          : db
+              .collection('vendorWithdrawRequests')
+              .where('vendorOwnerId', isEqualTo: ownerUid)
+              .snapshots(),
+      builder: (context, snap) {
+        final money = VendorBalance.from(
+          vendor,
+          requested: pendingRequestTotal((snap.data?.docs ?? const []).map((d) => d.data())),
+        );
+        if (money.inDebt) {
+          return _statCard(
+            title: 'You owe',
+            value: '-৳${(-money.withdrawable).toStringAsFixed(0)}',
+            subtitle: 'A returned order after payout',
+            icon: Icons.account_balance_wallet_outlined,
+            color: Colors.red,
+          );
+        }
+        return _statCard(
+          title: 'Withdrawable',
+          value: '৳${money.withdrawable.toStringAsFixed(0)}',
+          subtitle: money.requested > 0
+              ? 'Can withdraw ৳${money.available.toStringAsFixed(0)} (৳${money.requested.toStringAsFixed(0)} requested)'
+              : 'Can withdraw ৳${money.available.toStringAsFixed(0)}',
+          icon: Icons.account_balance_wallet_outlined,
+          color: const Color(0xFF0D9488),
+        );
+      },
+    );
+  }
+
   Widget _statCard({
     required String title,
     required String value,
@@ -1036,10 +1059,11 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
           final compact = constraints.maxWidth < 180;
 
           return compact
-              ? Row(
+              ? Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _iconBox(icon: icon, color: color),
-              const SizedBox(width: 12),
+              const SizedBox(height: 8),
               Expanded(child: _statTexts(title, value, subtitle)),
             ],
           )
@@ -1085,23 +1109,25 @@ class _VendorDashboardPageState extends State<VendorDashboardPage> {
         const SizedBox(height: 3),
         Text(
           title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+          maxLines: 2,
+          softWrap: true,
           style: const TextStyle(
             color: Color(0xFF374151),
             fontWeight: FontWeight.w800,
+            height: 1.15,
           ),
         ),
         if (subtitle != null && subtitle.trim().isNotEmpty) ...[
           const SizedBox(height: 2),
           Text(
             subtitle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+            maxLines: 2,
+            softWrap: true,
             style: const TextStyle(
               color: Color(0xFF9CA3AF),
               fontSize: 12,
               fontWeight: FontWeight.w600,
+              height: 1.15,
             ),
           ),
         ],
