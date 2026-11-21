@@ -6,6 +6,8 @@ void setDocumentTitle(String title) {
   html.document.title = title;
 }
 
+String getDocumentTitle() => html.document.title;
+
 void setMetaByName(String name, String content) {
   final existing = html.document.head?.querySelector('meta[name="$name"]');
   final meta = existing is html.MetaElement

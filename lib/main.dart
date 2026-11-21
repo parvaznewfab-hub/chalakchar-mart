@@ -22,6 +22,7 @@ import 'pages/user/category_products_page.dart';
 import 'pages/auth/login_page.dart';
 import 'pages/user/cart_page.dart';
 import 'services/seo_route_observer.dart';
+import 'services/web_seo_service.dart';
 import 'widgets/health_gate.dart';
 import 'deferred/staff.dart';
 
@@ -383,7 +384,10 @@ class MyApp extends StatelessWidget {
       navigatorKey: navigatorKey,
       navigatorObservers: [SeoRouteObserver()],
       debugShowCheckedModeBanner: false,
-      title: 'ChalakChar Mart',
+      // On web the app's title is the browser tab title: return the page's
+      // own (set by SeoRouteObserver / the pages) so a root rebuild, e.g. a
+      // theme switch, doesn't reset it to the bare site name.
+      onGenerateTitle: (_) => WebSeoService.currentTitle,
       routes: {
         '/': (context) => _homePage(),
         '/about-us': (context) => const AboutUsPage(),

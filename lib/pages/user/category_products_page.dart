@@ -9,6 +9,7 @@ import '../../widgets/global_web_header.dart';
 import '../../widgets/global_web_footer.dart';
 import '../../widgets/category_sidebar.dart';
 import '../../services/web_url_service.dart';
+import '../../services/web_seo_service.dart';
 
 class CategoryProductsPage extends StatefulWidget {
   final String category;
@@ -112,6 +113,22 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
     // URL is handled by named route /category/{slug}.
     // Do not use history.replaceState here; it can overwrite /product/{id}
     // when this page rebuilds behind the product page.
+  }
+
+  /// Page title/description with the category's real name (the route
+  /// observer only had the slug). Same rule as above: only while this page
+  /// is on top, or a rebuild behind a product page would take its title.
+  void _syncCategorySeo(CategoryModel? category) {
+    if (!kIsWeb) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+      WebSeoService.setCategorySeo(
+        slug: widget.category,
+        name: category?.name ?? '',
+        description: category?.description,
+        exists: category != null,
+      );
+    });
   }
 
   // Same "from" price as the cards (cheapest in-stock variant).
@@ -252,6 +269,7 @@ class _CategoryProductsPageState extends State<CategoryProductsPage> {
           if (exists) {
             _syncCategoryUrl(matchedCategory.name);
           }
+          _syncCategorySeo(matchedCategory);
 
           if (!exists) {
             return Center(
