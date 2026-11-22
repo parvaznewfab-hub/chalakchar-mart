@@ -33,6 +33,11 @@ class GlobalWebHeader extends StatefulWidget implements PreferredSizeWidget {
   // Row heights laid out in build(): promo strip + main bar + category nav.
   static const double promoStripHeight = 24;
   static const double mainBarHeight = 86;
+
+  /// Header logo: 56px high (settings logo or the app's own), in a fixed
+  /// 210px box (the 900x240 logo at 56px is 210 wide).
+  static const double logoHeight = 56;
+  static const double logoBoxWidth = 210;
   static const double categoryNavHeight = 46;
 
   /// Total header height (was declared as 136, 20px short of the real 156,
@@ -388,22 +393,40 @@ class _GlobalWebHeaderState extends State<GlobalWebHeader> {
       );
     }
 
+    // Rule: the logo from admin settings (Header Logo URL) first; without
+    // one, the logo inside the app. Both 56px high in the same reserved
+    // box, so the header bar (mainBarHeight 86) never grows and the row does
+    // not shift while the image loads. 56 + _HoverBox padding 8 = 64.
     if (logoUrl.isNotEmpty) {
-      return Image.network(
-        logoUrl,
-        height: 56,
-        fit: BoxFit.contain,
-        errorBuilder: (_, __, ___) => _fallbackLogo(),
+      return SizedBox(
+        height: GlobalWebHeader.logoHeight,
+        width: GlobalWebHeader.logoBoxWidth,
+        child: Image.network(
+          logoUrl,
+          height: GlobalWebHeader.logoHeight,
+          fit: BoxFit.contain,
+          alignment: Alignment.centerLeft,
+          semanticLabel: siteName,
+          errorBuilder: (_, __, ___) => _assetLogo(siteName),
+        ),
       );
     }
 
-    // 56 + _HoverBox padding 8 = 64, inside mainBarHeight (86).
-    return Image.asset(
-      'assets/images/logo_compact_dark.png',
-      height: 56,
-      width: 210, // 900x240 file; fixed so the header row does not shift on load
-      semanticLabel: siteName,
-      errorBuilder: (_, __, ___) => _fallbackLogo(),
+    return _assetLogo(siteName);
+  }
+
+  Widget _assetLogo(String siteName) {
+    return SizedBox(
+      height: GlobalWebHeader.logoHeight,
+      width: GlobalWebHeader.logoBoxWidth,
+      child: Image.asset(
+        'assets/images/logo_compact_dark.png', // 900x240
+        height: GlobalWebHeader.logoHeight,
+        fit: BoxFit.contain,
+        alignment: Alignment.centerLeft,
+        semanticLabel: siteName,
+        errorBuilder: (_, __, ___) => _fallbackLogo(),
+      ),
     );
   }
 
