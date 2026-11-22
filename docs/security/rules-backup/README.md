@@ -118,6 +118,9 @@ git checkout storage.rules
 | 2026-11-20 13:33 UTC (`4e90295`) | Function `getIdentityDocumentUrl` (নতুন; account `identity-docs-viewer`) | — | ছিল না |
 | 2026-11-20 14:06 UTC (`4e90295`, preview `step-c` থেকে clone) | Hosting live, ধাপ C | version `caec3ea7c1d3fd7e` | version `2ac61cbcad787dc7` |
 | 2026-11-21 03:53 UTC (`3e71922`, branch `audit-step-d`) | Firestore, ধাপ D (শুধু server-এর collection বন্ধ) | `d63b3d4b-a15c-4667-a00a-c19a6733b5ed` | `cea420b6-9bc7-408e-8f36-e8bb9261277c` |
+| 2026-11-21 17:27 UTC (`d6896c4`, branch `ledger-1`) | Functions: `onOrderCreatedLedger` আর `onOrderStatusLedger` নতুন, `onOrderStatusUpdated` আপডেট | — | নতুন দুটো ছিল না |
+| 2026-11-22 03:15 UTC (`ae1bd0a`, preview `ledger1` থেকে clone) | Hosting live, ledger-1 | version `6f1f9ea547faf2d0` | version `907a86861815b27e` |
+| 2026-11-22 03:22 UTC (`407ef43`, branch `ledger-1`) | Firestore, ledger-1 | `be7e9c8a-bd31-4dfd-81ea-26114d212272` | `d63b3d4b-a15c-4667-a00a-c19a6733b5ed` |
 
 Hosting ফেরাতে:
 - ধাপ C-এর আগের অবস্থায় (ধাপ B): `firebase hosting:clone chalakchar-mart@2ac61cbcad787dc7 chalakchar-mart:live --project chalakchar-mart`।
@@ -210,6 +213,46 @@ Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --re
   - নিশ্চিত হতে চাইলে AliExpress Open Platform-এর app console-এ authorized session বা app secret দেখতে হবে।
   - সবচেয়ে নিশ্চিত উপায় হলো app secret বদলানো। কিন্তু তাতে `ALIEXPRESS_APP_SECRET` secret আর functions deploy-ও বদলাতে হয়, তাই এটা আলাদা কাজ।
 - AliExpress discovery এখন বন্ধ আছে। refresh token-এর মেয়াদও নির্দিষ্ট, শেষ হলে আবার হাতে reconnect করতে হয় (memory-র পুরোনো নোট)।
+
+## ledger-1: vendor commission ledger (লাইভ ২১–২২ নভেম্বর ২০২৬)
+
+পুরো বিবরণ আর বাকি কাজের তালিকা আছে `docs/plans/ledger-1-handoff.md`-এ।
+
+- **Functions** (২১ নভেম্বর ১৭:২৭ UTC):
+  - `onOrderCreatedLedger` প্রতিটা অর্ডারে `priceCheck` লেখে। vendor-এর item থাকলে `commission_ledger/{orderId}_{vendorId}` তৈরি করে, দাম `products/` থেকে আবার মিলিয়ে।
+  - `onOrderStatusLedger` চলে delivered, cancelled আর returned/refunded হলে, একটা transaction-এ, idempotent।
+  - **এর আগের export:** `gs://chalakchar-mart-backups/ledger1-fn-20261121-1723`।
+- **Hosting** (২২ নভেম্বর ০৩:১৫ UTC): version `6f1f9ea547faf2d0`। এতে আছে client-এর ledger কোড সরানো, vendor পাতার টাকা `vendor_private` থেকে, আর payout-এ ০-এর নিয়ম।
+- **Rules** (২২ নভেম্বর ০৩:২২ UTC): ruleset `be7e9c8a-bd31-4dfd-81ea-26114d212272`।
+  - `commission_ledger`: পড়তে পারে vendor নিজে, staff আর admin। client-এর লেখা বন্ধ।
+  - `priceCheck`: client বসাতে পারে না।
+  - `vendor_private`-এর balance: client লিখতে পারে শুধু payout-এর ধাপে।
+  - `vendorCommissions`: বন্ধ।
+  - **এর আগের export:** `gs://chalakchar-mart-backups/ledger1-rules-20261122-0321`।
+  - লাইভের ruleset-এর source আর repo-র `firestore.rules`-এর sha256 এক (`5f486232…`)।
+  - **ওই একই ফাইলে test:** rules ১১৮/১১৮, ledger trigger ১১/১১।
+  - **লগইন ছাড়া পড়লে:** `commission_ledger`, `vendorCommissions`, `vendor_private` আর `conversations`-এ 403 আসে। `vendors` পড়া যায় (200)।
+- **Rollback:**
+  - **rules:** Console → Rules → History → `d63b3d4b…` → Restore। অথবা `git show audit-step-d:firestore.rules > firestore.rules`, তারপর `firebase deploy --only firestore:rules`।
+  - **hosting:** `firebase hosting:clone chalakchar-mart@907a86861815b27e chalakchar-mart:live --project chalakchar-mart`।
+  - **functions:** `firebase functions:delete onOrderCreatedLedger onOrderStatusLedger --region asia-south1`। তারপর `onOrderStatusUpdated` আবার deploy করতে হবে `audit-step-d` থেকে।
+  - **শুধু rules ফেরালে কী হয়:** client আবার `vendor_private`-এর balance লিখতে পারবে, আর `priceCheck` বসাতে পারবে।
+
+## 14b ধাপ F (ledger-এর পরের প্রথম কাজ): `changedOnly` / `changedAny`-এর ফাঁক
+
+- **সমস্যা:** `changedOnly()` আর `changedAny()` দেখে শুধু `diff().changedKeys()`, অর্থাৎ শুধু বদলানো key। **নতুন যোগ করা key এরা দেখে না।** ফলে নিষিদ্ধ কোনো key আগে না থাকলে client সেটা নতুন করে যোগ করতে পারে।
+- `orders`-এ ledger-1 এটা `affectedOnly()` দিয়ে ঠিক করেছে।
+- **বাকি জায়গা** (২২ নভেম্বর গোনা):
+  - `users/{uid}`: ১৪
+  - `vendors/{vendorId}`: ২
+  - `deliveryPartners`: ১
+  - `deliveryEarnings`: ১
+  - `notifications`: ১
+  - helper function-এর সংজ্ঞা আর ভেতরে: ৪
+- **কাজ:**
+  1. প্রতিটা নিয়মের জন্য emulator-এ "নিষিদ্ধ key নতুন করে যোগ" test লেখা।
+  2. `affectedKeys()`-এ বদলানো।
+  3. ১০০০-expression সীমা মাথায় রাখা, একটা নিয়মে diff একবারই।
 
 ## 14b ধাপ E (পরে): catch-all-কে "অনুমোদিত তালিকা" বানানো
 

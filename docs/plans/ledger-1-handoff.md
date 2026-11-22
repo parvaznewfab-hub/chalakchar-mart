@@ -1,6 +1,6 @@
 # ledger-1 handoff (vendor commission ledger moved to Cloud Functions)
 
-শেষ আপডেট: ২২ নভেম্বর ২০২৬, ০৩:১৫ UTC। নতুন session এখান থেকে শুরু করতে পারে।
+শেষ আপডেট: ২২ নভেম্বর ২০২৬, ০৩:২৫ UTC। ক, খ আর গ তিনটেই লাইভে। নতুন session এখান থেকে শুরু করতে পারে।
 
 ## কোথায় কাজ হচ্ছে
 
@@ -36,7 +36,7 @@
   - admin অর্ডার কার্ডে `priceCheck.ok == false` হলে লাল সতর্কবার্তা দেখায়।
   - vendor-এর Withdraw আর dashboard সব টাকার সংখ্যা নেয় শুধু `vendor_private` থেকে। ঋণ লাল রঙে দেখায়।
   - admin Payouts: payout হয় একটা transaction-এ। balance ০ বা তার কম হলে, অথবা অঙ্কের চেয়ে কম হলে, বোতাম বন্ধ থাকে। reject করলে balance-এ আর টাকা যোগ হয় না (মালিকের অনুমোদিত বদল)।
-- **Rules** (এখনো লাইভে যায়নি, নিচে দেখুন):
+- **Rules** (লাইভ ২২ নভেম্বর ০৩:২২ UTC, ruleset `be7e9c8a…`):
   - `commission_ledger`: client-এর জন্য শুধু পড়া।
   - `priceCheck`: client কখনো বসাতে বা বদলাতে পারে না। orders-এর customer, vendor আর rider নিয়ম এখন `affectedOnly` ব্যবহার করে।
   - `vendor_private`-এর balance: client লিখতে পারে শুধু payout-এর ধাপে।
@@ -49,7 +49,8 @@
 | 2026-11-21 17:24 | Firestore export (functions-এর আগে) | `gs://chalakchar-mart-backups/ledger1-fn-20261121-1723` (SUCCESSFUL, ১৯টা ডকুমেন্ট) | — |
 | 2026-11-21 17:27 | Functions (`d6896c4`) | `onOrderCreatedLedger`, `onOrderStatusLedger` নতুন; `onOrderStatusUpdated` আপডেট | rollback নিচে দেখুন |
 | 2026-11-22 03:15 | Hosting live (`ae1bd0a`, preview `ledger1` থেকে clone) | version `6f1f9ea547faf2d0` | `907a86861815b27e` (seo-2) |
-| — | Firestore rules | **এখনো যায়নি**। লাইভে আছে `d63b3d4b-a15c-4667-a00a-c19a6733b5ed` (ধাপ D) | — |
+| 2026-11-22 03:22 | Firestore export (rules-এর আগে) | `gs://chalakchar-mart-backups/ledger1-rules-20261122-0321` (SUCCESSFUL, ১৬টা ডকুমেন্ট) | — |
+| 2026-11-22 03:22 | Firestore rules (`407ef43`) | ruleset `be7e9c8a-bd31-4dfd-81ea-26114d212272` | `d63b3d4b-a15c-4667-a00a-c19a6733b5ed` (ধাপ D) |
 
 - **Preview `ledger1`:** https://chalakchar-mart--ledger1-cr0u8hep.web.app, version `6f1f9ea547faf2d0`, মেয়াদ ২৮ নভেম্বর পর্যন্ত।
 - **Hash:** লাইভের `main.dart.js` = `0ba8553a…`, `main.dart.js_1.part.js` = `8d7c0692…`, preview-এর সঙ্গে হুবহু এক।
@@ -70,20 +71,20 @@
     ```
   - `onOrderStatusUpdated` আগের অবস্থায় ফেরাতে: `audit-step-d` (worktree `cc_stepd`) থেকে `--only functions:onOrderStatusUpdated`।
   - এতে আবার `createVendorCommissions` চালু হবে, যেটা `vendor_earnings` লেখে।
-- **Rules** (গ লাইভে যাওয়ার পরে): Console → Rules → History → `d63b3d4b…` → Restore।
+- **Rules:** Console → Rules → History → `d63b3d4b…` → Restore।
   - অথবা `git show audit-step-d:firestore.rules > firestore.rules`, তারপর `firebase deploy --only firestore:rules`।
 - **ডেটা:** export আছে `gs://chalakchar-mart-backups/ledger1-fn-20261121-1723` (bucket-এর lifecycle অনুযায়ী ৩০ দিন থাকে)।
 
 ## বাকি কাজ (এই ক্রমে)
 
-1. **গ. Rules** (মালিকের অনুমতিতে):
-   - আগে Firestore export, তারপর `cc_ledger1` থেকে `firebase deploy --only firestore:rules`।
-   - **deploy-এর আগে:** `hosting:channel:list` আর লাইভ version মালিককে জানাতে হবে। একই সময়ে অন্য কোনো session যেন deploy না করে।
-   - **deploy-এর পরে:** লগইন ছাড়া `commission_ledger` পড়লে 403 আসে কি না দেখা। মালিক লাইভে admin-এর Payouts আর অর্ডার পাতা দেখবেন।
-   - **rules-এর test:** `node tools/rules-test/run.js` (১১৮/১১৮)। আজকের লাইভ rules (`d63b3d4b`)-এ নতুন ১০টা test ব্যর্থ হয়, অর্থাৎ test-গুলো সত্যিকারের ফাঁক ধরে।
-2. **Push:** `ledger-1`। আগে গোপন ফাইল খুঁজতে হবে: `.env*`, `key.properties`, keystore, backup JSON, token।
+1. ~~গ. Rules~~ **হয়ে গেছে** (২২ নভেম্বর ০৩:২২ UTC)।
+   - লাইভের source আর repo-র ফাইলের sha256 এক (`5f486232…`)।
+   - ওই একই ফাইলে test: rules ১১৮/১১৮, ledger trigger ১১/১১।
+   - লগইন ছাড়া পড়লে `commission_ledger`, `vendorCommissions`, `vendor_private` আর `conversations`-এ 403 আসে।
+   - **প্রথম আসল অর্ডার এলে মালিক মিলিয়ে দেখবেন:** অর্ডারে `priceCheck` লেখা হয়েছে কি না, আর vendor-এর item থাকলে ledger তৈরি হয়েছে কি না।
+2. **Push:** `ledger-1` (২২ নভেম্বর, rules-এর পরে)। আগে গোপন ফাইল খুঁজতে হবে: `.env*`, `key.properties`, keystore, backup JSON, token।
    - `functions/.env.chalakchar-mart` আগে থেকেই repo-তে আছে। এতে কোনো secret নেই। চাইলে নিশ্চিত হতে একবার খুলে দেখে নেওয়া যায়।
-3. **README** (`docs/security/rules-backup/README.md`):
+3. ~~README~~ **হয়ে গেছে**: deploy টেবিলে functions, hosting আর rules-এর লাইন, "ledger-1" অংশ আর "ধাপ F" অংশ। আগে যা বাকি ছিল:
    - deploy টেবিলে functions (১৭:২৭), hosting (`6f1f9ea547faf2d0`, ০৩:১৫) আর rules-এর id ও সময়।
    - "ledger-1" অংশ।
 4. **ধাপ F** (ledger-এর পরের প্রথম কাজ):
