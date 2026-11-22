@@ -122,6 +122,32 @@ function baseDocs() {
       vendorId: 'vend1', vendorOwnerId: 'vendU1', amount: 150, status: 'pending', payoutAccount: 'bkash 017',
     },
     'deliveryEarnings/rider1_old': { deliveryPartnerId: 'rider1', orderId: 'old', amount: 60, partnerSynced: true },
+    // Server-only collections (14b step D), shaped like the live docs.
+    'conversations/app_cust1': {
+      channel: 'app', externalUserId: 'cust1', customerName: 'C One', status: 'open', needsHuman: false,
+      lastMessagePreview: 'hello', unreadByAdmin: true,
+    },
+    'conversations/app_cust1/messages/m1': { sender: 'customer', text: 'hello' },
+    'marketplace_connections/aliexpress': {
+      provider: 'aliexpress', status: 'connected', accessToken: 'SECRET-ACCESS', refreshToken: 'SECRET-REFRESH',
+    },
+    'rateLimits/ip_203_0_113_5': { count: 1 },
+    'whatsappProcessedMessages/wamid_1': { messageId: 'wamid.1' },
+    'delivery_logs/dl1': { orderId: 'o4', riderId: 'rider1', userId: 'cust2', total: 500, status: 'delivered' },
+    'searchImportLog/q1': { query: 'battery', status: 'done', waitingUserIds: ['cust1'] },
+    // ledger-1: a ledger entry, an order that already has a priceCheck, a vendor in debt.
+    'commission_ledger/o1_vend1': {
+      orderId: 'o1', vendorId: 'vend1', subtotal: 500, adminCommission: 50, vendorPayable: 450, status: 'pending',
+    },
+    'orders/o6': {
+      userId: 'cust2', status: 'pending', paymentMethod: 'COD', grandTotal: 100,
+      priceCheck: { ok: false, clientTotal: 1, serverTotal: 100, mismatchedItems: [] },
+    },
+    'vendors/vendDebt': { ownerId: 'vendDebtU', shopName: 'Debt Shop', status: 'approved', isActive: true },
+    'vendor_private/vendDebt': { vendorId: 'vendDebt', withdrawableBalance: -100, totalPaidOut: 0 },
+    // Left to the catch-all until step E.
+    'analytics_daily/2026-06-06': { date: '2026-06-06', orderCount: 1, revenue: 500 },
+    'system_locks/l1': { locked: false },
     'settings/app': {
       deliveryCharge: 60, supportPhone: '0170',
       socialApi: { facebookPageId: '123', tiktokClientKey: 'abc' },

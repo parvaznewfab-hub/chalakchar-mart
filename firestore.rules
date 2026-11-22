@@ -476,6 +476,28 @@ service cloud.firestore {
       ];
     }
 
+    // (ledger-1) Balances: written by the ledger functions only, except the
+    // payout step below. Commission keys stay admin-set.
+    function vendorBalanceKeys() {
+      return [
+        'totalSales', 'totalCommission', 'pendingBalance', 'withdrawableBalance',
+        'withdrawPendingBalance', 'totalPaidOut', 'deliveredOrders', 'cancelledOrders'
+      ];
+    }
+
+    // A payout: withdrawableBalance goes down by exactly what totalPaidOut
+    // goes up, by more than 0, and never below 0 (no paying out a debt).
+    function isPayoutStep() {
+      let before = resource.data;
+      let after = request.resource.data;
+      let paid = after.get('totalPaidOut', 0) - before.get('totalPaidOut', 0);
+      let dropped = before.get('withdrawableBalance', 0) - after.get('withdrawableBalance', 0);
+      return after.diff(before).affectedKeys().hasOnly(['withdrawableBalance', 'totalPaidOut', 'updatedAt'])
+        && paid > 0
+        && math.abs(dropped - paid) < 0.01
+        && after.get('withdrawableBalance', 0) >= 0;
+    }
+
     function riderPrivateNidKeys() {
       return ['nidNumber', 'nidFrontUrl', 'nidBackUrl', 'nidFrontPath', 'nidBackPath'];
     }
@@ -991,12 +1013,22 @@ service cloud.firestore {
           vendorPrivateProfileKeys().concat(['updatedAt'])
         );
 
-      // Vendor managers: everything. Payout staff: money fields only.
-      allow create, update: if canAnyOf(['vendors.edit', 'vendors.approve']) || isSuperAdmin();
-      allow create, update: if can('vendors.payouts')
+      // Vendor managers: everything except the balances (ledger-1: those are
+      // written by the ledger functions). Payout staff: the commission rate.
+      allow create, update: if (canAnyOf(['vendors.edit', 'vendors.approve']) || isSuperAdmin())
+        && !request.resource.data.diff(resource == null ? {} : resource.data).affectedKeys()
+             .hasAny(vendorBalanceKeys());
+      allow create, update: if canAnyOf(['vendors.payouts'])
         && request.resource.data.diff(resource == null ? {} : resource.data).affectedKeys().hasOnly(
-          vendorPrivateMoneyKeys().concat(['vendorId', 'updatedAt'])
+          ['commissionPercent', 'commissionRate', 'vendorId', 'updatedAt']
         );
+
+      // Paying a vendor out (admin Payouts page): only withdrawableBalance
+      // down and totalPaidOut up by the same amount, never below 0.
+      // canAnyOf (one user read), not can(): see the vendors rule note on the
+      // 1000-expression limit.
+      allow update: if canAnyOf(['vendors.payouts', 'vendors.edit', 'vendors.approve'])
+        && isPayoutStep();
 
       allow delete: if can('vendors.delete') || isSuperAdmin();
     }
@@ -1034,19 +1066,17 @@ service cloud.firestore {
       allow create, update, delete: if can('vendors.edit') || can('vendors.approve');
     }
 
-    match /vendorCommissions/{docId} {
-      allow read: if can('vendors.view')
-        || can('analytics.view')
-        || (
-          isVendor()
-          && (
-            resource.data.vendorId == request.auth.uid
-            || resource.data.vendorOwnerId == request.auth.uid
-            || (me().vendorId is string && resource.data.vendorId == me().vendorId)
-          )
-        );
+    // (ledger-1) vendorCommissions: rule removed (nothing used it); it is
+    // also out of the catch-all below, so no client can read or write it.
 
-      allow create, update, delete: if can('vendors.edit') || can('orders.edit');
+    // Vendor commission ledger (ledger-1): written only by Cloud Functions
+    // (functions/ledger). Read: the vendor (own docs), vendor / payout staff,
+    // admins. No client writes, admins included.
+    match /commission_ledger/{ledgerId} {
+      allow read: if ownsVendorRecord(resource.data.vendorId)
+        || canAnyOf(['vendors.view', 'vendors.payouts'])
+        || isAdmin();
+      allow write: if false;
     }
 
     /* =========================
@@ -1300,14 +1330,34 @@ match /products/{productId} {
     }
 
     match /orders/{orderId} {
+      // ledger-1: no client update adds, changes or removes priceCheck.
+      // (changedOnly() looks at changed keys only, not added ones; the
+      // customer / vendor / rider rules below use affectedOnly() instead.)
+      function keepsPriceCheck() {
+        return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['priceCheck']);
+      }
+
+      // Like changedOnly(), but counts added and removed keys too, so a
+      // customer / vendor / rider cannot add priceCheck (or any other key).
+      function affectedOnly(allowed) {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowed);
+      }
+
       // Customers place their own orders, always starting as pending.
       // Staff can create orders for customers (e.g. from shopping lists).
-      allow create: if (
-          signedIn()
-          && request.resource.data.userId == request.auth.uid
-          && request.resource.data.status == 'pending'
-        )
-        || canAnyOf(['orders.edit']);
+      // priceCheck (client vs server totals) is written only by the
+      // onOrderCreatedLedger function: never on create, never changed after
+      // (ledger-1). The customer / vendor / rider update rules below list
+      // their keys (changedOnly), so priceCheck is out of them already.
+      allow create: if !request.resource.data.keys().hasAny(['priceCheck'])
+        && (
+          (
+            signedIn()
+            && request.resource.data.userId == request.auth.uid
+            && request.resource.data.status == 'pending'
+          )
+          || canAnyOf(['orders.edit'])
+        );
 
       // Read: the customer, a vendor with items in it, the assigned rider,
       // and staff. Holds names, phones and delivery addresses.
@@ -1316,7 +1366,7 @@ match /products/{productId} {
         || assignedDeliveryPartner(resource.data)
         || canReadAllOrders();
 
-      allow update: if canEditOrders();
+      allow update: if canEditOrders() && keepsPriceCheck();
 
       // Customer: cancel own order while it is still pending. Nothing else.
       allow update: if signedIn()
@@ -1324,11 +1374,11 @@ match /products/{productId} {
         && resource.data.get('status', 'pending') == 'pending'
         && request.resource.data.status == 'cancelled'
         && request.resource.data.get('cancelledBy', '') == 'customer'
-        && changedOnly(['status', 'cancelledBy', 'cancelledAt', 'updatedAt']);
+        && affectedOnly(['status', 'cancelledBy', 'cancelledAt', 'updatedAt']);
 
       // Vendor: only their own entry of vendorStatusUpdates and vendorStatus,
       // pending -> confirmed -> ready_for_pickup.
-      allow update: if changedOnly(['vendorStatusUpdates', 'vendorStatus', 'updatedAt'])
+      allow update: if affectedOnly(['vendorStatusUpdates', 'vendorStatus', 'updatedAt'])
         && request.resource.data.vendorStatus in ['confirmed', 'ready_for_pickup']
         && vendorSeesOrder(resource.data)
         && request.resource.data.vendorStatusUpdates is map
@@ -1339,7 +1389,7 @@ match /products/{productId} {
 
       // Rider: only delivery progress of an order assigned to them, one step
       // forward at a time: assigned -> picked_up -> on_the_way -> delivered.
-      allow update: if changedOnly([
+      allow update: if affectedOnly([
           'deliveryStatus', 'status', 'updatedAt', 'deliveryTimeline',
           'pickedUpAt', 'onTheWayAt', 'deliveredAt', 'paymentStatus'
         ])
@@ -1517,11 +1567,55 @@ match /products/{productId} {
     }
 
     /* =========================
+       Server-only collections (14b step D)
+    ========================= */
+
+    // Written and read only by Cloud Functions (admin SDK, which bypasses
+    // rules). No app reads them (checked 2026-11-21), so no client may read or
+    // write them, admins included, and the catch-all below skips them.
+    //   conversations (+ messages): AI assistant / WhatsApp threads, customer
+    //     names, WhatsApp numbers and message text
+    //   marketplace_connections: AliExpress OAuth access / refresh tokens
+    //   rateLimits: per-IP counters (ids hold IP addresses)
+    //   whatsappProcessedMessages: WhatsApp message id dedupe
+    //   delivery_logs: order / rider / customer ids and totals
+    //   searchImportLog: search-import queries and waiting user ids
+    match /conversations/{conversationId} {
+      allow read, write: if false;
+
+      match /messages/{messageId} {
+        allow read, write: if false;
+      }
+    }
+
+    match /marketplace_connections/{connectionId} {
+      allow read, write: if false;
+    }
+
+    match /rateLimits/{limitId} {
+      allow read, write: if false;
+    }
+
+    match /whatsappProcessedMessages/{messageId} {
+      allow read, write: if false;
+    }
+
+    match /delivery_logs/{logId} {
+      allow read, write: if false;
+    }
+
+    match /searchImportLog/{logId} {
+      allow read, write: if false;
+    }
+
+    /* =========================
        Default deny
     ========================= */
 
     // Analytics staff/admin needs to read multiple collections for totals/charts.
     // Write remains denied here; write permissions are controlled above.
+    // (Step E, later: replace this "everything except" list with an allow-list
+    // of what staff / analytics.view may read. See docs/security/rules-backup/README.md.)
     match /{document=**} {
       // Never the API tokens, which have their own rule above.
       allow read: if request.path != /databases/$(database)/documents/settings/app_secrets
@@ -1532,6 +1626,11 @@ match /products/{productId} {
         && document[0] != 'vendor_private'
         && document[0] != 'delivery_partner_private'
         && document[0] != 'vendorWithdrawRequests'
+        // Nor the server-only collections (14b step D).
+        && !(document[0] in ['conversations', 'marketplace_connections', 'rateLimits',
+          'whatsappProcessedMessages', 'delivery_logs', 'searchImportLog'])
+        // Nor the commission ledger and the retired vendorCommissions (ledger-1).
+        && !(document[0] in ['commission_ledger', 'vendorCommissions'])
         && signedIn()
         && userExists(request.auth.uid)
         && (can('analytics.view') || hasRole('staff'));

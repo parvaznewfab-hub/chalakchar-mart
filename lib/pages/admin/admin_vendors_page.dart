@@ -628,12 +628,9 @@ class _AdminVendorsPageState extends State<AdminVendorsPage> {
                   'totalOrders': 0,
                   'createdAt': FieldValue.serverTimestamp(),
                 });
-                await PrivateProfileService.saveVendorPrivate(doc.id, {
-                  ...privatePayload,
-                  'totalSales': 0,
-                  'withdrawableBalance': 0,
-                  'withdrawPendingBalance': 0,
-                });
+                // Balances start at 0 by themselves; only the ledger
+                // functions write them (ledger-1).
+                await PrivateProfileService.saveVendorPrivate(doc.id, privatePayload);
 
                 if (ownerId.text.trim().isNotEmpty) {
                   await db.collection('users').doc(ownerId.text.trim()).set({

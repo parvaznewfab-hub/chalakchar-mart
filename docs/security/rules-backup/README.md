@@ -5,6 +5,12 @@
 > কারণ `wip/audit-step1`-এ d4ead6c আছে। সেখানকার `firestore.rules`-এ লাইভে না যাওয়া product নিয়ম আছে, আর hosting-এ আছে d4ead6c-এর কোড।
 > তা ছাড়া d4ead6c deploy-এর আগে `product_sources` আর `product_import_keys` catch-all-এর বাদের তালিকায় যোগ করা বাধ্যতামূলক।
 > functions-ও শুধু নাম ধরে (`--only functions:<name>`) deploy হবে, `audit-step-c` থেকে।
+>
+> **২১ নভেম্বর থেকে:** Firestore rules যাবে `audit-step-d` থেকে (worktree `C:\FlutterProjects\cc_stepd`)। এটা `audit-step-c`-এর ওপর তৈরি, তাই d4ead6c এতে নেই।
+> hosting-এর মালিকানা এখন SEO session-এর (branch `seo-1`, অন্য worktree)।
+> ২১ নভেম্বর ০৩:১৩ UTC-তে লাইভ ছিল `e404b5f237649d80`। ০৩:৫৩:২৩ UTC-তে লাইভে এসেছে `907a86861815b27e`, এটা seo2 preview-এর version।
+> ধাপ D থেকে এটা আসেনি, ধাপ D শুধু rules deploy করেছে। hosting rollback-এর লক্ষ্য SEO session ঠিক করবে, `caec3ea7c1d3fd7e`-এ নয়।
+> ধাপ D-তে hosting, storage বা functions কিছুই deploy হবে না।
 
 ১৭ নভেম্বর ২০২৬-এ লাইভ থেকে নামানো (Firebase Rules API)।
 
@@ -111,6 +117,10 @@ git checkout storage.rules
 | 2026-11-20 10:39 UTC (`b6a44df`) | Firestore, ধাপ B ধাপ ৬ (মূল ডকুমেন্টে কোনো গোপন key নয়) | `cea420b6-9bc7-408e-8f36-e8bb9261277c` | `c1dedc27-106c-42fa-a55a-bff96182ec15` |
 | 2026-11-20 13:33 UTC (`4e90295`) | Function `getIdentityDocumentUrl` (নতুন; account `identity-docs-viewer`) | — | ছিল না |
 | 2026-11-20 14:06 UTC (`4e90295`, preview `step-c` থেকে clone) | Hosting live, ধাপ C | version `caec3ea7c1d3fd7e` | version `2ac61cbcad787dc7` |
+| 2026-11-21 03:53 UTC (`3e71922`, branch `audit-step-d`) | Firestore, ধাপ D (শুধু server-এর collection বন্ধ) | `d63b3d4b-a15c-4667-a00a-c19a6733b5ed` | `cea420b6-9bc7-408e-8f36-e8bb9261277c` |
+| 2026-11-21 17:27 UTC (`d6896c4`, branch `ledger-1`) | Functions: `onOrderCreatedLedger` আর `onOrderStatusLedger` নতুন, `onOrderStatusUpdated` আপডেট | — | নতুন দুটো ছিল না |
+| 2026-11-22 03:15 UTC (`ae1bd0a`, preview `ledger1` থেকে clone) | Hosting live, ledger-1 | version `6f1f9ea547faf2d0` | version `907a86861815b27e` |
+| 2026-11-22 03:22 UTC (`407ef43`, branch `ledger-1`) | Firestore, ledger-1 | `be7e9c8a-bd31-4dfd-81ea-26114d212272` | `d63b3d4b-a15c-4667-a00a-c19a6733b5ed` |
 
 Hosting ফেরাতে:
 - ধাপ C-এর আগের অবস্থায় (ধাপ B): `firebase hosting:clone chalakchar-mart@2ac61cbcad787dc7 chalakchar-mart:live --project chalakchar-mart`।
@@ -141,3 +151,119 @@ Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --re
 - **বাকি (তালিকায়):**
   - bucket-এ uniform access চালু করে prefix condition বসানো।
   - rider Faruk-এর test কাগজ।
+
+## 14b ধাপ D: শুধু server-এর collection বন্ধ (লাইভ ২১ নভেম্বর ২০২৬, ০৩:৫৩ UTC)
+
+- **Export:** `gs://chalakchar-mart-backups/step-d-20261121-0351`। ০৩:৫২:০২ UTC-তে শেষ, SUCCESSFUL, ১০১টা ডকুমেন্ট।
+  - এতে আছে ছয়টা collection আর `messages`।
+  - bucket-এর lifecycle অনুযায়ী ৩০ দিন পর নিজে থেকে মুছে যাবে।
+- **Deploy:** `firebase deploy --only firestore:rules`, `cc_stepd` থেকে (commit `3e71922`), ০৩:৫৩:৩২ UTC-তে।
+  - আগের ruleset ছিল `cea420b6-9bc7-408e-8f36-e8bb9261277c`, এখন `d63b3d4b-a15c-4667-a00a-c19a6733b5ed`।
+  - hosting, storage বা functions কিছুই deploy হয়নি।
+- **লাইভে যাচাই:**
+  - ০৩:৫৪:৩১ UTC-তে customer অ্যাপের AI chat-এ (`chatWithAssistant`, লগইন ছাড়া guestId দিয়ে) একটা সাধারণ প্রশ্ন পাঠানো হয়েছে। HTTP 200 এসেছে, উত্তর এসেছে।
+  - `conversations`-এ নতুন thread তৈরি হয়েছে, তাতে customer আর bot-এর ২টা বার্তা লেখা হয়েছে। অর্থাৎ functions আগের মতোই লিখতে পারে।
+  - লগইন ছাড়া `conversations`, `marketplace_connections` আর `rateLimits` পড়তে গেলে 403 আসে।
+  - admin-এর পাতাগুলো মালিক নিজে দেখবেন। WhatsApp-এর পরীক্ষাও মালিক নিজে করবেন।
+- **AliExpress token: বদলানো হবে না** (মালিকের সিদ্ধান্ত, ২১ নভেম্বর ২০২৬)।
+  - কারণ: যে ৩টা account token পড়তে পারত (superAdmin, admin আর staff), সবগুলোই বিশ্বস্ত।
+  - ধাপ D-র rules দিয়ে ফাঁকটা বন্ধ হয়েছে।
+  - নতুন token নেওয়ার পদ্ধতি নিচে লেখা আছে, পরে কখনো লাগলে কাজে আসবে।
+
+**কী বদলেছে (শুধু `firestore.rules`):** ছয়টা collection-এর জন্য নিজের নিয়ম যোগ হয়েছে, `allow read, write: if false`। একই সঙ্গে catch-all `match /{document=**}`-এর বাদের তালিকাতেও এগুলো যোগ হয়েছে:
+
+| collection | কী আছে | কে লেখে বা পড়ে |
+|---|---|---|
+| `conversations` আর `{id}/messages` | AI সহকারী আর WhatsApp-এর আলাপ, customer-এর নাম, WhatsApp নম্বর, বার্তা | শুধু functions (`upsertConversation`, `writeConversationMessage`, `getRecentConversationMessages`) |
+| `marketplace_connections` | AliExpress-এর OAuth `accessToken` আর `refreshToken` | শুধু functions |
+| `rateLimits` | প্রতিটি IP-র counter (id-তে IP ঠিকানা) | শুধু functions (`searchImportRateLimit`) |
+| `whatsappProcessedMessages` | WhatsApp message id, দুবার না চালানোর জন্য | শুধু functions (`whatsapp/dedupe`) |
+| `delivery_logs` | order, rider আর customer-এর id, মোট টাকা | শুধু functions |
+| `searchImportLog` | search import-এর query আর অপেক্ষায় থাকা user id | শুধু functions |
+
+- **যাচাই:** ২১ নভেম্বর কোডে খুঁজে দেখা হয়েছে, কোনো অ্যাপ (customer, vendor, rider বা admin) এগুলো পড়ে না।
+  - `conversations` customer-vendor বা customer-rider chat নয়। অ্যাপে এমন কোনো chat নেই।
+  - customer-এর AI chat HTTP দিয়ে `chatWithAssistant` function ডাকে, Firestore সরাসরি পড়ে না।
+- **আগে কী হতো:** catch-all-এর কারণে staff আর `analytics.view` এগুলো পড়তে পারত। AliExpress-এর token-ও এর মধ্যে ছিল।
+- **এখন:** superAdmin আর admin-সহ কোনো client role পড়তে বা লিখতে পারে না। Cloud Functions (admin SDK) আগের মতোই চলে।
+- **ধরা হয়নি:** `system_locks` আর `analytics_daily` (মালিকের সিদ্ধান্ত, ধাপ E-তে)।
+- **Test:** `tools/rules-test/step_d.test.js`।
+  - ৭টা path-এর প্রতিটিতে ১০টা role দিয়ে পরীক্ষা হয়: লগইন ছাড়া, ২ জন customer, vendor, rider, staff, ২ জন staff permission-ওয়ালা, admin আর superAdmin।
+  - কেউ get, list, create, update বা delete করতে পারে না।
+  - ধাপ C-এর rules-এ এই test চালালে ঠিক ৮টা test ব্যর্থ হয়, মানে test-গুলো আসল ফাঁকটাই ধরে।
+- **rollback:** ধাপ C-এর rules-এ ফেরা, অর্থাৎ ruleset `cea420b6-9bc7-408e-8f36-e8bb9261277c`।
+  - Console → Firestore → Rules → History থেকে Restore, অথবা:
+    ```sh
+    git show audit-step-c:firestore.rules > firestore.rules
+    firebase deploy --only firestore:rules --project chalakchar-mart
+    git checkout firestore.rules
+    ```
+  - ধাপ D-র বদল শুধু নতুন বন্ধ করা নিয়ম, data বদলায় না। তাই ফেরানো নিরাপদ।
+  - তবে মনে রাখতে হবে: ফেরালে staff আবার AliExpress-এর token পড়তে পারবে।
+
+### AliExpress token নতুন করে নেওয়া (দরকার হলে; ২১ নভেম্বর সিদ্ধান্ত: এখন বদলানো হবে না)
+
+- **নতুন token নেওয়ার ধাপ:**
+  1. `https://chalakcharmart.com/api/aliexpress/start` (function `aliexpressOAuthStart`)-এ import API key দিয়ে GET পাঠাতে হয়: header `x-import-api-key: <key>` অথবা `Authorization: Bearer <key>`।
+  2. উত্তরে একটা `authorizationUrl` আসে, ১৫ মিনিট কাজ করে, `force_auth=true` সহ।
+  3. browser-এ সেটা খুলে AliExpress seller account দিয়ে অনুমতি দিতে হয়।
+  4. callback (`aliexpressOAuthCallback`) `/auth/token/security/create` দিয়ে নতুন access আর refresh token এনে `marketplace_connections/aliexpress`-এ লিখে দেয়।
+- **পুরোনো token বাতিল হয় কি না:** কোডে কোনো revoke ডাক নেই।
+  - নতুন token আসে আলাদা করে, পুরোনোটা নিজে নিজে বাতিল হয় কি না তা AliExpress-এর নিয়মের ওপর নির্ভর করে। এটা repo বা কোড থেকে নিশ্চিত করা যায় না।
+  - নিশ্চিত হতে চাইলে AliExpress Open Platform-এর app console-এ authorized session বা app secret দেখতে হবে।
+  - সবচেয়ে নিশ্চিত উপায় হলো app secret বদলানো। কিন্তু তাতে `ALIEXPRESS_APP_SECRET` secret আর functions deploy-ও বদলাতে হয়, তাই এটা আলাদা কাজ।
+- AliExpress discovery এখন বন্ধ আছে। refresh token-এর মেয়াদও নির্দিষ্ট, শেষ হলে আবার হাতে reconnect করতে হয় (memory-র পুরোনো নোট)।
+
+## ledger-1: vendor commission ledger (লাইভ ২১–২২ নভেম্বর ২০২৬)
+
+পুরো বিবরণ আর বাকি কাজের তালিকা আছে `docs/plans/ledger-1-handoff.md`-এ।
+
+- **Functions** (২১ নভেম্বর ১৭:২৭ UTC):
+  - `onOrderCreatedLedger` প্রতিটা অর্ডারে `priceCheck` লেখে। vendor-এর item থাকলে `commission_ledger/{orderId}_{vendorId}` তৈরি করে, দাম `products/` থেকে আবার মিলিয়ে।
+  - `onOrderStatusLedger` চলে delivered, cancelled আর returned/refunded হলে, একটা transaction-এ, idempotent।
+  - **এর আগের export:** `gs://chalakchar-mart-backups/ledger1-fn-20261121-1723`।
+- **Hosting** (২২ নভেম্বর ০৩:১৫ UTC): version `6f1f9ea547faf2d0`। এতে আছে client-এর ledger কোড সরানো, vendor পাতার টাকা `vendor_private` থেকে, আর payout-এ ০-এর নিয়ম।
+- **Rules** (২২ নভেম্বর ০৩:২২ UTC): ruleset `be7e9c8a-bd31-4dfd-81ea-26114d212272`।
+  - `commission_ledger`: পড়তে পারে vendor নিজে, staff আর admin। client-এর লেখা বন্ধ।
+  - `priceCheck`: client বসাতে পারে না।
+  - `vendor_private`-এর balance: client লিখতে পারে শুধু payout-এর ধাপে।
+  - `vendorCommissions`: বন্ধ।
+  - **এর আগের export:** `gs://chalakchar-mart-backups/ledger1-rules-20261122-0321`।
+  - লাইভের ruleset-এর source আর repo-র `firestore.rules`-এর sha256 এক (`5f486232…`)।
+  - **ওই একই ফাইলে test:** rules ১১৮/১১৮, ledger trigger ১১/১১।
+  - **লগইন ছাড়া পড়লে:** `commission_ledger`, `vendorCommissions`, `vendor_private` আর `conversations`-এ 403 আসে। `vendors` পড়া যায় (200)।
+- **Rollback:**
+  - **rules:** Console → Rules → History → `d63b3d4b…` → Restore। অথবা `git show audit-step-d:firestore.rules > firestore.rules`, তারপর `firebase deploy --only firestore:rules`।
+  - **hosting:** `firebase hosting:clone chalakchar-mart@907a86861815b27e chalakchar-mart:live --project chalakchar-mart`।
+  - **functions:** `firebase functions:delete onOrderCreatedLedger onOrderStatusLedger --region asia-south1`। তারপর `onOrderStatusUpdated` আবার deploy করতে হবে `audit-step-d` থেকে।
+  - **শুধু rules ফেরালে কী হয়:** client আবার `vendor_private`-এর balance লিখতে পারবে, আর `priceCheck` বসাতে পারবে।
+
+## 14b ধাপ F (ledger-এর পরের প্রথম কাজ): `changedOnly` / `changedAny`-এর ফাঁক
+
+- **সমস্যা:** `changedOnly()` আর `changedAny()` দেখে শুধু `diff().changedKeys()`, অর্থাৎ শুধু বদলানো key। **নতুন যোগ করা key এরা দেখে না।** ফলে নিষিদ্ধ কোনো key আগে না থাকলে client সেটা নতুন করে যোগ করতে পারে।
+- `orders`-এ ledger-1 এটা `affectedOnly()` দিয়ে ঠিক করেছে।
+- **বাকি জায়গা** (২২ নভেম্বর গোনা):
+  - `users/{uid}`: ১৪
+  - `vendors/{vendorId}`: ২
+  - `deliveryPartners`: ১
+  - `deliveryEarnings`: ১
+  - `notifications`: ১
+  - helper function-এর সংজ্ঞা আর ভেতরে: ৪
+- **কাজ:**
+  1. প্রতিটা নিয়মের জন্য emulator-এ "নিষিদ্ধ key নতুন করে যোগ" test লেখা।
+  2. `affectedKeys()`-এ বদলানো।
+  3. ১০০০-expression সীমা মাথায় রাখা, একটা নিয়মে diff একবারই।
+
+## 14b ধাপ E (পরে): catch-all-কে "অনুমোদিত তালিকা" বানানো
+
+- **এখনকার নকশা:** catch-all staff আর `analytics.view`-কে **সব** collection পড়তে দেয়, শুধু একটা বাদের তালিকা ছাড়া।
+  - Firestore-এ যেকোনো একটা নিয়ম অনুমতি দিলেই পড়া যায়। তাই যেসব collection-এর নিজের কড়া নিয়ম আছে, সেগুলোও staff-এর জন্য খুলে যায়।
+  - যেমন `users`, `orders`, `addresses`, `cart`, `wallet_logs`, `user_marketing_profiles`, `tiktok_oauth_states` (নিজের নিয়মে `false`)।
+  - নতুন কোনো collection যোগ হলে সেটাও আপনাআপনি খুলে যায়।
+- **ধাপ E-র কাজ:**
+  1. staff আর `analytics.view` আসলে কোন পাতায় কোন collection পড়ে, তার তালিকা করা: admin dashboard, analytics, orders ইত্যাদি।
+  2. catch-all বাদ দিয়ে শুধু সেই collection-গুলোর নিজের নিয়মে `can('analytics.view')` বা নির্দিষ্ট permission দেওয়া।
+  3. প্রতিটি role-এর জন্য emulator test লেখা।
+  4. `system_locks` আর `analytics_daily`-এর জন্য স্পষ্ট নিয়ম লেখা।
+  5. d4ead6c-এর `product_sources` আর `product_import_keys` এই তালিকার বাইরে রাখা।
+- **emulator-এ পাওয়া একটা বিষয়:** যে collection শুধু catch-all দিয়ে খোলা, সেখানে list query (`runQuery`) emulator-এ `request.path`-এর error দিয়ে বাতিল হয়। get কাজ করে। ধাপ D-র আগেও এমনই ছিল। লাইভে এমন হয় কি না, ধাপ E-তে দেখতে হবে।

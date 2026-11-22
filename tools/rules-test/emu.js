@@ -174,10 +174,14 @@ async function query(as, collection, filters = []) {
   const f = filters.map(([field, op, value]) => ({
     fieldFilter: { field: { fieldPath: field }, op: ops[op], value: toValue(value) },
   }));
-  const structuredQuery = { from: [{ collectionId: collection }] };
+  // "parent/doc/sub" lists a subcollection: the query runs under its parent doc.
+  const parts = collection.split('/');
+  const collectionId = parts.pop();
+  const parent = parts.length ? `${DOCS}/${parts.join('/')}` : DOCS;
+  const structuredQuery = { from: [{ collectionId }] };
   if (f.length === 1) structuredQuery.where = f[0];
   if (f.length > 1) structuredQuery.where = { compositeFilter: { op: 'AND', filters: f } };
-  const r = await call(as, 'POST', `${DOCS}:runQuery`, { structuredQuery });
+  const r = await call(as, 'POST', `${parent}:runQuery`, { structuredQuery });
   if (r.status === 200) r.docs = (r.json || []).filter((x) => x.document).map((x) => x.document);
   return r;
 }

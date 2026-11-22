@@ -11,7 +11,6 @@ import '../auth/login_page.dart';
 import '../../widgets/global_web_header.dart';
 import '../../widgets/global_web_footer.dart';
 import 'package:flutter/foundation.dart';
-import '../../services/vendor_commission_service.dart';
 import '../../services/product_service.dart';
 import '../../services/guest_cart_service.dart';
 import '../../utils/price_format.dart';
@@ -588,14 +587,8 @@ class _CartPageState extends State<CartPage> {
         });
       }
 
-      try {
-        await VendorCommissionService.createOrderCommissionLedger(
-          orderId: orderRef.id,
-          items: items,
-        );
-      } catch (e) {
-        debugPrint('Vendor commission ledger failed: $e');
-      }
+      // The vendor commission ledger and the price check are written by
+      // the onOrderCreatedLedger Cloud Function (ledger-1), never here.
 
       try {
         await NotificationService.createOrderNotifications(

@@ -11,8 +11,9 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:universal_html/html.dart' as html;
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/auth_service.dart';
-import '../../services/vendor_commission_service.dart';
 import '../../services/thermal_invoice_service.dart';
+import '../../utils/order_id.dart';
+import '../../widgets/price_check_warning.dart';
 import 'admin_edit_order_page.dart';
 
 class AdminOrdersPage extends StatefulWidget {
@@ -251,15 +252,9 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
       updateData['cancelledAt'] = FieldValue.serverTimestamp();
     }
 
+    // The commission ledger follows the status in the onOrderStatusLedger
+    // Cloud Function (ledger-1); this page only changes the order.
     await db.collection('orders').doc(orderId).update(updateData);
-
-    if (status == 'delivered') {
-      await VendorCommissionService.markOrderDelivered(orderId: orderId);
-    }
-
-    if (status == 'cancelled') {
-      await VendorCommissionService.markOrderCancelled(orderId: orderId);
-    }
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -307,9 +302,6 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
     }
 
     await db.collection('orders').doc(orderId).update(updateData);
-    if (deliveryStatus == 'delivered') {
-      await VendorCommissionService.markOrderDelivered(orderId: orderId);
-    }
     _snack('Delivery status updated to ${deliveryStatus.replaceAll('_', ' ')}');
   }
 
@@ -608,7 +600,7 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
     }
 
     final msg = Uri.encodeComponent(
-      'Hello, your order #${orderId.substring(0, 8)} from ChalakChar Mart is being processed.',
+      'Hello, your order #${shortOrderId(orderId)} from ChalakChar Mart is being processed.',
     );
 
     final uri = Uri.parse('https://wa.me/$clean?text=$msg');
@@ -668,7 +660,7 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                       fontWeight: pw.FontWeight.bold,
                     ),
                   ),
-                  pw.Text('#${orderId.substring(0, 8)}'),
+                  pw.Text('#${shortOrderId(orderId)}'),
                   pw.Text(createdAt),
                 ],
               ),
@@ -756,7 +748,7 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
     );
 
     final bytes = await pdf.save();
-    final fileName = 'invoice_${orderId.substring(0, 8)}.pdf';
+    final fileName = 'invoice_${shortOrderId(orderId)}.pdf';
 
     if (kIsWeb) {
       final blob = html.Blob([bytes], 'application/pdf');
@@ -1055,7 +1047,7 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                           children: [
                             Expanded(
                               child: Text(
-                                'Order #${id.substring(0, 8)}',
+                                'Order #${shortOrderId(id)}',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w900,
                                   fontSize: 16,
@@ -1087,6 +1079,7 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                                   color: Colors.green,
                                 ),
                               ),
+                              PriceCheckWarning(priceCheck: data['priceCheck']),
                             ],
                           ),
                         ),

@@ -377,7 +377,7 @@ class AuthService {
 
     // Public part only. Phone and address go to vendor_private (14b step B).
     // Commission is not set here: the applicant may not write it, and
-    // VendorCommissionService uses 10% when it is missing.
+    // the ledger function (functions/ledger) uses 10% when it is missing.
     await vendorRef.set({
       'ownerId': user.uid,
       'userId': user.uid,
