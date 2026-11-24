@@ -122,9 +122,12 @@ git checkout storage.rules
 | 2026-11-22 03:15 UTC (`ae1bd0a`, preview `ledger1` থেকে clone) | Hosting live, ledger-1 | version `6f1f9ea547faf2d0` | version `907a86861815b27e` |
 | 2026-11-22 03:22 UTC (`407ef43`, branch `ledger-1`) | Firestore, ledger-1 | `be7e9c8a-bd31-4dfd-81ea-26114d212272` | `d63b3d4b-a15c-4667-a00a-c19a6733b5ed` |
 | 2026-11-24 15:52 UTC (`7446f36`, branch `brand-1`, preview `brand1` থেকে clone) | Hosting live, brand-1 (নতুন লোগো, সবুজ রং, favicon 48×48; ledger-1-এর কোডসহ) | version `784e6fe0f776880e` | version `6f1f9ea547faf2d0` |
+| 2026-11-24 17:46 UTC (`4c7faf7`, branch `step-f`) | Firestore, ধাপ F (`affectedKeys`, staff-এর ১০০০-সীমা) | `700f57c7-1ebf-41d5-9b8a-4acd8a029b96` | `be7e9c8a-bd31-4dfd-81ea-26114d212272` |
 
 brand-1-এর hosting ফেরাতে: `firebase hosting:clone chalakchar-mart@6f1f9ea547faf2d0 chalakchar-mart:live --project chalakchar-mart`।
 এতে ledger-1-এর পাতা থেকে যায়, শুধু লোগো আর রং আগের মতো হয়।
+
+ধাপ F-এর rules ফেরাতে: `docs/security/rules-backup/firestore.rules.live-be7e9c8a` ফাইলটা `firestore.rules`-এ বসিয়ে `firebase deploy --only firestore:rules`, অথবা console-এ ruleset `be7e9c8a-bd31-4dfd-81ea-26114d212272` আবার release। deploy-এর আগে export: `gs://chalakchar-mart-backups/stepf-rules-20261124-174314` (SUCCESSFUL, ১৭:৪৪ UTC)। লাইভ ruleset-এর sha256 `20b67d56…` = branch-এর ফাইল।
 
 Hosting ফেরাতে:
 - ধাপ C-এর আগের অবস্থায় (ধাপ B): `firebase hosting:clone chalakchar-mart@2ac61cbcad787dc7 chalakchar-mart:live --project chalakchar-mart`।
@@ -288,7 +291,9 @@ Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --re
 - **test:** `tools/rules-test/step_f.test.js`, ২৭টা।
   - ১৪টা আক্রমণ, যোগ আর মোছা দুটোই। এর মধ্যে ১৩টা `be7e9c8a`-তে সফল হয়, যা ফাঁকের প্রমাণ। বাকি একটা সেখানে শুধু ১০০০-সীমার কারণে আটকাত।
   - ১৩টা অ্যাপের আসল লেখা।
-  - পুরো suite ১৪৫/১৪৫ পাস, নতুন rules-এও, `be7e9c8a`-তেও।
+  - আগের ১১৮টা test: নতুন rules-এ ১১৮/১১৮, `be7e9c8a`-তেও ১১৮/১১৮।
+  - `step_f.test.js` (২৭): নতুন rules-এ ২৭/২৭। `be7e9c8a`-এর কপিতে নতুন rules-এর প্রত্যাশা দিয়ে চালালে ১৯টা ব্যর্থ, ৮টা পাস। ব্যর্থ ১৯টা: ১৩টা আক্রমণ সফল হয়; ৫টা staff-এর কাজ ১০০০-সীমায় আটকায় (block, wallet, permission, rider আর vendor অনুমোদন); ১টা হলো admin Notifications-এর নিয়ম, যেখানে আগে থেকে permissions থাকা admin আটকায়। নকশা অনুযায়ী "ফাঁক খোলা" প্রত্যাশা দিয়ে চালালে `be7e9c8a`-তে ২৭/২৭ পাস।
+- **লাইভে:** ২৪ নভেম্বর ১৭:৪৬ UTC, ruleset `700f57c7-1ebf-41d5-9b8a-4acd8a029b96`।
 
 ## 14b ধাপ G (ধাপ F-এর পরেই): ChalakChar Cash-এর points কাটা server-এ
 
