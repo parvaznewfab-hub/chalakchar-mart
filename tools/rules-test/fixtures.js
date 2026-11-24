@@ -8,7 +8,10 @@ const RULES_FILE = path.resolve(REPO, process.env.RULES_FILE || 'firestore.rules
 // Step B rollback = the step A rules (closed holes) with the private halves
 // shut. It lives in rules-backup but is NOT "old rules" for the hole tests.
 const STEP_B_ROLLBACK = /rollback-step-b/.test(RULES_FILE);
-const OLD_RULES = /rules-backup/.test(RULES_FILE) && !STEP_B_ROLLBACK;
+// The live copy from just before step F (be7e9c8a) is a current rule set,
+// not "old rules": only the step F suite expects a difference there.
+const LIVE_BEFORE_F = /live-be7e9c8a/.test(RULES_FILE);
+const OLD_RULES = /rules-backup/.test(RULES_FILE) && !STEP_B_ROLLBACK && !LIVE_BEFORE_F;
 // The rollback file = old rules with only settings/app_secrets locked.
 const KEEP_SECRETS = /keep-secrets/.test(RULES_FILE);
 // Step 6 (current firestore.rules): the move script has run, so the public

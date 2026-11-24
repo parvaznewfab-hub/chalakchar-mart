@@ -258,6 +258,47 @@ Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --re
   2. `affectedKeys()`-এ বদলানো।
   3. ১০০০-expression সীমা মাথায় রাখা, একটা নিয়মে diff একবারই।
 
+### ধাপ F: তদন্ত আর কোড (২৪ নভেম্বর, branch `step-f`, worktree `../cc_stepf`)
+
+- **শুরুর মিল:** লাইভ ruleset `be7e9c8a`-এর source আর branch-এর `firestore.rules` হুবহু এক (sha256 `cc0ba46a…`, CRLF সমেত)। লাইভের কপি রাখা আছে `firestore.rules.live-be7e9c8a`-এ।
+- **ফাঁকটা আরও বড়:** `changedKeys()` নতুন যোগ করা key-ও দেখে না, **মুছে ফেলা key-ও দেখে না।**
+- **লাইভে খোলা ছিল** (emulator-এ যাচাই করা, `be7e9c8a`-তে):
+  - customer নিজের প্রোফাইলে `permissions` যোগ করে staff-এর ক্ষমতা পায়। এরপর vendor_private-এর ব্যাংক বা bKash পড়তে পারে।
+  - যে customer-এর ডকুমেন্টে `vendorId` নেই, সে অন্য vendor-এর id বসায়। এরপর সেই vendor-এর `payoutAccount` বদলাতে পারে।
+  - users.edit staff একজন customer-কে `permissions` দিতে পারে।
+  - block করা staff বা customer নিজের `isBanned` আর `isActive` মুছে ফেলতে পারে।
+  - rider নিজের `codDue`, `withdrawnAmount`, `lastSyncedOrderId`, `lastEarningSyncedAt` মুছতে পারে।
+  - `vendorStatus`, `isVendor` আর rider-এর তিনটা key কোনো নিষিদ্ধ তালিকাতেই ছিল না।
+  - vendor, earning আর notification-এ বাড়তি key যোগ বা মোছা যেত।
+- **লাইভে গোনা** (২৪ নভেম্বর, শুধু পড়া, কোনো মান দেখা হয়নি):
+  - ৮ জন user, তাদের ৩ জন staff। ৫ জনের `permissions` নেই, সবার `vendorId` আছে।
+  - staff নয় অথচ `permissions` আছে: ০ জন, অর্থাৎ ফাঁক ব্যবহারের চিহ্ন নেই।
+  - অন্য vendor-এর `vendorId`: ০। একজনের `vendorId` তার নিজের uid, কিন্তু সেই vendor ডকুমেন্ট নেই, যা অসম্পূর্ণ আবেদন।
+  - `isBanned` বা `isActive` নেই এমন staff: ০।
+  - vendor ১টা, তার সব key আছে।
+  - rider ১ জন, শুধু `lastSyncedOrderId` নেই। এখনো sync হয়নি, তাই এটা স্বাভাবিক।
+  - ChalakChar Cash ব্যবহার হওয়া অর্ডার: ০।
+- **ঠিক করা:**
+  - `changedOnly` আর `changedAny`-এর বদলে `affectedOnly` আর `affectedAny` (`affectedKeys()`)। orders-এর নিজস্ব copy বাদ গেছে, `changedKeys` আর কোথাও নেই।
+  - customer আর users.edit staff-এর নিষিদ্ধ তালিকায় যোগ: `vendorStatus`, `isVendor`, `isDeliveryPartner`, `deliveryPartnerStatus`, `deliveryPartnerId`।
+  - role-বদলের তালিকায় rider-এর তিনটা key। admin-এর rider অনুমোদন এগুলো লেখে।
+  - admin Notifications পাতার জন্য সরু নিয়ম: admin বা superAdmin নিজের ডকুমেন্টে শুধু notifications.*-এর ৬টা permission যোগ করতে পারবে, কিছু মুছতে পারবে না।
+  - seller-link নিয়মে `sellerStatus` না থাকলে আর error হয় না।
+  - **১০০০-expression সীমা:** users.block, wallet.edit, users.permissions, users.edit আর vendor অনুমোদনে `can()`-এর বদলে `canAnyOf()`। role-বদলের নিয়ম users-এর শুরুতে সরানো হয়েছে। আগে block, points, permission আর staff-এর vendor বা rider অনুমোদনের user-sync লাইভেও আটকে যেত।
+- **test:** `tools/rules-test/step_f.test.js`, ২৭টা।
+  - ১৪টা আক্রমণ, যোগ আর মোছা দুটোই। এর মধ্যে ১৩টা `be7e9c8a`-তে সফল হয়, যা ফাঁকের প্রমাণ। বাকি একটা সেখানে শুধু ১০০০-সীমার কারণে আটকাত।
+  - ১৩টা অ্যাপের আসল লেখা।
+  - পুরো suite ১৪৫/১৪৫ পাস, নতুন rules-এও, `be7e9c8a`-তেও।
+
+## 14b ধাপ G (ধাপ F-এর পরেই): ChalakChar Cash-এর points কাটা server-এ
+
+- **সমস্যা:** cart (`cart_page.dart`, অর্ডারের পরে) customer নিজের `users.points`-এ `increment(-x)` লেখে। কিন্তু rules customer-কে `points`-এ লিখতে দেয় না। তাই অর্ডারে ছাড় হয়, অথচ points কাটে না।
+- লাইভে ২৪ নভেম্বর পর্যন্ত এমন অর্ডার ০টা।
+- **কাজ:**
+  - points কাটা Cloud Function-এ নেওয়া: অর্ডার তৈরির trigger, idempotent, অর্ডারের `chalakCharCashUsed` দেখে।
+  - client `points`-এ কখনো লিখবে না। rules যেমন আছে তেমনই থাকবে।
+  - হাতে থাকা points-এর চেয়ে বেশি ছাড় নেওয়া হলে কী হবে, সেটা ঠিক করতে হবে।
+
 ## পরের ছোট কাজের দফা (brand-1-এর পরে; মালিক, ২৪ নভেম্বর)
 
 এখন করা হয়নি। পরের দফায় একসঙ্গে করতে হবে, তারপর preview।
