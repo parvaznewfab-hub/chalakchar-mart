@@ -121,6 +121,10 @@ git checkout storage.rules
 | 2026-11-21 17:27 UTC (`d6896c4`, branch `ledger-1`) | Functions: `onOrderCreatedLedger` আর `onOrderStatusLedger` নতুন, `onOrderStatusUpdated` আপডেট | — | নতুন দুটো ছিল না |
 | 2026-11-22 03:15 UTC (`ae1bd0a`, preview `ledger1` থেকে clone) | Hosting live, ledger-1 | version `6f1f9ea547faf2d0` | version `907a86861815b27e` |
 | 2026-11-22 03:22 UTC (`407ef43`, branch `ledger-1`) | Firestore, ledger-1 | `be7e9c8a-bd31-4dfd-81ea-26114d212272` | `d63b3d4b-a15c-4667-a00a-c19a6733b5ed` |
+| 2026-11-24 15:52 UTC (`7446f36`, branch `brand-1`, preview `brand1` থেকে clone) | Hosting live, brand-1 (নতুন লোগো, সবুজ রং, favicon 48×48; ledger-1-এর কোডসহ) | version `784e6fe0f776880e` | version `6f1f9ea547faf2d0` |
+
+brand-1-এর hosting ফেরাতে: `firebase hosting:clone chalakchar-mart@6f1f9ea547faf2d0 chalakchar-mart:live --project chalakchar-mart`।
+এতে ledger-1-এর পাতা থেকে যায়, শুধু লোগো আর রং আগের মতো হয়।
 
 Hosting ফেরাতে:
 - ধাপ C-এর আগের অবস্থায় (ধাপ B): `firebase hosting:clone chalakchar-mart@2ac61cbcad787dc7 chalakchar-mart:live --project chalakchar-mart`।
@@ -253,6 +257,21 @@ Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --re
   1. প্রতিটা নিয়মের জন্য emulator-এ "নিষিদ্ধ key নতুন করে যোগ" test লেখা।
   2. `affectedKeys()`-এ বদলানো।
   3. ১০০০-expression সীমা মাথায় রাখা, একটা নিয়মে diff একবারই।
+
+## পরের ছোট কাজের দফা (brand-1-এর পরে; মালিক, ২৪ নভেম্বর)
+
+এখন করা হয়নি। পরের দফায় একসঙ্গে করতে হবে, তারপর preview।
+
+- **vendor dashboard-এর বাকি নীল আর teal:** brand-এর রঙে বদলাতে হবে।
+  - উপরের banner-এর gradient `#0F766E`, `#0891B2`, `#2563EB`।
+  - কার্ডের `#2563EB` (Products) আর `#0D9488` (Withdrawable)।
+  - এগুলো আছে `lib/pages/vendor/vendor_dashboard_page.dart`-এ। brand-1-এর রং বদলের তালিকায় এগুলো ছিল না।
+- **Withdraw পাতা:** payout account-এর বাক্সের `Colors.blue.shade50` বদলে brand-এর হালকা রং (`vendor_withdraw_page.dart`)।
+- **লগইন পাতা:** ফোন নম্বরের ঘর card-এর ভেতরের কিনারা ছাড়িয়ে যায়, ডান দিকে কাটা দেখায়। desktop আর 360px দুটোতেই।
+- **লগইন পাতা, 360px:** card মাঝখানে বসাতে হবে, এখন একটু উপরে বসে।
+- ledger-1-এর বাকি দুটো ছোট কাজও এর সঙ্গে করা যায়:
+  - vendor dashboard-এ returned বা cancelled অর্ডার "Pending Orders"-এ গোনা হয়।
+  - "You owe"-এর সংখ্যাটা লাল করতে হবে।
 
 ## 14b ধাপ E (পরে): catch-all-কে "অনুমোদিত তালিকা" বানানো
 
