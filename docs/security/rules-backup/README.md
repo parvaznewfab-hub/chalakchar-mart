@@ -123,11 +123,16 @@ git checkout storage.rules
 | 2026-11-22 03:22 UTC (`407ef43`, branch `ledger-1`) | Firestore, ledger-1 | `be7e9c8a-bd31-4dfd-81ea-26114d212272` | `d63b3d4b-a15c-4667-a00a-c19a6733b5ed` |
 | 2026-11-24 15:52 UTC (`7446f36`, branch `brand-1`, preview `brand1` থেকে clone) | Hosting live, brand-1 (নতুন লোগো, সবুজ রং, favicon 48×48; ledger-1-এর কোডসহ) | version `784e6fe0f776880e` | version `6f1f9ea547faf2d0` |
 | 2026-11-24 17:46 UTC (`4c7faf7`, branch `step-f`) | Firestore, ধাপ F (`affectedKeys`, staff-এর ১০০০-সীমা) | `700f57c7-1ebf-41d5-9b8a-4acd8a029b96` | `be7e9c8a-bd31-4dfd-81ea-26114d212272` |
+| 2026-11-25 03:56 UTC (`93d2402`, branch `step-g`) | Firestore, ধাপ G (`cashCheck` client লিখতে পারে না) | `438c4999-aa60-440c-aad1-5acd04e03d69` | `700f57c7-1ebf-41d5-9b8a-4acd8a029b96` |
+| 2026-11-25 03:59 UTC (`93d2402`, branch `step-g`) | Functions, ধাপ G: নতুন `onOrderCreatedCash`, `onOrderStatusCash` (শুধু এই দুটো) | তৈরি | (ছিল না) |
+| 2026-11-25 03:59 UTC (`93d2402`, branch `step-g`, preview `stepg` থেকে clone) | Hosting live, ধাপ G (cart থেকে points লেখা বাদ, admin-এর লাল সতর্কবার্তা) | version `bd482832093239e5` | version `784e6fe0f776880e` |
 
 brand-1-এর hosting ফেরাতে: `firebase hosting:clone chalakchar-mart@6f1f9ea547faf2d0 chalakchar-mart:live --project chalakchar-mart`।
 এতে ledger-1-এর পাতা থেকে যায়, শুধু লোগো আর রং আগের মতো হয়।
 
 ধাপ F-এর rules ফেরাতে: `docs/security/rules-backup/firestore.rules.live-be7e9c8a` ফাইলটা `firestore.rules`-এ বসিয়ে `firebase deploy --only firestore:rules`, অথবা console-এ ruleset `be7e9c8a-bd31-4dfd-81ea-26114d212272` আবার release। deploy-এর আগে export: `gs://chalakchar-mart-backups/stepf-rules-20261124-174314` (SUCCESSFUL, ১৭:৪৪ UTC)। লাইভ ruleset-এর sha256 `20b67d56…` = branch-এর ফাইল।
+
+ধাপ G ফেরাতে (উল্টো ক্রমে): hosting `firebase hosting:clone chalakchar-mart@784e6fe0f776880e chalakchar-mart:live --project chalakchar-mart`; functions `firebase functions:delete onOrderCreatedCash onOrderStatusCash --region asia-south1`; rules `firestore.rules.live-700f57c7` বসিয়ে `firebase deploy --only firestore:rules`। deploy-এর আগে export: `gs://chalakchar-mart-backups/stepg-rules-20261125-035525` (SUCCESSFUL, ০৩:৫৬ UTC)। লাইভ ruleset-এর sha256 `eb09b8aa…` = branch-এর ফাইল। functions deploy-এর ঠিক আগে Cash খরচ হওয়া অর্ডার ০টা (মোট ৭টা)। hosting-এর পরে লাইভ আর preview-এর `main.dart.js`, `main.dart.js_1.part.js`, `flutter_bootstrap.js` হুবহু এক; home, category, product, login, admin-এ console error ০; দুই function-এর log-এ warning বা error নেই।
 
 Hosting ফেরাতে:
 - ধাপ C-এর আগের অবস্থায় (ধাপ B): `firebase hosting:clone chalakchar-mart@2ac61cbcad787dc7 chalakchar-mart:live --project chalakchar-mart`।
@@ -350,6 +355,8 @@ Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --re
   - reward আর পণ্যের গণনা function-এ নেওয়া, wallet_logs সহ।
   - referral অনুমোদন একটা callable function দিয়ে করা, wallet_logs সহ, field-এর নাম ঠিক করা।
   - `referralFirstOrderRewarded` লেখা হয়, কিন্তু কোথাও ব্যবহার হয় না।
+  - **লাইভের একটা referral `approved`, অথচ কারও points বা wallet_logs নেই** (২৫ নভেম্বর গোনা)। function-এর auto-approve পথ points আর wallet_logs দুটোই লেখে, তাই এটা অন্য কোনো পথে approved হয়েছে। কোন পথে, খুঁজে দেখতে হবে।
+  - review-এর `onProductReviewCreated` function আছে, কিন্তু সে শুধু rating-এর গড় হিসাব করে, points দেয় না।
 
 ## 14b ধাপ I: অর্ডার তৈরি function দিয়ে
 
