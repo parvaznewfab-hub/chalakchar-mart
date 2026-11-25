@@ -304,6 +304,60 @@ Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --re
   - client `points`-এ কখনো লিখবে না। rules যেমন আছে তেমনই থাকবে।
   - হাতে থাকা points-এর চেয়ে বেশি ছাড় নেওয়া হলে কী হবে, সেটা ঠিক করতে হবে।
 
+### ধাপ G: তদন্ত আর কোড (২৫ নভেম্বর, branch `step-g`, worktree `../cc_stepg`)
+
+- **তদন্তে আরও যা পাওয়া গেছে** (লাইভ rules `700f57c7`-এ emulator দিয়ে যাচাই):
+  - cart-এর points কমানো আটকায়, অথচ অর্ডার আগেই তৈরি হয়ে যায়। তাই customer "Order failed" দেখে, আর আবার চেষ্টা করলে দ্বিতীয় অর্ডার পড়ে।
+  - rules অর্ডারের মোট অঙ্ক দেখে না: ৫০ points নিয়ে ৫০০০ টাকা Cash দাবি বা `grandTotal` ১ টাকা, দুটোই তৈরি হয়ে যায়।
+  - priceCheck শুধু item-এর দাম মেলায়। `grandTotal`, coupon, Cash আর delivery charge কেউ মেলায় না।
+  - settings-এর `maxAbdCashRedeem` আর `enableAbdCash` save হয়, কিন্তু কোথাও মানা হয় না।
+  - cancel বা return হলে Cash ফেরতের কোনো ব্যবস্থা ছিল না।
+- **লাইভে গোনা** (২৫ নভেম্বর, শুধু পড়া):
+  - `points` > ০ এমন user: ০ জন, মোট ৮ জনের মধ্যে।
+  - Cash খরচ হওয়া অর্ডার: ০টা, মোট ৭টার মধ্যে।
+  - wallet_logs: ০টা। review: ০টা।
+  - referral: ১টা, status `approved`। কিন্তু wallet_logs ০টা আর কারও points নেই, তাই এটা function-এর auto-approve পথে আসেনি।
+  - `settings/app`: `maxAbdCashRedeem` ১০০, `enableAbdCash` true।
+  - ৭টা অর্ডারেই client-এর subtotal দিয়ে `grandTotal`-এর সূত্র মেলে। server-এর দাম দিয়ে মেলানো যায় শুধু priceCheck থাকা ১টায় (`M5esc8i0zvOC5RYWaWj9`), সেটাও মেলে। বাকি ৬টা ledger-1-এর আগের, তাদের priceCheck নেই।
+- **কোড:**
+  - `functions/cash/cashCheck.js` (pure) আর `cashTriggers.js`।
+  - নতুন trigger `onOrderCreatedCash` আর `onOrderStatusCash`।
+  - **প্রতিটা অর্ডারে** `cashCheck` লেখা হয়:
+    - Cash: চালু আছে কি না, এক অর্ডারে সর্বোচ্চ টাকা, points আর পণ্যের দাম − coupon মেলায়। সব মিললে points কাটে আর `wallet_logs/cash_redeem_{id}` লেখে। না মিললে কিছু কাটে না, শুধু `ok: false` আর কারণ।
+    - মোট: `grandTotal = server-এর subtotal − coupon − Cash + delivery`। server-এর subtotal নেওয়া হয় products থেকে, priceCheck-এর মতোই। না মিললে `totalOk: false`, সঙ্গে দুটো অঙ্ক।
+  - cancel বা returned হলে একবারই ফেরত দেয় (`wallet_logs/cash_refund_{id}`, `cashCheck.refundedAt`), আর পরে আবার কাটে না।
+  - rules: অর্ডার তৈরির সময় client `cashCheck` লিখতে পারে না, staff-এর update-ও `cashCheck`-এ হাত দিতে পারে না। নিয়মটা priceCheck-এর মতো।
+  - cart: points কমানোর লাইন সরানো হয়েছে, settings-এর চালু/বন্ধ আর সীমা মানা হয় (`lib/utils/chalakchar_cash.dart`)।
+  - admin-এর অর্ডার কার্ডে লাল সতর্কবার্তা: "মোট দাম মেলে না: customer ৳X, হিসাবে ৳Y। rider পাঠানোর আগে দেখুন।" আর "ChalakChar Cash কাটা হয়নি…" (`lib/widgets/cash_check_warning.dart`)।
+- **test:**
+  - function-এর unit test ১২টা।
+  - emulator test ১১টা (`node tools/rules-test/run-cash.js`): কাটা, সীমা, দুবার চলা, একসঙ্গে দুটো অর্ডার, cancel আর return-এ একবার ফেরত।
+  - rules-এর `step_g.test.js` ৮টা। লাইভের কপি `firestore.rules.live-700f57c7`-এ নতুন rules-এর প্রত্যাশা দিয়ে চালালে ২টা আক্রমণ সফল হয়, যা ফাঁকের প্রমাণ। নতুন rules-এ দুটোই আটকায়।
+  - Dart test ৭টা।
+- **deploy-এর ক্রম:** rules → functions → hosting, প্রতিটার আগে export।
+
+## 14b ধাপ H (ধাপ G-র পরেই): review-এর reward আর admin-এর referral অনুমোদন
+
+- **review লেখাই এখন পুরো বন্ধ।** `products/{id}/reviews`-এর জন্য rules-এ কোনো নিয়ম নেই, তাই catch-all `write: false`-এ পড়ে।
+  - পণ্যের পাতার review transaction (`product_details_page.dart:550`) পুরোটাই ব্যর্থ হয়: review, customer-এর নিজের points +২ আর পণ্যের গণনা, তিনটাই।
+  - লাইভে review ০টা।
+- **admin-এর referral অনুমোদন** (`app_settings_page.dart:1307`) admin, settings staff, superAdmin সবার জন্য আটকায়, কারণ:
+  - `referralCount` কোনো staff নিয়মে অনুমোদিত নয়।
+  - users.edit নিয়ম `points` বদলাতে দেয় না।
+  - পাতাটা `refereeId` আর `'Approved'` খোঁজে, কিন্তু function লেখে `referredUserId` আর `'approved'`।
+- **কাজ:**
+  - review-এর নিয়ম যোগ করা (নিজের review একবার)।
+  - reward আর পণ্যের গণনা function-এ নেওয়া, wallet_logs সহ।
+  - referral অনুমোদন একটা callable function দিয়ে করা, wallet_logs সহ, field-এর নাম ঠিক করা।
+  - `referralFirstOrderRewarded` লেখা হয়, কিন্তু কোথাও ব্যবহার হয় না।
+
+## 14b ধাপ I: অর্ডার তৈরি function দিয়ে
+
+- ধাপ G-এর পরেও coupon আর delivery charge client-এর দেওয়া অঙ্কই থাকে। `cashCheck` শুধু সূত্র মেলায়, coupon বৈধ কি না আর delivery charge ঠিক কি না দেখে না।
+- **কাজ:**
+  - অর্ডার তৈরি একটা callable function-এ নেওয়া। function দাম, coupon (বৈধতা, মেয়াদ, ব্যবহারের সীমা), delivery charge (ঠিকানা থেকে), Cash আর মোট অঙ্ক নিজে হিসাব করে লিখবে।
+  - client সরাসরি `orders`-এ create করতে পারবে না।
+
 ## পরের ছোট কাজের দফা (brand-1-এর পরে; মালিক, ২৪ নভেম্বর)
 
 এখন করা হয়নি। পরের দফায় একসঙ্গে করতে হবে, তারপর preview।

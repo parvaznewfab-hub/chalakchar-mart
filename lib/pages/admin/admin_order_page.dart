@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../services/auth_service.dart';
 import '../../services/thermal_invoice_service.dart';
 import '../../utils/order_id.dart';
+import '../../widgets/cash_check_warning.dart';
 import '../../widgets/price_check_warning.dart';
 import 'admin_edit_order_page.dart';
 
@@ -1080,6 +1081,7 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                                 ),
                               ),
                               PriceCheckWarning(priceCheck: data['priceCheck']),
+                              CashCheckWarning(cashCheck: data['cashCheck']),
                             ],
                           ),
                         ),

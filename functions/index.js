@@ -4586,6 +4586,31 @@ exports.onOrderStatusLedger = onDocumentUpdated("orders/{orderId}", async (event
   if (!result.skipped) logger.info("commission ledger: status", { orderId: event.params.orderId, ...result });
 });
 
+// ChalakChar Cash + order total check (14b step G): the points for the Cash
+// used on an order are taken here (never by the client), once; given back
+// once on cancel / return. cashCheck on every order (functions/cash/).
+const cashTriggers = require("./cash/cashTriggers");
+
+exports.onOrderCreatedCash = onDocumentCreated("orders/{orderId}", async (event) => {
+  const result = await cashTriggers.onOrderCreated({
+    orderId: event.params.orderId,
+    eventId: event.id,
+    deps: { db, FieldValue: LedgerFieldValue },
+  });
+  logger.info("order cash: created", { orderId: event.params.orderId, ...result });
+});
+
+exports.onOrderStatusCash = onDocumentUpdated("orders/{orderId}", async (event) => {
+  const result = await cashTriggers.onOrderUpdated({
+    orderId: event.params.orderId,
+    before: event.data.before.data() || {},
+    after: event.data.after.data() || {},
+    eventId: event.id,
+    deps: { db, FieldValue: LedgerFieldValue },
+  });
+  if (!result.skipped) logger.info("order cash: refund", { orderId: event.params.orderId, ...result });
+});
+
 exports.onNewOrderCreated = onDocumentCreated("orders/{orderId}", async (event) => {
   const orderId = event.params.orderId;
   const order = event.data?.data() || {};

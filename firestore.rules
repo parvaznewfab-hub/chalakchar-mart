@@ -1383,8 +1383,10 @@ match /products/{productId} {
 
     match /orders/{orderId} {
       // ledger-1: no client update adds, changes or removes priceCheck.
+      // Step G: the same for cashCheck (Cash taken from the points and the
+      // order total check; onOrderCreatedCash / onOrderStatusCash only).
       function keepsPriceCheck() {
-        return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['priceCheck']);
+        return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['priceCheck', 'cashCheck']);
       }
 
       // Customers place their own orders, always starting as pending.
@@ -1393,7 +1395,10 @@ match /products/{productId} {
       // onOrderCreatedLedger function: never on create, never changed after
       // (ledger-1). The customer / vendor / rider update rules below list
       // their keys (affectedOnly), so priceCheck is out of them already.
-      allow create: if !request.resource.data.keys().hasAny(['priceCheck'])
+      // Step G: nor cashCheck. A client-written cashCheck would make
+      // onOrderCreatedCash think the order was checked already, and the
+      // points for the Cash would never be taken.
+      allow create: if !request.resource.data.keys().hasAny(['priceCheck', 'cashCheck'])
         && (
           (
             signedIn()

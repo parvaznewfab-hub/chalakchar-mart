@@ -13,6 +13,7 @@ import '../../widgets/global_web_footer.dart';
 import 'package:flutter/foundation.dart';
 import '../../services/product_service.dart';
 import '../../services/guest_cart_service.dart';
+import '../../utils/chalakchar_cash.dart' as cash;
 import '../../utils/price_format.dart';
 import '../../utils/image_url.dart';
 import '../../utils/variant_display_name.dart';
@@ -42,6 +43,9 @@ class _CartPageState extends State<CartPage> {
   double _localDeliveryCharge = 50;
   double _outsideDeliveryCharge = 110;
   double _deliveryCharge = 0;
+  // settings/app: ChalakChar Cash on/off and the most Cash per order (taka).
+  bool _cashEnabled = true;
+  double _maxCashPerOrder = cash.defaultMaxCashPerOrder;
 
   // Fresh product docs fetched during _validateStock, keyed by productId.
   // Reused right after in _placeOrder so each order item can snapshot
@@ -87,6 +91,9 @@ class _CartPageState extends State<CartPage> {
         _minimumOrderAmount = _toDouble(data['minimumOrderAmount'] ?? 300);
         _localDeliveryCharge = _toDouble(data['localDeliveryCharge'] ?? 50);
         _outsideDeliveryCharge = _toDouble(data['outsideDeliveryCharge'] ?? 110);
+        final cashSettings = cash.cashSettingsFrom(data);
+        _cashEnabled = cashSettings.enabled;
+        _maxCashPerOrder = cashSettings.maxPerOrder;
       });
     } catch (_) {}
   }
@@ -533,13 +540,21 @@ class _CartPageState extends State<CartPage> {
       final latestUserDoc = await db.collection('users').doc(user.uid).get();
       final latestPoints = _toDouble(latestUserDoc.data()?['points']);
 
-      double chalakCharCashToUse = _useChalakCharCash ? _chalakCharCashUsed : 0;
-      if (chalakCharCashToUse > latestPoints) chalakCharCashToUse = latestPoints;
-
-      if (chalakCharCashToUse > totalAmount - _couponDiscount) {
-        chalakCharCashToUse = totalAmount - _couponDiscount;
+      // Same limits as the onOrderCreatedCash function (step G), with the
+      // latest points and settings; the function takes the points, not us.
+      double chalakCharCashToUse = 0;
+      if (_useChalakCharCash) {
+        final settingsDoc = await db.collection('settings').doc('app').get();
+        final cashSettings = cash.cashSettingsFrom(settingsDoc.data() ?? {});
+        chalakCharCashToUse = cash.usableCash(
+          points: latestPoints,
+          subtotal: totalAmount,
+          couponDiscount: _couponDiscount,
+          enabled: cashSettings.enabled,
+          maxPerOrder: cashSettings.maxPerOrder,
+        );
+        if (chalakCharCashToUse > _chalakCharCashUsed) chalakCharCashToUse = _chalakCharCashUsed;
       }
-      if (chalakCharCashToUse < 0) chalakCharCashToUse = 0;
 
       double finalTotal = totalAmount - _couponDiscount - chalakCharCashToUse + _deliveryCharge;
       if (finalTotal < 0) finalTotal = 0;
@@ -581,14 +596,10 @@ class _CartPageState extends State<CartPage> {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      if (chalakCharCashToUse > 0) {
-        await db.collection('users').doc(user.uid).update({
-          'points': FieldValue.increment(-chalakCharCashToUse),
-        });
-      }
-
-      // The vendor commission ledger and the price check are written by
-      // the onOrderCreatedLedger Cloud Function (ledger-1), never here.
+      // The points for the Cash are taken by the onOrderCreatedCash Cloud
+      // Function (step G), never here: the rules refuse a client write to
+      // users.points. The vendor commission ledger and the price check are
+      // written by the onOrderCreatedLedger function (ledger-1).
 
       try {
         await NotificationService.createOrderNotifications(
@@ -1196,10 +1207,13 @@ class _CartPageState extends State<CartPage> {
         final userData = userSnap.data?.data() as Map<String, dynamic>? ?? {};
         final points = _toDouble(userData['points']);
 
-        double maxUsableCash = totalAmount - _couponDiscount;
-        if (maxUsableCash < 0) maxUsableCash = 0;
-
-        final usableCash = points > maxUsableCash ? maxUsableCash : points;
+        final usableCash = cash.usableCash(
+          points: points,
+          subtotal: totalAmount,
+          couponDiscount: _couponDiscount,
+          enabled: _cashEnabled,
+          maxPerOrder: _maxCashPerOrder,
+        );
         _chalakCharCashUsed = _useChalakCharCash ? usableCash : 0;
 
         double finalTotal = totalAmount - _couponDiscount - _chalakCharCashUsed + _deliveryCharge;
@@ -1260,7 +1274,7 @@ class _CartPageState extends State<CartPage> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                if (points > 0)
+                if (points > 0 && _cashEnabled && usableCash > 0)
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
