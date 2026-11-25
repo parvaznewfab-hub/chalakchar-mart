@@ -318,6 +318,9 @@ Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --re
 - ledger-1-এর বাকি দুটো ছোট কাজও এর সঙ্গে করা যায়:
   - vendor dashboard-এ returned বা cancelled অর্ডার "Pending Orders"-এ গোনা হয়।
   - "You owe"-এর সংখ্যাটা লাল করতে হবে।
+- **admin Delivery Partners পাতা** (ধাপ F যাচাইয়ের সময় মালিকের পাওয়া, ২৫ নভেম্বর):
+  - কাগজের তথ্য (NID ইত্যাদি) লোড হওয়ার আগে কয়েক সেকেন্ড "not uploaded" দেখায়। লোড হওয়ার সময় "লোড হচ্ছে" দেখানো উচিত।
+  - সবুজ বারে "Partners" আর "Withdraws" ট্যাবের লেখা প্রায় দেখা যায় না, রং বদলাতে হবে।
 
 ## 14b ধাপ E (পরে): catch-all-কে "অনুমোদিত তালিকা" বানানো
 
