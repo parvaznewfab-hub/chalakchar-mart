@@ -67,3 +67,6 @@ functions/.env
 android/key.properties
 *.jks
 *.keystore
+
+# Local icon review images (branding/android previews)
+/screenshots/

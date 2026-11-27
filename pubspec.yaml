@@ -79,7 +79,11 @@ flutter_launcher_icons:
   ios: true
   image_path: "branding/app-icon-1024.png"
   adaptive_icon_background: "#135C2A"
-  adaptive_icon_foreground: "branding/android-adaptive-foreground-1024.png"
+  # Foreground and monochrome come from branding/android/make_android_icons.py:
+  # the mark is already sized for the 66dp safe zone, so no extra inset.
+  adaptive_icon_foreground: "branding/android/ic_launcher_foreground-1024.png"
+  adaptive_icon_foreground_inset: 0
+  adaptive_icon_monochrome: "branding/android/ic_launcher_monochrome-1024.png"
   min_sdk_android: 21
 
 flutter:
