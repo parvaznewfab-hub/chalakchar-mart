@@ -67,3 +67,6 @@ functions/.env
 android/key.properties
 *.jks
 *.keystore
+
+# Local review files (not committed)
+review/
