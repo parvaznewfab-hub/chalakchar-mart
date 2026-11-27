@@ -412,6 +412,7 @@ Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --re
     - `referredUserId` পড়ে, না থাকলে `refereeId`। মুছে যাওয়া user লাল লেখায় দেখায়।
     - নতুন দুটো ঘর: "Review Reward" আর "Auto-approve Referrals", দুটোই `settings/app`-এ save হয়।
     - পুরোনো batch-এর কোড মুছে দেওয়া হয়েছে।
+    - referrer বা referee মুছে গেলে কার্ডে Approve শুরু থেকেই বন্ধ, পাশে কারণ লেখা থাকে; Reject চালু থাকে (`6650e34`)। user-এর তথ্য পড়া শেষ না হওয়া পর্যন্তও Approve বন্ধ থাকে। server-এর `user_missing` যাচাই আগের মতোই আছে।
   - **Dashboard আর Analytics:** status গোনে বড়-ছোট হাতের অক্ষরে তফাত না করে।
 
 **test** (সব পাস):
@@ -551,6 +552,12 @@ Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --re
   - admin Dashboard লোডের প্রথম প্রায় ১৫ সেকেন্ড সব ঘরে ০ দেখায়। তখন লোড হওয়ার চিহ্ন দেখানো উচিত।
   - admin Dashboard-এর কার্ডে লেখা আর টাকার অঙ্ক কেটে যায় ("৳52…")।
   - admin Products-এর খোঁজার ঘরে ওষুধের আমলের লেখা "generic, manufacturer" রয়ে গেছে।
+- **ধাপ H-এর screenshot দেখে মালিকের তালিকা** (২৮ নভেম্বর; এখনো ঠিক করা হয়নি):
+  - review-এর তালিকায় লম্বা লেখা ৫–৬ লাইনের পর "আরও পড়ুন" দিয়ে গুটিয়ে রাখা।
+  - desktop footer-এ bKash/Nagad/Card দেখায়, কিন্তু এগুলো চালু নেই।
+  - wallet-এ "Total Earned"-এর অঙ্কের আগে ৳ নেই।
+  - 360px-এ পণ্যের পাতার "Add To Cart" দুই লাইনে ভাঙে।
+  - 360px-এ admin Settings-এর "Review Reward (first review, verified buyer)" লেবেল কাটা পড়ে।
 
 ## জরুরি (ধাপ I-এর আগে, আলাদা ধাপে): ভুয়া পণ্য আর vendor-এর নিজের পণ্য বদলানো
 
