@@ -2,9 +2,10 @@
 // (settings/app.features.healthEnabled). The pharmacy-era texts stay in
 // settings_details_pages.dart and are shown again if the flag is turned on.
 //
-// DRAFTS awaiting the owner's approval (2026-11-14): return policy (audit
-// item 12), privacy policy, terms, about. Numbers marked in the drafts
-// (days) must be confirmed before production.
+// Approved by the owner 2026-11-27. The server pages (/about-us, ...) carry
+// the same text: after any change run `node tools/seo/sync_policy_texts.js`
+// (functions/test/seoPages.test.js fails until then) and update
+// POLICY_LAST_MODIFIED in functions/seo/handlers.js.
 
 const String kReturnPolicyNoHealth = '''রিটার্ন, রিপ্লেসমেন্ট ও রিফান্ড পলিসি
 
@@ -41,7 +42,7 @@ ChalakChar Mart থেকে কেনা মোবাইল ও ল্যাপ
 • ওয়ারেন্টি দাবির জন্য পণ্য, অর্ডার নম্বর ও সমস্যার ছবি/ভিডিও লাগবে।
 
 ৬. রিফান্ড
-• অনুমোদিত রিফান্ড সাধারণত [X] কার্যদিবসের মধ্যে দেওয়ার চেষ্টা করা হয়।
+• অনুমোদিত রিফান্ড সাধারণত ৭ কার্যদিবসের মধ্যে দেওয়ার চেষ্টা করা হয়।
 • ক্যাশ অন ডেলিভারি অর্ডারের রিফান্ড আপনার দেওয়া bKash/Nagad নম্বরে বা নির্ধারিত পদ্ধতিতে দেওয়া হবে।
 • ব্যাংক বা মোবাইল ফাইন্যান্সিয়াল সার্ভিসের কারণে কিছু সময় বেশি লাগতে পারে।
 
@@ -56,6 +57,7 @@ ChalakChar Mart থেকে কেনা মোবাইল ও ল্যাপ
 ChalakChar Mart প্রয়োজনে এই নীতিমালা পরিবর্তন করতে পারে। পরিবর্তন হলে অ্যাপ ও ওয়েবসাইটে জানানো হবে।''';
 
 const String kPrivacyPolicyNoHealth = '''গোপনীয়তা নীতিমালা
+সর্বশেষ হালনাগাদ: ২৭ নভেম্বর ২০২৬
 
 ChalakChar Mart (অ্যাপ ও chalakcharmart.com) আপনার তথ্য কীভাবে সংগ্রহ, ব্যবহার ও সুরক্ষিত রাখে তা এখানে বলা হলো।
 
@@ -77,7 +79,12 @@ ChalakChar Mart (অ্যাপ ও chalakcharmart.com) আপনার তথ�
 
 তথ্য শেয়ার
 • আমরা আপনার ব্যক্তিগত তথ্য বিক্রি করি না।
-• শুধু অর্ডার সম্পন্ন করার জন্য প্রয়োজনীয় অংশ ডেলিভারি পার্টনার, পেমেন্ট সেবা এবং আমাদের সার্ভার/ক্লাউড সেবাদাতার (Google Firebase) সাথে শেয়ার হয়।
+• শুধু অর্ডার সম্পন্ন করার জন্য প্রয়োজনীয় অংশ ডেলিভারি পার্টনার ও পেমেন্ট সেবার সাথে শেয়ার হয়।
+• যেসব সেবাদাতার মাধ্যমে অ্যাপ ও ওয়েবসাইট চলে, শুধু সেই কাজের জন্য প্রয়োজনীয় তথ্য তাদের কাছে যায়:
+• Google (Firebase): অ্যাকাউন্ট ও লগইন, ডেটাবেস, ছবি সংরক্ষণ, সার্ভার ও নোটিফিকেশন; Google দিয়ে লগইন করলে Google Sign-In।
+• Meta: Facebook দিয়ে লগইন, এবং WhatsApp, Messenger বা Instagram-এ আমাদের পাঠানো মেসেজ।
+• OpenAI: AI চ্যাট (অ্যাপে এবং WhatsApp, Messenger বা Instagram-এ AI উত্তর) ও ছবি দিয়ে প্রোডাক্ট সার্চ। শুধু উত্তর ও সার্চের জন্য আপনার মেসেজ ও ছবি পাঠানো হয়।
+• YouTube (Google): কোনো প্রোডাক্ট পেজে ভিডিও থাকলে তা YouTube প্লেয়ারে দেখানো হয়।
 • আইনগত বাধ্যবাধকতা থাকলে কর্তৃপক্ষকে তথ্য দেওয়া হতে পারে।
 
 তথ্য সংরক্ষণ ও মুছে ফেলা
@@ -97,6 +104,7 @@ ChalakChar Mart ১৩ বছরের কম বয়সীদের জন্
 এই নীতিমালা পরিবর্তন হলে অ্যাপ ও ওয়েবসাইটে জানানো হবে।''';
 
 const String kTermsNoHealth = '''শর্তাবলী
+সর্বশেষ হালনাগাদ: ২৭ নভেম্বর ২০২৬
 
 ChalakChar Mart অ্যাপ ও ওয়েবসাইট ব্যবহার করে আপনি নিচের শর্তগুলো মেনে নিচ্ছেন।
 

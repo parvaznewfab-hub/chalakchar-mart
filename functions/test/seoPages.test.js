@@ -283,10 +283,15 @@ test("sitemap: only indexable URLs, every one answers 200 + index; lastmod from 
     assert.equal(page.statusCode, 200, loc);
     assert.equal(robotsMeta(page.body), "index, follow", loc);
   }
-  const today = new Date().toISOString().slice(0, 10);
-  const lastmods = [...res.body.matchAll(/<lastmod>([^<]*)<\/lastmod>/g)].map((m) => m[1]);
-  assert.ok(!lastmods.includes(today) || today === "2026-11-20", "no 'today' dates");
-  assert.match(res.body, /<loc>https:\/\/chalakcharmart\.com\/about-us<\/loc>\n {4}<lastmod>2026-11-15<\/lastmod>/);
+  // Data dates only (fixture products: updated 2026-11-20), never "today";
+  // policy pages carry POLICY_LAST_MODIFIED.
+  const policyPaths = ["/about-us", "/privacy-policy", "/terms-conditions", "/return-policy"];
+  const entries = [...res.body.matchAll(/<loc>https:\/\/chalakcharmart\.com([^<]*)<\/loc>\n {4}<lastmod>([^<]*)<\/lastmod>/g)];
+  assert.ok(entries.length >= locs.length);
+  for (const [, loc, lastmod] of entries) {
+    assert.equal(lastmod, policyPaths.includes(loc) ? handlers.POLICY_LAST_MODIFIED : "2026-11-20", loc);
+  }
+  assert.match(res.body, /<loc>https:\/\/chalakcharmart\.com\/about-us<\/loc>\n {4}<lastmod>2026-11-27<\/lastmod>/);
   assert.match(res.body, /<loc>https:\/\/chalakcharmart\.com\/category\/mobile-parts<\/loc>\n {4}<lastmod>2026-11-20<\/lastmod>/);
 });
 
@@ -344,4 +349,19 @@ test("price label: 'থেকে' when variants differ in price, like the produc
   assert.match(html, /দাম: <strong>৳1,829 থেকে<\/strong>/);
   assert.match(pages.productLinkItem({ id: "v", ...P({ variants }) }), /— ৳1,829 থেকে<\/a>/);
   assert.match(pages.productLinkItem({ id: "s", ...P() }), /— ৳2,399<\/a>/);
+});
+
+test("policy texts: no placeholders; 'last updated' line is text, not a heading", async () => {
+  const texts = require("../seo/policyTexts");
+  for (const [route, text] of Object.entries(texts)) {
+    assert.ok(!/\[[^\]]*\]|\bTODO\b|\bDRAFT\b|\bTBD\b|<[^>]*>/i.test(text), `${route} has a placeholder`);
+  }
+  for (const url of ["/privacy-policy", "/terms-conditions"]) {
+    const res = await run("pageSeo", url);
+    assert.match(res.body, /<\/h1>\n {4}<p>সর্বশেষ হালনাগাদ: ২৭ নভেম্বর ২০২৬<\/p>/, url);
+  }
+  const privacy = await run("pageSeo", "/privacy-policy");
+  for (const name of ["Google (Firebase)", "Meta", "OpenAI", "YouTube (Google)"]) {
+    assert.ok(privacy.body.includes(`<li>${name}:`), name);
+  }
 });

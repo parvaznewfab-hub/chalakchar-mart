@@ -683,7 +683,8 @@ function policyBodyHtml(text) {
       lines = lines.slice(1);
       if (!lines.length) return;
     }
-    const isHeading = (l) => l.length <= 70 && !/[।.!?:]$/.test(l) && !l.startsWith("•");
+    // "Label: value" lines ("সর্বশেষ হালনাগাদ: ...") are text, not headings.
+    const isHeading = (l) => l.length <= 70 && !/[।.!?:]$/.test(l) && !l.includes(":") && !l.startsWith("•");
     if (lines.length === 1 && isHeading(lines[0])) {
       out.push(`    <h2>${escText(lines[0])}</h2>`);
       return;

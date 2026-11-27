@@ -22,7 +22,7 @@ const RETRY_AFTER_SECONDS = "120";
 // The date the policy texts last changed (lib/pages/user/policy_texts.dart);
 // the sitemap's lastmod for those pages. functions/test/seoPolicyTexts.test.js
 // fails when the Dart file has a newer commit than this.
-const POLICY_LAST_MODIFIED = "2026-11-15";
+const POLICY_LAST_MODIFIED = "2026-11-27";
 
 function sendHtml(res, status, html, { cache, robotsHeader } = {}) {
   res.set("Content-Type", "text/html; charset=utf-8");
