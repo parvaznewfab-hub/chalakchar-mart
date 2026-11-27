@@ -129,7 +129,7 @@ git checkout storage.rules
 | 2026-11-27 06:25 UTC (branch `seo-3`, preview `seo3` থেকে clone; বিবরণ `docs/seo/seo-3.md`) | Hosting live, seo-3 (functions `productSeo`, `pageSeo`, `homeSeo`, `sitemap` ০৫:৫৪ UTC) | version `d9aabec1a0fd54c3` | version `bd482832093239e5` |
 | 2026-11-27 18:34 UTC (`f4082fa`, branch `step-h`) | Firestore, ধাপ H (reviews শুধু পড়া; referrals-এ client-এর লেখা বন্ধ; `referralCount`; rating-এর ঘর) | `fa5f0e22-cc67-4abc-92c2-d21caad63af0` | `438c4999-aa60-440c-aad1-5acd04e03d69` |
 | 2026-11-27 18:42 UTC (`f4082fa`, branch `step-h`) | Functions, ধাপ H: নতুন `submitProductReview`, `deleteProductReview`, `onProductReviewWritten`, `approveReferral`, `rejectReferral`; আপডেট `applyReferralReward`; মোছা `onProductReviewCreated` | — | step-g-এর `applyReferralReward` আর `onProductReviewCreated` |
-| — (ধাপ H, এখনো deploy হয়নি) | Hosting | — | `d9aabec1a0fd54c3` |
+| 2026-11-27 19:02 UTC (`05702f5`, branch `step-h`, preview `steph` থেকে clone) | Hosting live, ধাপ H (review আর referral-এর পাতা, admin Settings-এর dropdown ঠিক; seo-1/2/3, ledger-1, brand-1 আর ধাপ G-র কোড সহ) | version `1ef9e5dcd524900a` | version `d9aabec1a0fd54c3` |
 
 brand-1-এর hosting ফেরাতে: `firebase hosting:clone chalakchar-mart@6f1f9ea547faf2d0 chalakchar-mart:live --project chalakchar-mart`।
 এতে ledger-1-এর পাতা থেকে যায়, শুধু লোগো আর রং আগের মতো হয়।
@@ -141,6 +141,8 @@ brand-1-এর hosting ফেরাতে: `firebase hosting:clone chalakchar-ma
   - `../cc_stepg` (origin/step-g) থেকে: `firebase deploy --only functions:applyReferralReward,functions:onProductReviewCreated --project chalakchar-mart`।
   - তারপর: `firebase functions:delete submitProductReview deleteProductReview onProductReviewWritten approveReferral rejectReferral --region asia-south1 --project chalakchar-mart`।
   - মনে রাখার বিষয়: পুরোনো `applyReferralReward` আবার `settings/referral` পড়বে, তাই auto-approve আবার কার্যত চালু হবে।
+- **hosting** (সবার আগে ফেরাতে হবে): `firebase hosting:clone chalakchar-mart@d9aabec1a0fd54c3 chalakchar-mart:live --project chalakchar-mart`। এতে seo-3 থেকে যায়।
+  - মনে রাখার বিষয়: এতে admin Settings পাতা আবার ভেঙে যাবে (`roundingMode` = `"round"`), আর admin পাতা pending referral আবার চিনবে না।
 - **rules:** `git show origin/step-g:firestore.rules > firestore.rules`, তারপর `firebase deploy --only firestore:rules --project chalakchar-mart` আর `git checkout firestore.rules`। অথবা Console → Rules → History → `438c4999…` → Restore।
 - **deploy-এর আগের export:**
   - rules: `gs://chalakchar-mart-backups/steph-rules-20261127-1833` (SUCCESSFUL, ৯৬৫টা ডকুমেন্ট)।
@@ -151,6 +153,15 @@ brand-1-এর hosting ফেরাতে: `firebase hosting:clone chalakchar-ma
   - `onProductReviewWritten` ACTIVE (`document.v1.written`) হওয়ার পরেই `onProductReviewCreated` মোছা হয়েছে।
   - লগইন ছাড়া `submitProductReview` আর `approveReferral` → 401 UNAUTHENTICATED।
   - function-এর সংখ্যা ৫৯ থেকে ৬৩।
+  - **hosting:**
+    - preview `steph` (https://chalakchar-mart--steph-g042ixnx.web.app, ১৮:৫৭ UTC, মেয়াদ ৪ ডিসেম্বর) থেকে লাইভে ১৯:০২:৪০ UTC-তে clone।
+    - export `gs://chalakchar-mart-backups/steph-hosting-20261127-1852` (SUCCESSFUL, ৯৬৫টা ডকুমেন্ট)।
+    - `main.dart.js` (`dfcd337c…`), `main.dart.js_1.part.js` (`37bf8a73…`) আর `flutter_bootstrap.js` (`96043038…`): build, preview আর লাইভ (chalakcharmart.com) তিন জায়গাতেই হুবহু এক।
+    - build-এ emulator-এর কোনো চিহ্ন নেই।
+    - seo-3-এর অবস্থা আগের মতোই আছে:
+      - `www` থেকে মূল ঠিকানায় 301।
+      - `/sitemap.xml` 200, ৯১টা URL।
+      - X-Robots-Tag: `/login` আর `/cart`-এ `noindex, nofollow`, `/category/doesnotexist`-এ 404 আর `noindex`, `/`, `/about-us` আর category-তে কিছু নেই।
 
 ধাপ G ফেরাতে (উল্টো ক্রমে): hosting `firebase hosting:clone chalakchar-mart@784e6fe0f776880e chalakchar-mart:live --project chalakchar-mart`; functions `firebase functions:delete onOrderCreatedCash onOrderStatusCash --region asia-south1`; rules `firestore.rules.live-700f57c7` বসিয়ে `firebase deploy --only firestore:rules`। deploy-এর আগে export: `gs://chalakchar-mart-backups/stepg-rules-20261125-035525` (SUCCESSFUL, ০৩:৫৬ UTC)। লাইভ ruleset-এর sha256 `eb09b8aa…` = branch-এর ফাইল। functions deploy-এর ঠিক আগে Cash খরচ হওয়া অর্ডার ০টা (মোট ৭টা)। hosting-এর পরে লাইভ আর preview-এর `main.dart.js`, `main.dart.js_1.part.js`, `flutter_bootstrap.js` হুবহু এক; home, category, product, login, admin-এ console error ০; দুই function-এর log-এ warning বা error নেই।
 
