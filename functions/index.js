@@ -1,6 +1,6 @@
 const { setGlobalOptions } = require("firebase-functions/v2");
 const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
-const { onDocumentCreated, onDocumentUpdated, onDocumentDeleted } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentUpdated, onDocumentDeleted, onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
@@ -5120,46 +5120,62 @@ exports.expireCouponsDaily = onSchedule("every day 00:10", async () => {
   });
 });
 
-exports.onProductReviewCreated = onDocumentCreated(
+// 14b step H: product reviews. Reviews are written only by these callables
+// (verified buyer, reward, first name; functions/reviews/productReviews.js);
+// the rules give the client read access only. The trigger recomputes the
+// product's rating on create, edit and delete. (It replaces
+// onProductReviewCreated, which ran on create only; Firebase cannot change
+// a function's trigger type in place, hence the new name.)
+const productReviews = require("./reviews/productReviews");
+const referralsModule = require("./referrals/referrals");
+
+function callableError(error, label, publicMessage, RequestErrorClass) {
+  if (error instanceof RequestErrorClass) {
+    return new HttpsError(error.code, error.message, { reason: error.reason });
+  }
+  logger.error(label + " failed", { code: error?.code, message: error?.message });
+  return new HttpsError("internal", publicMessage, { reason: "internal" });
+}
+
+exports.submitProductReview = onCall({ maxInstances: 5 }, async (request) => {
+  try {
+    const result = await productReviews.submitProductReview(request.auth, request.data, {
+      db, FieldValue: LedgerFieldValue, now: () => Date.now(),
+    });
+    logger.info("product review saved", {
+      uid: request.auth?.uid, productId: request.data?.productId, ...result,
+    });
+    return result;
+  } catch (error) {
+    throw callableError(error, "submitProductReview", "Could not save the review.", productReviews.RequestError);
+  }
+});
+
+exports.deleteProductReview = onCall({ maxInstances: 2 }, async (request) => {
+  try {
+    const result = await productReviews.deleteProductReview(request.auth, request.data, { db });
+    logger.info("product review deleted", {
+      by: request.auth?.uid, productId: request.data?.productId, reviewer: request.data?.userId,
+    });
+    return result;
+  } catch (error) {
+    throw callableError(error, "deleteProductReview", "Could not delete the review.", productReviews.RequestError);
+  }
+});
+
+exports.onProductReviewWritten = onDocumentWritten(
   "products/{productId}/reviews/{reviewId}",
   async (event) => {
     const productId = event.params.productId;
     if (!productId) return;
-
-    const reviewsSnap = await db
-      .collection("products")
-      .doc(productId)
-      .collection("reviews")
-      .get();
-
-    let totalRating = 0;
-    let count = 0;
-
-    reviewsSnap.forEach((doc) => {
-      const rating = toNumber(doc.data().rating);
-      if (rating > 0) {
-        totalRating += rating;
-        count++;
-      }
-    });
-
-    const ratingAvg = count > 0 ? totalRating / count : 0;
-
-    await db.collection("products").doc(productId).set({
-      ratingAvg,
-      ratingCount: count,
-      reviewCount: count,
-      ratingTotal: totalRating,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true });
-
-    await bumpProductMarketingScore(productId, "review", 6, { ratingCount: count, ratingAvg });
-
-    logger.info("Product rating updated", {
-      productId,
-      ratingAvg,
-      ratingCount: count,
-    });
+    const result = await productReviews.recomputeProductRating(productId, { db, FieldValue: LedgerFieldValue });
+    const created = !event.data?.before?.exists && event.data?.after?.exists;
+    if (created && result.updated) {
+      await bumpProductMarketingScore(productId, "review", 6, {
+        ratingCount: result.ratingCount, ratingAvg: result.ratingAvg,
+      });
+    }
+    logger.info("Product rating updated", { productId, ...result });
   }
 );
 
@@ -6575,190 +6591,11 @@ exports.applyReferralReward = onRequest(
           });
         }
 
-        let responsePayload = null;
-
-        await db.runTransaction(async (tx) => {
-          const userRef = db.collection("users").doc(uid);
-          const userSnap = await tx.get(userRef);
-
-          if (!userSnap.exists) {
-            throw new Error("USER_PROFILE_NOT_FOUND");
-          }
-
-          const user = userSnap.data() || {};
-
-          const alreadyApplied =
-            String(user.referredByUid || "").trim() ||
-            String(user.referredByCode || "").trim() ||
-            String(user.referredBy || "").trim();
-
-          if (alreadyApplied) {
-            responsePayload = {
-              ok: true,
-              alreadyApplied: true,
-              message: "You have already applied a referral code.",
-            };
-            return;
-          }
-
-          const ownCode = String(user.refCode || "")
-            .trim()
-            .toUpperCase()
-            .replace(/\s+/g, "");
-
-          if (ownCode && ownCode === code) {
-            responsePayload = {
-              ok: false,
-              message: "You cannot use your own referral code.",
-            };
-            return;
-          }
-
-          const settingsRef = db.collection("settings").doc("referral");
-          const settingsSnap = await tx.get(settingsRef);
-          const settings = settingsSnap.exists ? (settingsSnap.data() || {}) : {};
-
-          if (settings.referralEnabled === false) {
-            responsePayload = {
-              ok: false,
-              message: "Referral program is currently disabled.",
-            };
-            return;
-          }
-
-          const referrerQuery = db
-            .collection("users")
-            .where("refCode", "==", code)
-            .limit(1);
-
-          const referrerSnap = await tx.get(referrerQuery);
-
-          if (referrerSnap.empty) {
-            responsePayload = {
-              ok: false,
-              message: "Referral code not found.",
-            };
-            return;
-          }
-
-          const referrerDoc = referrerSnap.docs[0];
-          const referrerId = referrerDoc.id;
-
-          if (referrerId === uid) {
-            responsePayload = {
-              ok: false,
-              message: "You cannot use your own referral code.",
-            };
-            return;
-          }
-
-          const autoApprove = settings.autoApprove !== false;
-          const referrerReward = Math.max(
-            0,
-            toNumber(settings.referrerReward ?? settings.referralReward ?? 25)
-          );
-          const refereeReward = Math.max(
-            0,
-            toNumber(settings.refereeReward ?? 25)
-          );
-
-          const referralRef = db
-            .collection("referrals")
-            .doc(`${referrerId}_${uid}`);
-
-          const existingReferral = await tx.get(referralRef);
-
-          if (existingReferral.exists) {
-            responsePayload = {
-              ok: true,
-              alreadyApplied: true,
-              message: "You have already applied a referral code.",
-            };
-            return;
-          }
-
-          const now = admin.firestore.FieldValue.serverTimestamp();
-          const status = autoApprove ? "approved" : "pending";
-
-          const userUpdate = {
-            referredByUid: referrerId,
-            referredByCode: code,
-            referralAppliedAt: now,
-            referralFirstOrderRewarded: autoApprove,
-            updatedAt: now,
-          };
-
-          const referrerUpdate = {
-            updatedAt: now,
-          };
-
-          if (autoApprove) {
-            userUpdate.points = admin.firestore.FieldValue.increment(refereeReward);
-            userUpdate.totalEarnings = admin.firestore.FieldValue.increment(refereeReward);
-
-            referrerUpdate.points = admin.firestore.FieldValue.increment(referrerReward);
-            referrerUpdate.totalEarnings = admin.firestore.FieldValue.increment(referrerReward);
-            referrerUpdate.referralCount = admin.firestore.FieldValue.increment(1);
-          }
-
-          tx.set(userRef, userUpdate, { merge: true });
-          tx.set(db.collection("users").doc(referrerId), referrerUpdate, { merge: true });
-
-          tx.set(referralRef, {
-            referrerId,
-            referredUserId: uid,
-            referredByCode: code,
-            referrerReward,
-            refereeReward,
-            status,
-            autoApprove,
-            createdAt: now,
-            updatedAt: now,
-          }, { merge: true });
-
-          if (autoApprove) {
-            const referrerWalletRef = db
-              .collection("wallet_logs")
-              .doc(`referral_referrer_${referrerId}_${uid}`);
-            const refereeWalletRef = db
-              .collection("wallet_logs")
-              .doc(`referral_referee_${uid}_${referrerId}`);
-
-            tx.set(referrerWalletRef, {
-              userId: referrerId,
-              type: "referral_reward",
-              direction: "credit",
-              amount: referrerReward,
-              source: "referral",
-              relatedUserId: uid,
-              referralId: referralRef.id,
-              note: "Referral reward",
-              createdAt: now,
-            }, { merge: true });
-
-            tx.set(refereeWalletRef, {
-              userId: uid,
-              type: "referee_reward",
-              direction: "credit",
-              amount: refereeReward,
-              source: "referral",
-              relatedUserId: referrerId,
-              referralId: referralRef.id,
-              note: "Referral signup reward",
-              createdAt: now,
-            }, { merge: true });
-          }
-
-          responsePayload = {
-            ok: true,
-            alreadyApplied: false,
-            status,
-            referrerReward: autoApprove ? referrerReward : 0,
-            refereeReward: autoApprove ? refereeReward : 0,
-            message: autoApprove
-              ? "Referral applied successfully. Reward added to your balance."
-              : "Referral code applied successfully. Reward is pending approval.",
-          };
+        // 14b step H: settings/app first (settings/referral for missing
+        // keys), auto-approve only when explicitly true, lowercase status,
+        // one shared credit with approveReferral (functions/referrals/).
+        const responsePayload = await referralsModule.applyReferral({
+          uid, code, deps: { db, FieldValue: LedgerFieldValue },
         });
 
         return res.status(200).json(responsePayload || {
@@ -6781,6 +6618,32 @@ exports.applyReferralReward = onRequest(
     });
   }
 );
+
+// 14b step H: admin decision on a pending referral (app settings page).
+// wallet.edit or super admin; pending only; same credit as auto-approve.
+exports.approveReferral = onCall({ maxInstances: 2 }, async (request) => {
+  try {
+    const result = await referralsModule.approveReferral(request.auth, request.data, {
+      db, FieldValue: LedgerFieldValue,
+    });
+    logger.info("referral approved", { by: request.auth?.uid, referralId: request.data?.referralId, ...result });
+    return result;
+  } catch (error) {
+    throw callableError(error, "approveReferral", "Could not approve the referral.", referralsModule.RequestError);
+  }
+});
+
+exports.rejectReferral = onCall({ maxInstances: 2 }, async (request) => {
+  try {
+    const result = await referralsModule.rejectReferral(request.auth, request.data, {
+      db, FieldValue: LedgerFieldValue,
+    });
+    logger.info("referral rejected", { by: request.auth?.uid, referralId: request.data?.referralId });
+    return result;
+  } catch (error) {
+    throw callableError(error, "rejectReferral", "Could not reject the referral.", referralsModule.RequestError);
+  }
+});
 
 // ---- TikTok integration (isolated module, Phase A: OAuth + token lifecycle only) ----
 // The existing dispatcher stub at dispatchMetaSocialChannels() (channels.tiktok

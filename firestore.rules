@@ -731,6 +731,11 @@ service cloud.firestore {
           !request.resource.data.keys().hasAny(['totalEarnings'])
           || request.resource.data.totalEarnings == 0
         )
+        // step H: referralCount is written only by the referral functions.
+        && (
+          !request.resource.data.keys().hasAny(['referralCount'])
+          || request.resource.data.referralCount == 0
+        )
         && (!request.resource.data.keys().hasAny(['whatsappOptIn']) || request.resource.data.whatsappOptIn == false)
         && (!request.resource.data.keys().hasAny(['whatsappNumber']) || request.resource.data.whatsappNumber == '');
 
@@ -744,6 +749,7 @@ service cloud.firestore {
           'isBanned',
           'points',
           'totalEarnings',
+          'referralCount',
           'sellerStatus',
           'vendorId',
           'banReason',
@@ -774,6 +780,7 @@ service cloud.firestore {
           'isBanned',
           'points',
           'totalEarnings',
+          'referralCount',
           'banReason',
           'bannedAt',
           'isDeleted',
@@ -830,6 +837,7 @@ service cloud.firestore {
           'isBanned',
           'points',
           'totalEarnings',
+          'referralCount',
           'vendorId',
           'sellerStatus',
           'vendorStatus',
@@ -1275,9 +1283,13 @@ service cloud.firestore {
 match /products/{productId} {
   allow read: if true;
 
+  // step H: the rating fields come only from the review trigger
+  // (onProductReviewWritten). A non-staff writer (vendor, or anyone passing
+  // vendorProductCreateOwner) may not set them; no app page does.
   allow create: if can('products.edit')
     || (
       signedIn()
+      && !request.resource.data.keys().hasAny(['ratingAvg', 'ratingCount', 'reviewCount', 'ratingTotal'])
       && userExists(request.auth.uid)
       && vendorProductCreateOwner(request.resource.data)
     );
@@ -1286,6 +1298,7 @@ match /products/{productId} {
     || can('products.status')
     || (
       signedIn()
+      && !affectedAny(['ratingAvg', 'ratingCount', 'reviewCount', 'ratingTotal'])
       && userExists(request.auth.uid)
       && ownsVendorProduct(resource.data)
     );
@@ -1298,6 +1311,15 @@ match /products/{productId} {
       && ownsVendorProduct(resource.data)
     );
 }
+
+    // 14b step H: product reviews (id = the reviewer's uid). Everyone may
+    // read them (product page, guests too). Only Cloud Functions write:
+    // submitProductReview (verified buyer, rating, reward) and
+    // deleteProductReview (admin). No client write, not even an admin's.
+    match /products/{productId}/reviews/{reviewId} {
+      allow read: if true;
+      allow create, update, delete: if false;
+    }
 
     match /categories/{categoryId} {
       allow read: if true;
@@ -1540,13 +1562,16 @@ match /products/{productId} {
     }
 
     match /referrals/{docId} {
-      allow read: if can('users.view') || can('users.edit') || can('wallet.edit') || can('analytics.view');
+      // Same permissions as before. canAnyOf, not four can() calls: with
+      // can() an admin or a wallet.edit staff ran past the 1000-expression
+      // limit and could not read the list at all (found in step H, also on
+      // live 438c4999).
+      allow read: if canAnyOf(['users.view', 'users.edit', 'wallet.edit', 'analytics.view']);
 
-      allow create: if signedIn()
-        && request.resource.data.referrerId != request.auth.uid
-        && request.resource.data.referredUserId == request.auth.uid;
-
-      allow update, delete: if can('wallet.edit') || can('users.edit');
+      // 14b step H: written only by Cloud Functions (applyReferralReward,
+      // approveReferral, rejectReferral). Before, any signed-in user could
+      // create a referral for themself with any status and reward.
+      allow create, update, delete: if false;
     }
 
     match /wallet_logs/{docId} {

@@ -13,7 +13,9 @@ const STEP_B_ROLLBACK = /rollback-step-b/.test(RULES_FILE);
 const LIVE_BEFORE_F = /live-be7e9c8a/.test(RULES_FILE);
 // Same for the live copy from just before step G (700f57c7).
 const LIVE_BEFORE_G = /live-700f57c7/.test(RULES_FILE);
-const OLD_RULES = /rules-backup/.test(RULES_FILE) && !STEP_B_ROLLBACK && !LIVE_BEFORE_F && !LIVE_BEFORE_G;
+// And for the live copy from just before step H (438c4999).
+const LIVE_BEFORE_H = /live-438c4999/.test(RULES_FILE);
+const OLD_RULES = /rules-backup/.test(RULES_FILE) && !STEP_B_ROLLBACK && !LIVE_BEFORE_F && !LIVE_BEFORE_G && !LIVE_BEFORE_H;
 // The rollback file = old rules with only settings/app_secrets locked.
 const KEEP_SECRETS = /keep-secrets/.test(RULES_FILE);
 // Step 6 (current firestore.rules): the move script has run, so the public
