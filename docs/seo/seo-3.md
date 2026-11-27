@@ -110,9 +110,22 @@ not merged. Later hosting builds must include seo-3 (and seo-1, seo-2).
   owner (no credentials in this session).
 - Function logs 05:54–06:29 UTC: no WARNING/ERROR, no 5xx.
 
-## After release
+## সম্পন্ন (2026-11-27, owner)
 
-- Search Console: inspect + request indexing for /category/computer-accessories,
-  /about-us and a few products; resubmit sitemap.xml.
+- Logged-in admin Dashboard works on live (checked by the owner in Claude's
+  built-in browser).
+- Search Console: sitemap.xml resubmitted 2026-11-27.
+- Request indexing: /category/computer-accessories, /category/mobile-parts,
+  /category/motherboard, /about-us,
+  /product/imp_aliexpress_d8514cc77064a2970514a69d0fcbb23a.
+- Validation started for "Excluded by noindex" and "Crawled - currently not
+  indexed".
+
+seo-3 is finished at this step.
+
+## Later
+
+- Watch the two Search Console validations; check the coverage numbers again
+  after they finish.
 - Later steps: (ক) "/" served by homeSeo (separate step);
   docs/plans/updated-at-real-changes.md; docs/plans/payment-gateway-privacy-update.md.
