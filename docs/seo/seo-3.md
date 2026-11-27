@@ -76,3 +76,41 @@ brand-1, ledger-1, steps C–G; not d4ead6c). Status: committed, NOT deployed.
    blocked: live (old client) computer-accessories/mobile-parts → "Page not
    found" + noindex; seo3 → index + real title. Slow 3G: both index (~85 s).
 4. Clone `seo3` → live. Rollback: clone the previous live version.
+   Done 2026-11-27 06:25:48 UTC: live = version d9aabec1a0fd54c3.
+   **Rollback target (live before seo-3): bd482832093239e5** (step G) —
+   `firebase hosting:clone chalakchar-mart@bd482832093239e5 chalakchar-mart:live --project chalakchar-mart`.
+
+## Final result (live, 2026-11-27 06:29 UTC)
+
+- live main.dart.js sha256 85dc5bbf2c526da5 (= seo3 build).
+- X-Robots-Tag: `/login`, `/cart` → `noindex, nofollow`; `/category/doesnotexist`
+  → `noindex` (404); none on `/`, `/about-us`, both categories, the product,
+  `/sitemap.xml`, `main.dart.js`, or chalakchar-mart.web.app.
+- Rendered (Googlebot UA, 8 s after first frame):
+
+  | URL | robots | h1 | links | DOM text | Product JSON-LD |
+  |---|---|---|---|---|---|
+  | / | index | 1 | 7 | 384 (was 0) | 0 |
+  | /about-us | index | 1 | 5 | 965 | 0 |
+  | /category/computer-accessories | index | 1 | 11 | 1012 | 0 |
+  | /category/mobile-parts | index | 1 | 61 | 6966 | 0 |
+  | /product/imp_aliexpress_d85… | index | 1 | 20 | 2712 | 1 |
+  | /category/doesnotexist (404) | noindex | 0 | 0 | 0 | 0 |
+
+  Product title: full name + " | ChalakChar Mart".
+- Firestore blocked (firestore.googleapis.com aborted):
+  /category/computer-accessories stays `index, follow` with its real title
+  (before: "Page not found" + noindex).
+- Sitemap: 91 URLs (83 products, 3 categories, 4 policy, home), all 200 +
+  index.
+- App: /cart (guest: "Your cart is empty"), /admin (guest: "Admin access
+  denied"), /login open with 0 console errors. Logged-in admin check: by the
+  owner (no credentials in this session).
+- Function logs 05:54–06:29 UTC: no WARNING/ERROR, no 5xx.
+
+## After release
+
+- Search Console: inspect + request indexing for /category/computer-accessories,
+  /about-us and a few products; resubmit sitemap.xml.
+- Later steps: (ক) "/" served by homeSeo (separate step);
+  docs/plans/updated-at-real-changes.md; docs/plans/payment-gateway-privacy-update.md.
