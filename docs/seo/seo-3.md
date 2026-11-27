@@ -66,4 +66,13 @@ brand-1, ledger-1, steps C–G; not d4ead6c). Status: committed, NOT deployed.
 3. Hosting build (flutter clean; build --release --pwa-strategy=none) to
    channel `seo3`; owner checks; headless check of rendered robots and the
    /login, /cart header (the hosting emulator sends no headers at all).
+   Done 2026-11-27 06:09 UTC: https://chalakchar-mart--seo3-m19onqq4.web.app
+   (expires 2026-12-04), main.dart.js sha256 85dc5bbf2c526da5 (live
+   e19a1cbdea039de8). Firebase adds `X-Robots-Tag: noindex` to every
+   preview-channel response (old stepg channel too), so the /login, /cart
+   header can only be checked on live after the clone. Rendered (8 s after
+   first frame): robots index on all 5 real pages, 404 page noindex; product
+   page exactly 1 Product JSON-LD. Bug test with firestore.googleapis.com
+   blocked: live (old client) computer-accessories/mobile-parts → "Page not
+   found" + noindex; seo3 → index + real title. Slow 3G: both index (~85 s).
 4. Clone `seo3` → live. Rollback: clone the previous live version.
