@@ -1,7 +1,9 @@
 # seo-3: Google indexing (SSR content, one indexable rule, server-only robots)
 
 Branch `seo-3` (worktree `../cc_seo3`), from `step-g` (live base: seo-1, seo-2,
-brand-1, ledger-1, steps C–G; not d4ead6c). Status: committed, NOT deployed.
+brand-1, ledger-1, steps C–G; not d4ead6c). Status: LIVE 2026-11-27 —
+functions 05:54 UTC, hosting 06:25 UTC (version d9aabec1a0fd54c3). Pushed,
+not merged. Later hosting builds must include seo-3 (and seo-1, seo-2).
 
 ## What changed
 
