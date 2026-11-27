@@ -1,4 +1,6 @@
 import 'dart:io';
+import '../../utils/safe_dropdown.dart';
+import '../../widgets/safe_dropdown_field.dart';
 import '../../services/product_review_service.dart';
 import '../../utils/product_review.dart';
 
@@ -150,6 +152,32 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   bool importEnableSeo = true;
   bool importEnableMarketing = true;
   String importRoundingMode = 'none';
+  // Same modes as applyImportPriceRule (functions/index.js). "round" is the
+  // shop rule (whole taka, .5 up) that roundPricesToTaka.js set on live; it
+  // was missing here, so the dropdown asserted and the page broke.
+  static const List<DropdownChoice> roundingChoices = [
+    DropdownChoice('none', 'Exact (2 decimals)'),
+    DropdownChoice('round', 'Whole taka, nearest (.5 up)'),
+    DropdownChoice('00', 'Round up to whole amount'),
+    DropdownChoice('99', 'End price with .99'),
+  ];
+  static const List<DropdownChoice> audienceChoices = [
+    DropdownChoice('everyone', 'Everyone'),
+    DropdownChoice('wishlist_users', 'Wishlist Users'),
+    DropdownChoice('category_interested', 'Category Interested'),
+    DropdownChoice('previous_buyers', 'Previous Buyers'),
+  ];
+  static const List<DropdownChoice> publishTimeChoices = [
+    DropdownChoice('immediately', 'Immediately'),
+    DropdownChoice('scheduled', 'Scheduled'),
+    DropdownChoice('manual_review', 'Manual Review'),
+  ];
+  static const List<DropdownChoice> referralStatusChoices = [
+    DropdownChoice('all', 'All'),
+    DropdownChoice('pending', 'Pending'),
+    DropdownChoice('approved', 'Approved'),
+    DropdownChoice('rejected', 'Rejected'),
+  ];
 
   String defaultMarketingAudience = 'everyone';
   String defaultMarketingPublishTime = 'immediately';
@@ -461,7 +489,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       }, SetOptions(merge: true));
 
       // ...and never into the public settings/app (any left there is removed).
-      await db.collection('settings').doc('app').set({
+      final payload = <String, dynamic>{
         'pharmacyName': pharmacyNameController.text.trim(),
         'supportPhone': supportPhoneController.text.trim(),
         'whatsappNumber': whatsappController.text.trim(),
@@ -553,7 +581,6 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
           'currency': importCurrencyController.text.trim().toUpperCase().isEmpty
               ? 'BDT'
               : importCurrencyController.text.trim().toUpperCase(),
-          'roundingMode': importRoundingMode,
           'autoPublish': importAutoPublish,
           'enableAi': importEnableAi,
           'enableSeo': importEnableSeo,
@@ -569,8 +596,6 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
           'whatsapp': defaultWhatsappQueue,
           'messenger': defaultMessengerQueue,
           'tiktok': defaultTiktokQueue,
-          'audience': defaultMarketingAudience,
-          'publishTime': defaultMarketingPublishTime,
           'captionTemplate': defaultMarketingCaptionController.text.trim(),
         },
 
@@ -598,7 +623,13 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
         'enableRiderNotifications': enableRiderNotifications,
 
         'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      };
+      // Dropdown-backed values: only a valid choice is ever written; an
+      // unknown stored value is left as it is (merge write).
+      putIfKnownChoice(payload['importSettings'] as Map<String, dynamic>, 'roundingMode', importRoundingMode, roundingChoices);
+      putIfKnownChoice(payload['marketingDefaults'] as Map<String, dynamic>, 'audience', defaultMarketingAudience, audienceChoices);
+      putIfKnownChoice(payload['marketingDefaults'] as Map<String, dynamic>, 'publishTime', defaultMarketingPublishTime, publishTimeChoices);
+      await db.collection('settings').doc('app').set(payload, SetOptions(merge: true));
 
       _snack('Settings updated successfully');
     } catch (e) {
@@ -1066,20 +1097,17 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   Widget _marketingDropdown({
     required String label,
     required String value,
-    required List<DropdownMenuItem<String>> items,
+    required List<DropdownChoice> choices,
     required ValueChanged<String?> onChanged,
     IconData? icon,
   }) {
-    return DropdownButtonFormField<String>(
-      initialValue: value,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: icon == null ? null : Icon(icon),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-        filled: true,
-        fillColor: Colors.white,
-      ),
-      items: items,
+    return SafeDropdownField(
+      label: label,
+      value: value,
+      choices: choices,
+      icon: icon,
+      filled: true,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
       onChanged: canEditSettings ? onChanged : null,
     );
   }
@@ -1509,15 +1537,11 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
               ),
               onChanged: (v) => setState(() => referralSearchText = v),
             );
-            final status = DropdownButtonFormField<String>(
-              initialValue: referralStatusFilter,
-              decoration: const InputDecoration(labelText: 'Status', border: OutlineInputBorder(), isDense: true),
-              items: const [
-                DropdownMenuItem(value: 'all', child: Text('All')),
-                DropdownMenuItem(value: 'pending', child: Text('Pending')),
-                DropdownMenuItem(value: 'approved', child: Text('Approved')),
-                DropdownMenuItem(value: 'rejected', child: Text('Rejected')),
-              ],
+            final status = SafeDropdownField(
+              label: 'Status',
+              value: referralStatusFilter,
+              choices: referralStatusChoices,
+              dense: true,
               onChanged: (v) => setState(() => referralStatusFilter = v ?? 'all'),
             );
             if (small) return Column(children: [search, const SizedBox(height: 8), status]);
@@ -2101,19 +2125,12 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                   _field(label: 'Target Currency', controller: importCurrencyController, icon: Icons.payments_rounded),
                 ]),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: importRoundingMode,
-                  decoration: const InputDecoration(
-                    labelText: 'Price Rounding',
-                    prefixIcon: Icon(Icons.calculate_rounded),
-                    border: OutlineInputBorder(),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 'none', child: Text('Exact (2 decimals)')),
-                    DropdownMenuItem(value: '00', child: Text('Round up to whole amount')),
-                    DropdownMenuItem(value: '99', child: Text('End price with .99')),
-                  ],
-                  onChanged: canEditSettings ? (v) => setState(() => importRoundingMode = v ?? 'none') : null,
+                SafeDropdownField(
+                  label: 'Price Rounding',
+                  value: importRoundingMode,
+                  choices: roundingChoices,
+                  icon: Icons.calculate_rounded,
+                  onChanged: canEditSettings ? (v) => setState(() => importRoundingMode = v ?? importRoundingMode) : null,
                 ),
                 const SizedBox(height: 12),
                 _switchTile(
@@ -2280,24 +2297,15 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                       label: 'Default Audience',
                       value: defaultMarketingAudience,
                       icon: Icons.groups_rounded,
-                      items: const [
-                        DropdownMenuItem(value: 'everyone', child: Text('Everyone')),
-                        DropdownMenuItem(value: 'wishlist_users', child: Text('Wishlist Users')),
-                        DropdownMenuItem(value: 'category_interested', child: Text('Category Interested')),
-                        DropdownMenuItem(value: 'previous_buyers', child: Text('Previous Buyers')),
-                      ],
-                      onChanged: (v) => setState(() => defaultMarketingAudience = v ?? 'everyone'),
+                      choices: audienceChoices,
+                      onChanged: (v) => setState(() => defaultMarketingAudience = v ?? defaultMarketingAudience),
                     );
                     final publish = _marketingDropdown(
                       label: 'Default Publish Time',
                       value: defaultMarketingPublishTime,
                       icon: Icons.schedule_rounded,
-                      items: const [
-                        DropdownMenuItem(value: 'immediately', child: Text('Immediately')),
-                        DropdownMenuItem(value: 'scheduled', child: Text('Scheduled')),
-                        DropdownMenuItem(value: 'manual_review', child: Text('Manual Review')),
-                      ],
-                      onChanged: (v) => setState(() => defaultMarketingPublishTime = v ?? 'immediately'),
+                      choices: publishTimeChoices,
+                      onChanged: (v) => setState(() => defaultMarketingPublishTime = v ?? defaultMarketingPublishTime),
                     );
                     if (c.maxWidth < 760) {
                       return Column(children: [audience, const SizedBox(height: 12), publish]);
