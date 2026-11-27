@@ -57,6 +57,12 @@ brand-1, ledger-1, steps C–G; not d4ead6c). Status: committed, NOT deployed.
    (full database, SUCCESSFUL 05:51:01 UTC, 970 documents, ~4.1 MB).
 2. `firebase deploy --only functions:productSeo,functions:pageSeo,functions:homeSeo,functions:sitemap`
    from `seo-3`. Rollback: the same four from `step-g`.
+   Done 2026-11-27 05:54:46 UTC (commit 43d185a). Live checks: SSR h1/links/
+   text as in the emulator; sitemap 91 URLs (83 products, 3 categories), all
+   200 + index; hidden products (draft, health_removed) 200 + noindex,
+   X-Robots-Tag, not in sitemap; logs 05:54–06:05: no WARNING/ERROR, no 5xx
+   (pageSeo 200×15, 404×3 = test URL /category/doesnotexist; productSeo
+   200×87; sitemap 200×1).
 3. Hosting build (flutter clean; build --release --pwa-strategy=none) to
    channel `seo3`; owner checks; headless check of rendered robots and the
    /login, /cart header (the hosting emulator sends no headers at all).
