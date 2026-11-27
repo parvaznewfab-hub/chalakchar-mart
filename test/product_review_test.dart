@@ -71,6 +71,13 @@ void main() {
       expect(canDecideReferralsFor({'role': 'superAdmin', 'isBanned': true}), isFalse);
       expect(canDecideReferralsFor(null), isFalse);
     });
+    test('Approve is off for a deleted referrer / referee, and while loading', () {
+      expect(referralApproveBlockReason(usersLoaded: true, referrerMissing: false, refereeMissing: false), isNull);
+      expect(referralApproveBlockReason(usersLoaded: false, referrerMissing: false, refereeMissing: false), isNotNull);
+      expect(referralApproveBlockReason(usersLoaded: true, referrerMissing: true, refereeMissing: false), contains('referrer মুছে গেছে'));
+      expect(referralApproveBlockReason(usersLoaded: true, referrerMissing: false, refereeMissing: true), contains('referee মুছে গেছে'));
+      expect(referralApproveBlockReason(usersLoaded: true, referrerMissing: true, refereeMissing: true), contains('দুজনেই'));
+    });
     test('Bengali error messages', () {
       expect(referralErrorMessageBn('user_missing'), contains('user আর নেই'));
       expect(referralErrorMessageBn('permission'), contains('wallet.edit'));

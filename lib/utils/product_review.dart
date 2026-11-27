@@ -92,6 +92,24 @@ bool canDecideReferralsFor(Map<String, dynamic>? user) {
   return false;
 }
 
+/// Why Approve is off on a referral card, or null when it may be pressed.
+/// [usersLoaded]: the two user docs have been read (an error while reading
+/// counts as loaded; approveReferral checks again on the server).
+/// Reject is never blocked by this.
+String? referralApproveBlockReason({
+  required bool usersLoaded,
+  required bool referrerMissing,
+  required bool refereeMissing,
+}) {
+  if (!usersLoaded) return 'user-এর তথ্য দেখা হচ্ছে…';
+  if (referrerMissing && refereeMissing) {
+    return 'referrer আর referee দুজনেই মুছে গেছে, তাই অনুমোদন করা যাবে না। বাতিল করতে পারেন।';
+  }
+  if (referrerMissing) return 'referrer মুছে গেছে, তাই অনুমোদন করা যাবে না। বাতিল করতে পারেন।';
+  if (refereeMissing) return 'referee মুছে গেছে, তাই অনুমোদন করা যাবে না। বাতিল করতে পারেন।';
+  return null;
+}
+
 /// Bengali message for a failed approveReferral / rejectReferral call.
 String referralErrorMessageBn(String? reason) {
   switch (reason) {

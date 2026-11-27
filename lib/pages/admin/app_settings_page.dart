@@ -114,6 +114,9 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   bool canDecideReferrals = false;
   final Set<String> _referralBusy = {};
   final Map<String, String> _referralErrors = {};
+  // One users read per referral card (not a new Future on every rebuild,
+  // which would flash Approve off on each setState).
+  final Map<String, Future<List<Map<String, dynamic>>>> _referralUsers = {};
 
   bool maintenanceMode = false;
   bool forceUpdate = false;
@@ -1562,9 +1565,16 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     final error = _referralErrors[id];
 
     return FutureBuilder<List<Map<String, dynamic>>>(
-      future: Future.wait([_userInfo(referrerId), _userInfo(refereeId)]),
+      future: _referralUsers.putIfAbsent('$referrerId|$refereeId', () => Future.wait([_userInfo(referrerId), _userInfo(refereeId)])),
       builder: (context, snap) {
         final referrer = snap.data != null && snap.data!.isNotEmpty ? snap.data![0] : <String, dynamic>{};
+        // A deleted referrer / referee: Approve is off from the start (the
+        // server refuses it anyway with user_missing); Reject stays on.
+        final approveBlock = referralApproveBlockReason(
+          usersLoaded: snap.connectionState == ConnectionState.done,
+          referrerMissing: snap.data != null && snap.data!.isNotEmpty && snap.data![0]['_missing'] == true,
+          refereeMissing: snap.data != null && snap.data!.length > 1 && snap.data![1]['_missing'] == true,
+        );
         final referee = snap.data != null && snap.data!.length > 1 ? snap.data![1] : <String, dynamic>{};
 
         return Card(
@@ -1631,12 +1641,29 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                     Text(
                       'অনুমোদন বা বাতিল করতে wallet.edit বা super admin লাগবে।',
                       style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                    )
+                  else if (approveBlock != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.info_outline_rounded, size: 18, color: Colors.orange.shade800),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              approveBlock,
+                              style: TextStyle(color: Colors.orange.shade900, fontSize: 12.5, fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   Row(
                     children: [
                       Expanded(
                         child: ElevatedButton.icon(
-                          onPressed: canDecideReferrals && !busy ? () => _decideReferral(id, approve: true) : null,
+                          onPressed: canDecideReferrals && !busy && approveBlock == null ? () => _decideReferral(id, approve: true) : null,
                           icon: busy
                               ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                               : const Icon(Icons.check_circle_rounded),
