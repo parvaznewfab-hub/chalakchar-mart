@@ -688,6 +688,28 @@ service cloud.firestore {
           )
         );
 
+      // (Step H: moved up here, right after the role changes. Placed last,
+      // it ran past the 1000-expression limit once referralCount joined the
+      // self-update lists below; the order of allow rules does not change
+      // what they allow.)
+      // Step F: the admin Notifications page adds the notifications.*
+      // permissions to the admin's own doc (arrayUnion). Admins and super
+      // admins have these by default already, so nothing new is granted.
+      // Before step F this passed only through the changedKeys gap.
+      allow update: if request.auth.uid == uid
+        && (hasRole('admin') || isSuperAdmin())
+        && affectedOnly(['permissions', 'updatedAt'])
+        && request.resource.data.permissions is list
+        && request.resource.data.permissions.toSet()
+             .difference(resource.data.get('permissions', []).toSet())
+             .hasOnly([
+               'notifications.view', 'notifications.send', 'notifications.manage',
+               'notifications.delete', 'notifications.read', 'notifications.open_related'
+             ])
+        && (!resource.data.keys().hasAny(['permissions']) || resource.data.permissions is list)
+        && resource.data.get('permissions', []).toSet()
+             .difference(request.resource.data.permissions.toSet()).size() == 0;
+
       // Secure read:
       // A user can read only own profile.
       // Admin/staff users list/read all users only with users.view permission.
@@ -895,24 +917,6 @@ service cloud.firestore {
           isSuperAdmin()
           || !requestHasDangerousPermissions()
         );
-
-      // Step F: the admin Notifications page adds the notifications.*
-      // permissions to the admin's own doc (arrayUnion). Admins and super
-      // admins have these by default already, so nothing new is granted.
-      // Before step F this passed only through the changedKeys gap.
-      allow update: if request.auth.uid == uid
-        && (hasRole('admin') || isSuperAdmin())
-        && affectedOnly(['permissions', 'updatedAt'])
-        && request.resource.data.permissions is list
-        && request.resource.data.permissions.toSet()
-             .difference(resource.data.get('permissions', []).toSet())
-             .hasOnly([
-               'notifications.view', 'notifications.send', 'notifications.manage',
-               'notifications.delete', 'notifications.read', 'notifications.open_related'
-             ])
-        && (!resource.data.keys().hasAny(['permissions']) || resource.data.permissions is list)
-        && resource.data.get('permissions', []).toSet()
-             .difference(request.resource.data.permissions.toSet()).size() == 0;
 
       allow delete: if isSuperAdmin();
 

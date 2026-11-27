@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../utils/product_review.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/auth_service.dart';
@@ -242,12 +243,12 @@ class _AdminAnalyticsPageState extends State<AdminAnalyticsPage> {
 
     for (final doc in referrals) {
       final data = doc.data();
-      final status = _text(data['status'], 'Pending');
+      final status = referralStatusOf(data['status']);
 
-      if (status == 'Approved') {
+      if (status == 'approved') {
         referralApproved++;
         referralRewardPaid += _toInt(data['referrerReward']) + _toInt(data['refereeReward']);
-      } else if (status == 'Rejected') {
+      } else if (status == 'rejected') {
         referralRejected++;
       } else {
         referralPending++;

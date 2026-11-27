@@ -1,4 +1,6 @@
 import 'dart:io';
+import '../../services/product_review_service.dart';
+import '../../utils/product_review.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -69,6 +71,8 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   final referralRewardController = TextEditingController();
   final refereeRewardController = TextEditingController();
   final maxAbdCashRedeemController = TextEditingController();
+  // Step H: settings/app.reviewReward (Cash for a verified buyer's first review).
+  final reviewRewardController = TextEditingController();
   final referralSearchController = TextEditingController();
 
   final helpYoutubeController = TextEditingController();
@@ -103,6 +107,11 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   bool uploadingFavicon = false;
   bool canViewSettings = false;
   bool canEditSettings = false;
+  // Step H: approve / reject referrals = wallet.edit or super admin (the
+  // approveReferral / rejectReferral functions check the same).
+  bool canDecideReferrals = false;
+  final Set<String> _referralBusy = {};
+  final Map<String, String> _referralErrors = {};
 
   bool maintenanceMode = false;
   bool forceUpdate = false;
@@ -119,6 +128,8 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   bool healthEnabled = false;
   bool listOrderEnabled = false;
   bool enableReferral = true;
+  // Step H: settings/app.referralAutoApprove; only true turns it on.
+  bool referralAutoApprove = false;
   bool enableAbdCash = true;
   bool enableOrderNotifications = true;
   bool enableAdminNotifications = true;
@@ -157,11 +168,13 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       final canAccessAdmin = await authService.canAccessAdminPanel();
       final view = await authService.hasPermission('settings.view');
       final edit = await authService.hasPermission('settings.edit');
+      final me = await authService.currentUserData();
 
       if (!mounted) return;
       setState(() {
         canViewSettings = canAccessAdmin && (view || edit);
         canEditSettings = canAccessAdmin && edit;
+        canDecideReferrals = canAccessAdmin && canDecideReferralsFor(me);
       });
 
       if (canViewSettings) {
@@ -223,6 +236,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     referralRewardController.dispose();
     refereeRewardController.dispose();
     maxAbdCashRedeemController.dispose();
+    reviewRewardController.dispose();
     referralSearchController.dispose();
 
     helpYoutubeController.dispose();
@@ -328,6 +342,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       referralRewardController.text = _double(data['referralReward'], 50).toStringAsFixed(0);
       refereeRewardController.text = _double(data['refereeReward'], 50).toStringAsFixed(0);
       maxAbdCashRedeemController.text = _double(data['maxAbdCashRedeem'], 100).toStringAsFixed(0);
+      reviewRewardController.text = _plainNumber(reviewRewardFrom(data['reviewReward']));
 
       helpYoutubeController.text = _text(data['helpYoutubeLink']);
       referralYoutubeController.text = _text(data['referralYoutubeLink']);
@@ -412,6 +427,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       listOrderEnabled = _bool(features['listOrderEnabled'], false);
 
       enableReferral = _bool(data['enableReferral'], true);
+      referralAutoApprove = data['referralAutoApprove'] == true;
       enableAbdCash = _bool(data['enableAbdCash'], true);
       enableOrderNotifications = _bool(data['enableOrderNotifications'], true);
       enableAdminNotifications = _bool(data['enableAdminNotifications'], true);
@@ -496,6 +512,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
         'referralReward': double.tryParse(referralRewardController.text.trim()) ?? 50,
         'refereeReward': double.tryParse(refereeRewardController.text.trim()) ?? 50,
         'maxAbdCashRedeem': double.tryParse(maxAbdCashRedeemController.text.trim()) ?? 100,
+        'reviewReward': reviewRewardFrom(reviewRewardController.text),
 
         'helpYoutubeLink': helpYoutubeController.text.trim(),
         'referralYoutubeLink': referralYoutubeController.text.trim(),
@@ -574,6 +591,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
         },
 
         'enableReferral': enableReferral,
+        'referralAutoApprove': referralAutoApprove,
         'enableAbdCash': enableAbdCash,
         'enableOrderNotifications': enableOrderNotifications,
         'enableAdminNotifications': enableAdminNotifications,
@@ -1271,10 +1289,12 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   }
 
   Future<Map<String, dynamic>> _userInfo(String uid) async {
-    if (uid.isEmpty) return {};
+    if (uid.isEmpty) return {'_missing': true};
     final doc = await db.collection('users').doc(uid).get();
-    return doc.data() ?? {};
+    return doc.data() ?? {'_missing': true};
   }
+
+  String _plainNumber(double n) => n == n.roundToDouble() ? n.toStringAsFixed(0) : n.toString();
 
   Future<bool?> _confirmReferralAction({
     required String title,
@@ -1305,80 +1325,38 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     );
   }
 
-  Future<void> _approveReferral(String docId, Map<String, dynamic> data) async {
-    if (!canEditSettings) {
-      _snack('You do not have permission to approve referrals.');
+  Future<void> _decideReferral(String docId, {required bool approve}) async {
+    if (!canDecideReferrals) {
+      _snack('এই কাজের অনুমতি আপনার নেই (wallet.edit বা super admin লাগবে)।');
       return;
     }
-    if (data['status'] == 'Approved') {
-      _snack('Already approved');
-      return;
-    }
-
     final ok = await _confirmReferralAction(
-      title: 'Approve Referral?',
-      message: 'Reward will be added to referrer and referee accounts.',
-      confirmText: 'Approve',
+      title: approve ? 'Approve Referral?' : 'Reject Referral?',
+      message: approve
+          ? 'Reward will be added to referrer and referee accounts.'
+          : 'This referral will be marked as rejected.',
+      confirmText: approve ? 'Approve' : 'Reject',
+      danger: !approve,
     );
     if (ok != true) return;
 
+    setState(() {
+      _referralBusy.add(docId);
+      _referralErrors.remove(docId);
+    });
     try {
-      final referrerId = _text(data['referrerId']);
-      final refereeId = _text(data['refereeId']);
-      final referrerReward = _int(data['referrerReward'], 0);
-      final refereeReward = _int(data['refereeReward'], 0);
-
-      if (referrerId.isEmpty || refereeId.isEmpty) {
-        _snack('Invalid referral user ids');
-        return;
+      if (approve) {
+        await ProductReviewService.approveReferral(docId);
+      } else {
+        await ProductReviewService.rejectReferral(docId);
       }
-
-      final batch = db.batch();
-      batch.update(db.collection('users').doc(referrerId), {
-        'points': FieldValue.increment(referrerReward),
-        'totalEarnings': FieldValue.increment(referrerReward),
-        'referralCount': FieldValue.increment(1),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      batch.update(db.collection('users').doc(refereeId), {
-        'points': FieldValue.increment(refereeReward),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      batch.update(db.collection('referrals').doc(docId), {
-        'status': 'Approved',
-        'approvedAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      await batch.commit();
-      _snack('Referral approved');
-    } catch (e) {
-      _snack('Approve failed: $e');
-    }
-  }
-
-  Future<void> _rejectReferral(String docId) async {
-    if (!canEditSettings) {
-      _snack('You do not have permission to reject referrals.');
-      return;
-    }
-    final ok = await _confirmReferralAction(
-      title: 'Reject Referral?',
-      message: 'This referral will be marked as rejected.',
-      confirmText: 'Reject',
-      danger: true,
-    );
-    if (ok != true) return;
-
-    try {
-      await db.collection('referrals').doc(docId).update({
-        'status': 'Rejected',
-        'rejectedAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      _snack('Referral rejected');
-    } catch (e) {
-      _snack('Reject failed: $e');
+      _snack(approve ? 'Referral অনুমোদিত হয়েছে।' : 'Referral বাতিল হয়েছে।');
+    } on ReviewCallError catch (e) {
+      final message = referralErrorMessageBn(e.reason);
+      if (mounted) setState(() => _referralErrors[docId] = message);
+      _snack(message);
+    } finally {
+      if (mounted) setState(() => _referralBusy.remove(docId));
     }
   }
 
@@ -1386,12 +1364,12 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     final s = referralSearchText.toLowerCase().trim();
     return docs.where((doc) {
       final data = doc.data() as Map<String, dynamic>;
-      final status = _text(data['status'], 'Pending');
+      final status = referralStatusOf(data['status']);
       if (referralStatusFilter != 'all' && status != referralStatusFilter) return false;
       if (s.isEmpty) return true;
       return doc.id.toLowerCase().contains(s) ||
           _text(data['referrerId']).toLowerCase().contains(s) ||
-          _text(data['refereeId']).toLowerCase().contains(s);
+          referralRefereeId(data).toLowerCase().contains(s);
     }).toList();
   }
 
@@ -1403,6 +1381,12 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
         StreamBuilder<QuerySnapshot>(
           stream: db.collection('referrals').orderBy('createdAt', descending: true).limit(300).snapshots(),
           builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('Referral-এর তালিকা পড়া গেল না। আপনার অনুমতি দেখুন।', style: TextStyle(color: Colors.red)),
+              );
+            }
             if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
             final allDocs = snapshot.data!.docs;
             final docs = _filterReferrals(allDocs);
@@ -1442,11 +1426,11 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
 
     for (final doc in docs) {
       final data = doc.data() as Map<String, dynamic>;
-      final status = _text(data['status'], 'Pending');
-      if (status == 'Approved') {
+      final status = referralStatusOf(data['status']);
+      if (status == 'approved') {
         approved++;
         rewardPaid += _int(data['referrerReward'], 0) + _int(data['refereeReward'], 0);
-      } else if (status == 'Rejected') {
+      } else if (status == 'rejected') {
         rejected++;
       } else {
         pending++;
@@ -1530,9 +1514,9 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
               decoration: const InputDecoration(labelText: 'Status', border: OutlineInputBorder(), isDense: true),
               items: const [
                 DropdownMenuItem(value: 'all', child: Text('All')),
-                DropdownMenuItem(value: 'Pending', child: Text('Pending')),
-                DropdownMenuItem(value: 'Approved', child: Text('Approved')),
-                DropdownMenuItem(value: 'Rejected', child: Text('Rejected')),
+                DropdownMenuItem(value: 'pending', child: Text('Pending')),
+                DropdownMenuItem(value: 'approved', child: Text('Approved')),
+                DropdownMenuItem(value: 'rejected', child: Text('Rejected')),
               ],
               onChanged: (v) => setState(() => referralStatusFilter = v ?? 'all'),
             );
@@ -1545,10 +1529,13 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   }
 
   Widget _referralCard(String id, Map<String, dynamic> data) {
-    final status = _text(data['status'], 'Pending');
+    final status = referralStatusOf(data['status']);
+    final statusLabel = status.isEmpty ? 'Pending' : '${status[0].toUpperCase()}${status.substring(1)}';
     final referrerId = _text(data['referrerId']);
-    final refereeId = _text(data['refereeId']);
-    final color = status == 'Approved' ? Colors.green : status == 'Rejected' ? Colors.red : Colors.orange;
+    final refereeId = referralRefereeId(data);
+    final color = status == 'approved' ? Colors.green : status == 'rejected' ? Colors.red : Colors.orange;
+    final busy = _referralBusy.contains(id);
+    final error = _referralErrors[id];
 
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: Future.wait([_userInfo(referrerId), _userInfo(refereeId)]),
@@ -1573,7 +1560,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                     CircleAvatar(backgroundColor: color.withValues(alpha: 0.12), child: Icon(Icons.share_rounded, color: color)),
                     const SizedBox(width: 12),
                     Expanded(child: Text('Referral #${_short(id)}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900))),
-                    _chip(status, color),
+                    _chip(statusLabel, color),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -1594,14 +1581,41 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                     _chip('Total ৳${_int(data['referrerReward'], 0) + _int(data['refereeReward'], 0)}', Colors.blue),
                   ],
                 ),
-                if (status == 'Pending') ...[
+                if (error != null) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.error_outline_rounded, color: Colors.red, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(error, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700))),
+                      ],
+                    ),
+                  ),
+                ],
+                if (status == 'pending') ...[
                   const SizedBox(height: 12),
+                  if (!canDecideReferrals)
+                    Text(
+                      'অনুমোদন বা বাতিল করতে wallet.edit বা super admin লাগবে।',
+                      style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                    ),
                   Row(
                     children: [
                       Expanded(
                         child: ElevatedButton.icon(
-                          onPressed: canEditSettings ? () => _approveReferral(id, data) : null,
-                          icon: const Icon(Icons.check_circle_rounded),
+                          onPressed: canDecideReferrals && !busy ? () => _decideReferral(id, approve: true) : null,
+                          icon: busy
+                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                              : const Icon(Icons.check_circle_rounded),
                           label: const Text('Approve'),
                           style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 13)),
                         ),
@@ -1609,7 +1623,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: canEditSettings ? () => _rejectReferral(id) : null,
+                          onPressed: canDecideReferrals && !busy ? () => _decideReferral(id, approve: false) : null,
                           icon: const Icon(Icons.cancel_rounded, color: Colors.red),
                           label: const Text('Reject', style: TextStyle(color: Colors.red)),
                           style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red), padding: const EdgeInsets.symmetric(vertical: 13)),
@@ -1643,7 +1657,11 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
-                Text(_text(user['name'], _short(id)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                if (user['_missing'] == true)
+                  Text('User deleted (${_short(id)})',
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700))
+                else
+                  Text(_text(user['name'], _short(id)), maxLines: 1, overflow: TextOverflow.ellipsis),
                 if (_text(user['phone']).isNotEmpty)
                   Text(_text(user['phone']), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.grey.shade600)),
               ],
@@ -1944,6 +1962,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                   _field(label: 'Referral Reward', controller: referralRewardController, icon: Icons.person_add_alt_1_rounded, number: true, validator: _number),
                   _field(label: 'Referee Reward', controller: refereeRewardController, icon: Icons.redeem_rounded, number: true, validator: _number),
                   _field(label: 'Max ChalakChar Mart Cash Redeem', controller: maxAbdCashRedeemController, icon: Icons.wallet_rounded, number: true, validator: _number),
+                  _field(label: 'Review Reward (first review, verified buyer)', controller: reviewRewardController, icon: Icons.rate_review_rounded, number: true, validator: _number),
                 ]),
                 const SizedBox(height: 12),
                 _switchTile(
@@ -1952,6 +1971,13 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                   value: enableReferral,
                   icon: Icons.group_add_rounded,
                   onChanged: (v) => setState(() => enableReferral = v),
+                ),
+                _switchTile(
+                  title: 'Auto-approve Referrals',
+                  subtitle: 'On: the reward is added as soon as a code is applied. Off: each referral waits for approval below.',
+                  value: referralAutoApprove,
+                  icon: Icons.bolt_rounded,
+                  onChanged: (v) => setState(() => referralAutoApprove = v),
                 ),
                 _switchTile(
                   title: 'Enable ChalakChar Mart Cash',

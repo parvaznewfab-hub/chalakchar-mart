@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../utils/product_review.dart';
+
 class AppSettingsService {
   AppSettingsService._();
 
@@ -109,6 +111,10 @@ class AppSettings {
 
   final bool enableReferral;
   final bool enableChalakCharCash;
+  // Step H: ChalakChar Cash for a verified buyer's first review of a product
+  // (settings/app.reviewReward, default 2). Display only; the
+  // submitProductReview function decides and pays.
+  final double reviewReward;
   final bool enableOrderNotifications;
   final bool enableAdminNotifications;
   final bool enableRiderNotifications;
@@ -172,6 +178,7 @@ class AppSettings {
     this.listOrderEnabled = false,
     required this.enableReferral,
     required this.enableChalakCharCash,
+    required this.reviewReward,
     required this.enableOrderNotifications,
     required this.enableAdminNotifications,
     required this.enableRiderNotifications,
@@ -307,6 +314,7 @@ class AppSettings {
 
       enableReferral: boolValue(data['enableReferral'], true),
       enableChalakCharCash: boolValue(data['enableChalakCharCash'] ?? data['enableAbdCash'], true),
+      reviewReward: reviewRewardFrom(data['reviewReward']),
       enableOrderNotifications: boolValue(data['enableOrderNotifications'], true),
       enableAdminNotifications: boolValue(data['enableAdminNotifications'], true),
       enableRiderNotifications: boolValue(data['enableRiderNotifications'], true),

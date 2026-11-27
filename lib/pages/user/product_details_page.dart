@@ -29,6 +29,8 @@ import '../../utils/customer_text.dart';
 import 'search_page.dart';
 import '../../utils/contact_info.dart';
 import '../../services/app_settings_service.dart';
+import '../../services/product_review_service.dart';
+import '../../utils/product_review.dart';
 
 class ProductDetailsPage extends StatefulWidget {
   final Map<String, dynamic> data;
@@ -56,17 +58,17 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
   bool _buyingNow = false;
   bool _wishlistWorking = false;
   bool _titleExpanded = false;
-  static const double _reviewRewardAmount = 2;
-  bool _submittingReview = false;
-  // Caches the review-eligibility Future so the FutureBuilder in
-  // _buildReviewSection doesn't restart into a perpetual loading spinner on
-  // every unrelated rebuild of this page (a fresh Future.wait([...]) built
-  // inline in `future:` resets FutureBuilder's state each time it's a new
-  // instance). Bumping the version forces a one-off recompute, e.g. right
-  // after a review is submitted.
-  String? _reviewEligibilityKey;
-  Future<List<bool>>? _reviewEligibilityFuture;
-  int _reviewEligibilityVersion = 0;
+  // Caches the review-state Future (verified-buyer check + own review) so
+  // the FutureBuilder in _buildReviewSection doesn't restart into a
+  // perpetual loading spinner on every unrelated rebuild of this page.
+  // Bumping the version forces a one-off recompute, e.g. right after a
+  // review is saved or deleted. (Step H: reviews are written only by the
+  // submitProductReview / deleteProductReview functions.)
+  String? _reviewStateKey;
+  Future<_MyReviewState>? _reviewStateFuture;
+  int _reviewStateVersion = 0;
+  String? _isAdminUid;
+  Future<bool>? _isAdminFuture;
 
   static const Color _primaryColor = Color(0xFF1E7A3A);
   static const Color _darkText = Color(0xFF111827);
@@ -325,180 +327,190 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
     );
   }
 
-  Future<bool> _canReviewProduct(Map<String, dynamic> productData) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return false;
-
-    final productId = _productId(productData);
-    final productName = _text(productData['name']).toLowerCase();
-
+  /// Verified-buyer check (only to show the button; submitProductReview
+  /// checks again) and the caller's own review, read from their own doc.
+  Future<_MyReviewState> _loadReviewState(String productId) async {
+    if (FirebaseAuth.instance.currentUser == null) {
+      return const _MyReviewState(signedIn: false, canReview: false, myReview: null);
+    }
+    Map<String, dynamic>? mine;
+    var buyer = false;
     try {
-      final orders = await db
-          .collection('orders')
-          .where('userId', isEqualTo: user.uid)
-          .get();
-
-      for (final order in orders.docs) {
-        final orderData = order.data();
-        final status = _text(orderData['status']).toLowerCase();
-
-        if (!['delivered', 'received', 'completed'].contains(status)) {
-          continue;
-        }
-
-        final items = orderData['items'];
-
-        if (items is List) {
-          for (final item in items) {
-            if (item is Map) {
-              final itemProductId = _text(
-                item['productId'] ??
-                    item['id'] ??
-                    item['product_id'] ??
-                    item['productDocId'] ??
-                    item['pid'],
-              );
-
-              final itemName = _text(
-                item['name'] ?? item['productName'] ?? item['title'],
-              ).toLowerCase();
-
-              if (itemProductId == productId ||
-                  (productName.isNotEmpty && itemName == productName)) {
-                return true;
-              }
-            }
-          }
-        }
-      }
+      mine = await ProductReviewService.myReview(productId);
+    } catch (e) {
+      debugPrint('MY REVIEW ERROR: $e');
+    }
+    try {
+      buyer = await ProductReviewService.looksLikeVerifiedBuyer(productId);
     } catch (e) {
       debugPrint('CAN REVIEW ERROR: $e');
     }
-
-    return false;
+    return _MyReviewState(signedIn: true, canReview: buyer, myReview: mine);
   }
 
   /// Returns a stable Future instance for the given product (recomputed
-  /// only when the product changes or [_reviewEligibilityVersion] is
-  /// bumped), so passing it to a FutureBuilder's `future:` never resets an
+  /// only when the product, the signed-in user or [_reviewStateVersion]
+  /// changes), so passing it to a FutureBuilder's `future:` never resets an
   /// in-flight/completed check back to a loading state on unrelated
   /// rebuilds.
-  Future<List<bool>> _getReviewEligibilityFuture(
-    Map<String, dynamic> data,
-    String productId,
-  ) {
-    final key = '$productId#$_reviewEligibilityVersion';
-    if (_reviewEligibilityKey != key) {
-      _reviewEligibilityKey = key;
-      _reviewEligibilityFuture = Future.wait([
-        _canReviewProduct(data),
-        _alreadyReviewed(productId),
-      ]);
+  Future<_MyReviewState> _getReviewStateFuture(String productId) {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final key = '$uid#$productId#$_reviewStateVersion';
+    if (_reviewStateKey != key) {
+      _reviewStateKey = key;
+      _reviewStateFuture = _loadReviewState(productId);
     }
-    return _reviewEligibilityFuture!;
+    return _reviewStateFuture!;
   }
 
-  Future<bool> _alreadyReviewed(String productId) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return true;
-
-    final doc = await db
-        .collection('products')
-        .doc(productId)
-        .collection('reviews')
-        .doc(user.uid)
-        .get();
-
-    return doc.exists;
+  /// Admin / super admin see a delete button on reviews (deleteProductReview
+  /// checks the role again).
+  Future<bool> _currentUserIsAdmin() {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (_isAdminFuture != null && _isAdminUid == uid) return _isAdminFuture!;
+    _isAdminUid = uid;
+    _isAdminFuture = () async {
+      if (uid.isEmpty) return false;
+      try {
+        final d = (await db.collection('users').doc(uid).get()).data() ?? {};
+        if (d['isBanned'] == true || d['isActive'] == false) return false;
+        const admins = ['admin', 'superAdmin', 'super_admin', 'owner'];
+        final roles = d['roles'] is List ? (d['roles'] as List).map((e) => '$e') : const <String>[];
+        return admins.contains('${d['role']}') || roles.any(admins.contains);
+      } catch (_) {
+        return false;
+      }
+    }();
+    return _isAdminFuture!;
   }
 
-  void _showReviewDialog(Map<String, dynamic> data) {
+  void _showReviewDialog(Map<String, dynamic> data, {Map<String, dynamic>? existing}) {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       _snack('Please login first');
       return;
     }
 
-    final commentController = TextEditingController();
-    int rating = 5;
+    final productId = _productId(data);
+    final editing = existing != null;
+    final commentController = TextEditingController(text: _text(existing?['comment']));
+    var rating = _toInt(existing?['rating'], 5).clamp(1, 5);
+    final reward = AppSettingsService.cached.reviewReward;
+    var saving = false;
+    String? error;
 
     showDialog(
       context: context,
-      builder: (_) => StatefulBuilder(
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
+          final count = reviewCharCount(commentController.text);
+          final tooLong = count > kReviewCommentMaxChars;
+
+          Future<void> save() async {
+            setDialogState(() {
+              saving = true;
+              error = null;
+            });
+            try {
+              final result = await ProductReviewService.submit(
+                productId: productId,
+                rating: rating,
+                comment: commentController.text,
+              );
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
+              _snack(reviewResultMessage(result));
+              if (mounted) setState(() => _reviewStateVersion++);
+            } on ReviewCallError catch (e) {
+              setDialogState(() {
+                saving = false;
+                error = reviewErrorMessage(e.reason);
+              });
+            }
+          }
+
           return AlertDialog(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Text('Write Product Review'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(5, (index) {
-                    final star = index + 1;
-                    return IconButton(
-                      onPressed: () => setDialogState(() => rating = star),
-                      icon: Icon(
-                        star <= rating
-                            ? Icons.star_rounded
-                            : Icons.star_border_rounded,
-                        color: Colors.amber,
-                        size: 30,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Text(editing ? 'Edit your review' : 'Write Product Review'),
+            content: SizedBox(
+              width: 480,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      children: List.generate(5, (index) {
+                        final star = index + 1;
+                        return IconButton(
+                          tooltip: star == 1 ? '1 star' : '$star stars',
+                          onPressed: saving ? null : () => setDialogState(() => rating = star),
+                          icon: Icon(
+                            star <= rating ? Icons.star_rounded : Icons.star_border_rounded,
+                            color: Colors.amber,
+                            size: 30,
+                          ),
+                        );
+                      }),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: commentController,
+                      enabled: !saving,
+                      minLines: 3,
+                      maxLines: 6,
+                      keyboardType: TextInputType.multiline,
+                      onChanged: (_) => setDialogState(() {}),
+                      decoration: InputDecoration(
+                        hintText: 'Write your experience...',
+                        border: const OutlineInputBorder(),
+                        counterText: '$count / $kReviewCommentMaxChars',
+                        counterStyle: TextStyle(color: tooLong ? Colors.red : Colors.grey.shade600),
+                        errorText: tooLong ? 'Max $kReviewCommentMaxChars characters' : null,
                       ),
-                    );
-                  }),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      editing
+                          ? 'Editing your review does not add Cash again.'
+                          : reward > 0
+                              ? 'Verified buyers get ৳${reward.toStringAsFixed(0)} ChalakChar Cash for their first review of a product (up to 5 reviews a day).'
+                              : 'Thanks for sharing your experience.',
+                      style: const TextStyle(color: Color(0xFF1E7A3A), fontWeight: FontWeight.w700, fontSize: 12),
+                      textAlign: TextAlign.center,
+                    ),
+                    if (error != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        error!,
+                        style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ],
                 ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: commentController,
-                  maxLines: 4,
-                  textInputAction: TextInputAction.done,
-                  decoration: const InputDecoration(
-                    hintText: 'Write your experience...',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'Submit review and get ৳${_reviewRewardAmount.toStringAsFixed(0)} ChalakChar Cash',
-                  style: const TextStyle(
-                    color: Color(0xFF1E7A3A),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
+              ),
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(context),
+                onPressed: saving ? null : () => Navigator.pop(dialogContext),
                 child: const Text('Cancel'),
               ),
               ElevatedButton(
-                onPressed: _submittingReview
-                    ? null
-                    : () async {
-                        await _submitReview(
-                          productData: data,
-                          rating: rating,
-                          comment: commentController.text.trim(),
-                        );
-                        if (context.mounted) Navigator.pop(context);
-                      },
+                onPressed: saving || tooLong ? null : save,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF1E7A3A),
                   foregroundColor: Colors.white,
                 ),
-                child: _submittingReview
+                child: saving
                     ? const SizedBox(
                         width: 16,
                         height: 16,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                       )
-                    : const Text('Submit'),
+                    : Text(editing ? 'Save' : 'Submit'),
               ),
             ],
           );
@@ -507,105 +519,33 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
     );
   }
 
-  Future<void> _submitReview({
-    required Map<String, dynamic> productData,
-    required int rating,
-    required String comment,
-  }) async {
-    if (_submittingReview) return;
-
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      _snack('Please login first');
-      return;
-    }
-
-    if (comment.length < 3) {
-      _snack('Please write a short review');
-      return;
-    }
-
-    final productId = _productId(productData);
-
-    setState(() => _submittingReview = true);
-
+  Future<void> _confirmDeleteReview(String productId, String reviewerId, String name) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete review?'),
+        content: Text(
+          'The review by $name will be removed. Cash already given stays.',
+          maxLines: 4,
+          overflow: TextOverflow.ellipsis,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
     try {
-      final canReview = await _canReviewProduct(productData);
-      if (!canReview) {
-        _snack('Review allowed after product received');
-        return;
-      }
-
-      final already = await _alreadyReviewed(productId);
-      if (already) {
-        _snack('You already reviewed this product');
-        return;
-      }
-
-      final userRef = db.collection('users').doc(user.uid);
-      final userDoc = await userRef.get();
-      final userData = userDoc.data() ?? {};
-
-      await db.runTransaction((transaction) async {
-        final reviewRef = db
-            .collection('products')
-            .doc(productId)
-            .collection('reviews')
-            .doc(user.uid);
-
-        final productRef = db.collection('products').doc(productId);
-        final freshReview = await transaction.get(reviewRef);
-
-        if (freshReview.exists) {
-          throw Exception('already_reviewed');
-        }
-
-        transaction.set(reviewRef, {
-          'productId': productId,
-          'productName': _text(productData['name'], 'Product'),
-          'userId': user.uid,
-          'userName': _text(userData['name'], user.email ?? 'Customer'),
-          'userEmail': user.email ?? '',
-          'rating': rating,
-          'comment': comment,
-          'rewardAmount': _reviewRewardAmount,
-          'rewardGiven': true,
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-
-        transaction.set(
-          userRef,
-          {
-            'points': FieldValue.increment(_reviewRewardAmount),
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        );
-
-        transaction.set(
-          productRef,
-          {
-            'reviewCount': FieldValue.increment(1),
-            'ratingCount': FieldValue.increment(1),
-            'ratingTotal': FieldValue.increment(rating),
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        );
-      });
-
-      _snack(
-          'Review submitted! ৳${_reviewRewardAmount.toStringAsFixed(0)} ChalakChar Cash added.');
-      if (mounted) setState(() => _reviewEligibilityVersion++);
-    } catch (e) {
-      if (e.toString().contains('already_reviewed')) {
-        _snack('You already reviewed this product');
-      } else {
-        _snack('Review failed: $e');
-      }
-    } finally {
-      if (mounted) setState(() => _submittingReview = false);
+      await ProductReviewService.delete(productId: productId, userId: reviewerId);
+      _snack('Review deleted');
+      if (mounted) setState(() => _reviewStateVersion++);
+    } on ReviewCallError catch (e) {
+      _snack(reviewErrorMessage(e.reason));
     }
   }
 
@@ -2415,63 +2355,122 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
     );
   }
 
+  Widget _reviewInfoBox({required Color color, required Widget child}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.20)),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _reviewStars(int rating, {double size = 18}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(5, (index) {
+        return Icon(
+          index < rating ? Icons.star_rounded : Icons.star_border_rounded,
+          size: size,
+          color: Colors.amber,
+        );
+      }),
+    );
+  }
+
   Widget _buildReviewSection(Map<String, dynamic> data) {
     final productId = _productId(data);
+    final total = _toInt(data['reviewCount'] ?? data['ratingCount'], 0);
+    final reward = AppSettingsService.cached.reviewReward;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionTitle('Customer Reviews'),
+        _sectionTitle(total > 0 ? 'Customer Reviews ($total)' : 'Customer Reviews'),
         const SizedBox(height: 12),
-        FutureBuilder<List<bool>>(
-          future: _getReviewEligibilityFuture(data, productId),
+        FutureBuilder<_MyReviewState>(
+          future: _getReviewStateFuture(productId),
           builder: (context, snap) {
-            final loading = snap.connectionState == ConnectionState.waiting;
-            final canReview = snap.data?[0] ?? false;
-            final alreadyReviewed = snap.data?[1] ?? true;
-
-            if (loading) {
-              return Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFFE5E7EB)),
-                ),
+            if (snap.connectionState == ConnectionState.waiting) {
+              return _reviewInfoBox(
+                color: Colors.blueGrey,
                 child: const Row(
                   children: [
-                    SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
+                    SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
                     SizedBox(width: 10),
-                    Text('Checking review eligibility...'),
+                    Expanded(child: Text('Checking review eligibility...')),
                   ],
                 ),
               );
             }
 
-            if (!canReview) {
-              return Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFFE5E7EB)),
+            final state = snap.data ??
+                const _MyReviewState(signedIn: false, canReview: false, myReview: null);
+            final mine = state.myReview;
+
+            if (mine != null) {
+              return _reviewInfoBox(
+                color: Colors.green,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.verified_rounded, color: Colors.green),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Your review',
+                            style: TextStyle(color: Colors.green, fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    _reviewStars(_toInt(mine['rating'], 5).clamp(1, 5)),
+                    if (_text(mine['comment']).isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        _text(mine['comment']),
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: Colors.grey.shade800, height: 1.4),
+                      ),
+                    ],
+                    if (mine['rewardGiven'] == true) ...[
+                      const SizedBox(height: 6),
+                      const Text(
+                        'ChalakChar Cash added for this review.',
+                        style: TextStyle(color: Colors.green, fontWeight: FontWeight.w700, fontSize: 12),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: () => _showReviewDialog(data, existing: mine),
+                      icon: const Icon(Icons.edit_rounded),
+                      label: const Text('Edit review'),
+                    ),
+                  ],
                 ),
+              );
+            }
+
+            if (!state.canReview) {
+              return _reviewInfoBox(
+                color: Colors.blueGrey,
                 child: Row(
                   children: [
                     const Icon(Icons.lock_clock_rounded, color: Colors.grey),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'Review option will be available after product received.',
-                        style: TextStyle(
-                            color: Colors.grey.shade700,
-                            fontWeight: FontWeight.w600),
+                        state.signedIn
+                            ? 'Review option will be available after product received.'
+                            : 'Login and receive this product to write a review.',
+                        style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w600),
                       ),
                     ),
                   ],
@@ -2479,41 +2478,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
               );
             }
 
-            if (alreadyReviewed) {
-              return Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.green.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(14),
-                  border:
-                      Border.all(color: Colors.green.withValues(alpha: 0.20)),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.verified_rounded, color: Colors.green),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'You already reviewed this product. ChalakChar Mart Cash reward added.',
-                        style: TextStyle(
-                            color: Colors.green, fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-
-            return Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E7A3A).withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                    color: const Color(0xFF1E7A3A).withValues(alpha: 0.20)),
-              ),
+            return _reviewInfoBox(
+              color: const Color(0xFF1E7A3A),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -2521,34 +2487,23 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
                     'Product received? Share your experience.',
                     style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Write a review and get ৳${_reviewRewardAmount.toStringAsFixed(0)} ChalakChar Cash.',
-                    style: TextStyle(
-                        color: Colors.grey.shade700,
-                        fontWeight: FontWeight.w600),
-                  ),
+                  if (reward > 0) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Write a review and get ৳${reward.toStringAsFixed(0)} ChalakChar Cash.',
+                      style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   ElevatedButton.icon(
-                    onPressed: _submittingReview
-                        ? null
-                        : () => _showReviewDialog(data),
-                    icon: _submittingReview
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Icon(Icons.rate_review_rounded),
-                    label: Text(
-                        _submittingReview ? 'Submitting...' : 'Write Review'),
+                    onPressed: () => _showReviewDialog(data),
+                    icon: const Icon(Icons.rate_review_rounded),
+                    label: const Text('Write Review'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF1E7A3A),
                       foregroundColor: Colors.white,
                       elevation: 0,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
                   ),
                 ],
@@ -2557,74 +2512,46 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
           },
         ),
         const SizedBox(height: 18),
-        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: db
-              .collection('products')
-              .doc(productId)
-              .collection('reviews')
-              .orderBy('createdAt', descending: true)
-              .limit(10)
-              .snapshots(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const SizedBox(
-                height: 44,
-                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-              );
-            }
+        FutureBuilder<bool>(
+          future: _currentUserIsAdmin(),
+          builder: (context, adminSnap) {
+            final isAdmin = adminSnap.data == true;
+            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: db
+                  .collection('products')
+                  .doc(productId)
+                  .collection('reviews')
+                  .orderBy('createdAt', descending: true)
+                  .limit(10)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const SizedBox(
+                    height: 44,
+                    child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                  );
+                }
 
-            final reviews = snapshot.data?.docs ?? [];
-            if (reviews.isEmpty) {
-              return Text(
-                'No reviews yet.',
-                style: TextStyle(
-                    color: Colors.grey.shade600, fontWeight: FontWeight.w600),
-              );
-            }
+                final reviews = snapshot.data?.docs ?? [];
+                if (reviews.isEmpty) {
+                  return Text(
+                    'No reviews yet.',
+                    style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600),
+                  );
+                }
 
-            return Column(
-              children: reviews.map((doc) {
-                final review = doc.data();
-                final rating = _toInt(review['rating'], 5).clamp(1, 5);
-
-                return Container(
-                  width: double.infinity,
-                  margin: const EdgeInsets.only(bottom: 10),
-                  padding: const EdgeInsets.all(13),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFE5E7EB)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ...reviews.map((doc) => _reviewCard(productId, doc.id, doc.data(), isAdmin)),
+                    if (total > reviews.length)
                       Text(
-                        _text(review['userName'], 'Customer'),
-                        style: const TextStyle(fontWeight: FontWeight.w900),
+                        'Showing the ${reviews.length} latest of $total reviews.',
+                        style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                       ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: List.generate(5, (index) {
-                          return Icon(
-                            index < rating
-                                ? Icons.star_rounded
-                                : Icons.star_border_rounded,
-                            size: 18,
-                            color: Colors.amber,
-                          );
-                        }),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        _text(review['comment']),
-                        style:
-                            TextStyle(color: Colors.grey.shade800, height: 1.4),
-                      ),
-                    ],
-                  ),
+                  ],
                 );
-              }).toList(),
+              },
             );
           },
         ),
@@ -2632,6 +2559,72 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
     );
   }
 
+  Widget _reviewCard(String productId, String reviewerId, Map<String, dynamic> review, bool isAdmin) {
+    final rating = _toInt(review['rating'], 5).clamp(1, 5);
+    final name = _text(review['userName'], 'Customer');
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+              if (review['verifiedBuyer'] == true) ...[
+                const SizedBox(width: 8),
+                const Icon(Icons.verified_rounded, size: 15, color: Color(0xFF1E7A3A)),
+                const SizedBox(width: 3),
+                const Text(
+                  'Verified buyer',
+                  style: TextStyle(color: Color(0xFF1E7A3A), fontSize: 11, fontWeight: FontWeight.w700),
+                ),
+              ],
+              if (isAdmin)
+                IconButton(
+                  tooltip: 'Delete review',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _confirmDeleteReview(productId, reviewerId, name),
+                  icon: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 20),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          _reviewStars(rating),
+          if (_text(review['comment']).isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              _text(review['comment']),
+              style: TextStyle(color: Colors.grey.shade800, height: 1.4),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+}
+
+class _MyReviewState {
+  final bool signedIn;
+  final bool canReview;
+  final Map<String, dynamic>? myReview;
+
+  const _MyReviewState({required this.signedIn, required this.canReview, required this.myReview});
 }
 
 class _HoverMagnifierImage extends StatefulWidget {

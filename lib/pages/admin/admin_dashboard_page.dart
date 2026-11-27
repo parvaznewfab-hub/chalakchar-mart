@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../utils/product_review.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -821,8 +822,7 @@ class _DashboardHomeState extends State<_DashboardHome> {
     int pendingReferrals = 0;
     for (final doc in referrals) {
       final data = doc.data();
-      final status = (data['status'] ?? 'Pending').toString();
-      if (status == 'Pending') pendingReferrals++;
+      if (referralStatusOf(data['status']) == 'pending') pendingReferrals++;
     }
 
     int approvedDeliveryPartners = 0;
