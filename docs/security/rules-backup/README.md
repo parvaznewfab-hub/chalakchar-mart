@@ -126,6 +126,8 @@ git checkout storage.rules
 | 2026-11-25 03:56 UTC (`93d2402`, branch `step-g`) | Firestore, ধাপ G (`cashCheck` client লিখতে পারে না) | `438c4999-aa60-440c-aad1-5acd04e03d69` | `700f57c7-1ebf-41d5-9b8a-4acd8a029b96` |
 | 2026-11-25 03:59 UTC (`93d2402`, branch `step-g`) | Functions, ধাপ G: নতুন `onOrderCreatedCash`, `onOrderStatusCash` (শুধু এই দুটো) | তৈরি | (ছিল না) |
 | 2026-11-25 03:59 UTC (`93d2402`, branch `step-g`, preview `stepg` থেকে clone) | Hosting live, ধাপ G (cart থেকে points লেখা বাদ, admin-এর লাল সতর্কবার্তা) | version `bd482832093239e5` | version `784e6fe0f776880e` |
+| 2026-11-27 06:25 UTC (branch `seo-3`, preview `seo3` থেকে clone; বিবরণ `docs/seo/seo-3.md`) | Hosting live, seo-3 (functions `productSeo`, `pageSeo`, `homeSeo`, `sitemap` ০৫:৫৪ UTC) | version `d9aabec1a0fd54c3` | version `bd482832093239e5` |
+| — (ধাপ H, এখনো deploy হয়নি; পরিকল্পনা "ধাপ H: deploy-এর পরিকল্পনা"-য়) | rules → functions → hosting | — | rules `438c4999…`, hosting `d9aabec1a0fd54c3` |
 
 brand-1-এর hosting ফেরাতে: `firebase hosting:clone chalakchar-mart@6f1f9ea547faf2d0 chalakchar-mart:live --project chalakchar-mart`।
 এতে ledger-1-এর পাতা থেকে যায়, শুধু লোগো আর রং আগের মতো হয়।
@@ -341,22 +343,158 @@ Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --re
   - Dart test ৭টা।
 - **deploy-এর ক্রম:** rules → functions → hosting, প্রতিটার আগে export।
 
-## 14b ধাপ H (ধাপ G-র পরেই): review-এর reward আর admin-এর referral অনুমোদন
+## 14b ধাপ H: review-এর reward আর admin-এর referral অনুমোদন
 
-- **review লেখাই এখন পুরো বন্ধ।** `products/{id}/reviews`-এর জন্য rules-এ কোনো নিয়ম নেই, তাই catch-all `write: false`-এ পড়ে।
-  - পণ্যের পাতার review transaction (`product_details_page.dart:550`) পুরোটাই ব্যর্থ হয়: review, customer-এর নিজের points +২ আর পণ্যের গণনা, তিনটাই।
-  - লাইভে review ০টা।
-- **admin-এর referral অনুমোদন** (`app_settings_page.dart:1307`) admin, settings staff, superAdmin সবার জন্য আটকায়, কারণ:
-  - `referralCount` কোনো staff নিয়মে অনুমোদিত নয়।
-  - users.edit নিয়ম `points` বদলাতে দেয় না।
-  - পাতাটা `refereeId` আর `'Approved'` খোঁজে, কিন্তু function লেখে `referredUserId` আর `'approved'`।
-- **কাজ:**
-  - review-এর নিয়ম যোগ করা (নিজের review একবার)।
-  - reward আর পণ্যের গণনা function-এ নেওয়া, wallet_logs সহ।
-  - referral অনুমোদন একটা callable function দিয়ে করা, wallet_logs সহ, field-এর নাম ঠিক করা।
-  - `referralFirstOrderRewarded` লেখা হয়, কিন্তু কোথাও ব্যবহার হয় না।
-  - **লাইভের একটা referral `approved`, অথচ কারও points বা wallet_logs নেই** (২৫ নভেম্বর গোনা)। function-এর auto-approve পথ points আর wallet_logs দুটোই লেখে, তাই এটা অন্য কোনো পথে approved হয়েছে। কোন পথে, খুঁজে দেখতে হবে।
-  - review-এর `onProductReviewCreated` function আছে, কিন্তু সে শুধু rating-এর গড় হিসাব করে, points দেয় না।
+### ধাপ H: তদন্ত আর কোড (২৫–২৭ নভেম্বর, branch `step-h`, worktree `../cc_steph`)
+
+- **শুরুর মিল:** লাইভ ruleset `438c4999`-এর source আর branch-এর `firestore.rules` হুবহু এক (sha256 `eb09b8aa…`)। লাইভের কপি `firestore.rules.live-438c4999` শুধু লোকাল, commit হয়নি (`.git/info/exclude`)। কপিটা দরকার হলে Rules API থেকে আবার নামানো যায়; `git show origin/step-g:firestore.rules`-এর সঙ্গেও এটা হুবহু এক।
+- **branch:** `step-h` তৈরি হয়েছে `origin/step-g` থেকে, তারপর `origin/seo-3`-এ fast-forward করা হয়েছে। কারণ ২৭ নভেম্বর লাইভ hosting `d9aabec1a0fd54c3` (seo-3) step-g-এর ঠিক ওপরে বানানো। seo-3 বাদ দিলে SEO পিছিয়ে যেত। d4ead6c এতে নেই।
+
+**তদন্তে যা পাওয়া গেছে** (লাইভ rules `438c4999`-এ emulator দিয়ে যাচাই):
+
+- **review পড়াও বন্ধ ছিল,** শুধু লেখা না। customer আর guest review-এর তালিকা দেখতে পেত না। "আগে review দিয়েছি কি না" যাচাই error দিত, তাই সবাই দেখত "Review option will be available after product received"।
+- **client review-এ `userEmail` লিখত।** client নিজেই পণ্যের rating-এর গণনা বাড়াত, আর `onProductReviewCreated`-ও গুনত, ফলে দুবার গোনার ঝুঁকি ছিল। ক্রেতা কি না সেটা পণ্যের **নাম** মিলিয়েও ধরা হতো।
+- **যেকোনো লগইন করা user নিজের জন্য referral তৈরি করতে পারত,** যেকোনো status আর reward অঙ্ক দিয়ে (যেমন `Pending` আর ১০০০০ টাকা, যাতে admin অনুমোদন দেয়)।
+- **referral-এর settings দুই জায়গায় ছিল।** function পড়ত `settings/referral` থেকে, অথচ admin পাতা লিখত `settings/app`-এ। `settings/referral`-এ `autoApprove` নেই, তাই কার্যত সব referral নিজে থেকেই approved হতো।
+- **admin-এর পাতা function-এর লেখা referral চিনত না।** পাতা খুঁজত `'Pending'` আর `refereeId`, তাই Approve বোতাম কখনো দেখাত না। Dashboard আর Analytics-ও বড় হাতের `'Pending'`/`'Approved'` গুনত।
+- **১০০০-expression-এর সীমা:**
+  - `referrals` পড়ার নিয়মে চারটা `can()` ছিল। role `admin` আর শুধু `wallet.edit` থাকা staff তাই সীমায় আটকে তালিকাই পড়তে পারত না।
+  - এই কাজে `referralCount` নিষিদ্ধ তালিকায় যোগ করার পর admin Notifications-এর নিয়মও সীমা ছাড়াচ্ছিল।
+- **customer নিজের `referralCount` বদলাতে পারত,** আর profile তৈরির সময় যেকোনো মান বসাতে পারত। users.edit staff-ও পারত।
+- **যেকোনো customer নিজের uid-কে `vendorId` বসিয়ে `products`-এ নতুন পণ্য তৈরি করতে পারে,** বানানো rating আর `status: approved` সমেত। vendor-ও নতুন পণ্যে rating বসাতে পারত। rating-এর অংশ এই ধাপে বন্ধ হয়েছে; ভুয়া পণ্য তৈরির বড় ফাঁকটা আলাদা কাজ (নিচে "জানা ঝুঁকি")।
+- **লাইভের অনাথ referral:** function-এর auto-approve পথে তৈরি, ২০২৬-০৬-২২-এ, git ইতিহাসের আগে। দুজন user-ই Auth আর `users` থেকে মুছে গেছে। মালিকের সিদ্ধান্তে এতে হাত দেওয়া হয়নি।
+
+**মালিকের সিদ্ধান্ত (২৭ নভেম্বর):**
+
+- review দিতে পারবে শুধু যাচাই করা ক্রেতা: নিজের অর্ডার, status delivered/received/completed, আর item-এ এই `productId`। নামের মিল ধরা হবে না।
+- points প্রতি পণ্যে একবার। Asia/Dhaka সময়ের এক দিনে সর্বোচ্চ ৫টা review-এ points যাবে। অঙ্ক নেওয়া হবে `settings/app.reviewReward` থেকে, না থাকলে ২।
+- customer নিজের review বদলাতে পারবে, তাতে আর points পাবে না। review মুছতে পারবে শুধু admin, আর ইতিমধ্যে দেওয়া points থেকে যাবে।
+- review-এ শুধু প্রথম নাম থাকবে, email কোথাও থাকবে না।
+- referral অনুমোদন আর বাতিল হবে callable দিয়ে, `wallet.edit` অথবা super admin লাগবে।
+- settings-এর মূল জায়গা `settings/app`, না থাকলে `settings/referral`। auto-approve শুধু `true` থাকলেই চালু।
+
+**কোড:**
+
+- **Functions** (`functions/reviews/productReviews.js`, `functions/referrals/referrals.js`):
+  - `submitProductReview` (callable):
+    - যাচাই করে: লগইন, rating ১ থেকে ৫-এর পূর্ণসংখ্যা, comment trim করার পর ১০০০ অক্ষরের বেশি নয় (code point হিসাবে), আর server-এ যাচাই করা ক্রেতা।
+    - নতুন review হলে একই transaction-এ দেয়: `points` আর `totalEarnings`, `wallet_logs/review_{productId}_{uid}`, আর দিনের গণনা `review_reward_days/{uid}_{YYYY-MM-DD}`।
+    - এটা নতুন collection। এতে শুধু function লেখে, catch-all-এ client-এর লেখা বন্ধ।
+    - review বদলালে শুধু rating, comment আর `updatedAt` বদলায়।
+  - `deleteProductReview` (callable): শুধু admin বা super admin পারে।
+  - `onProductReviewWritten`: `onProductReviewCreated`-এর জায়গায় এসেছে। তৈরি, বদল আর মোছা, সব ক্ষেত্রে rating আবার হিসাব করে, একটা transaction-এ। মোছা পণ্য নতুন করে তৈরি করে না।
+  - `approveReferral` / `rejectReferral` (callable):
+    - শুধু pending থেকে বদলানো যায়, বড়-ছোট হাতের অক্ষরে তফাত না করে।
+    - অঙ্ক নেয় referral ডকুমেন্ট থেকে। লেখে `approvedBy`/`approvedAt` অথবা `rejectedBy`/`rejectedAt`।
+    - user মুছে গেলে `user_missing` দেয়। নিজের referral নিজে অনুমোদন করা যায় না।
+  - **auto পথ আর হাতে অনুমোদন এখন একই credit ব্যবহার করে:**
+    - referrer পায় points, totalEarnings আর `referralCount + 1`। referee পায় points আর totalEarnings।
+    - `wallet_logs`-এর id দুই পথে এক, তাই points একবারই যায়।
+    - **আগে এখানে অমিল ছিল:** পুরোনো admin batch referee-কে `totalEarnings` দিত না, wallet_logs লিখত না, আর status লিখত `'Approved'`।
+  - `applyReferralReward`:
+    - পড়ে `settings/app` থেকে, কোনো key না থাকলে `settings/referral` থেকে। দুই ডকুমেন্টে নাম আলাদা: `referralReward` বনাম `referrerReward`।
+    - `referralAutoApprove` শুধু `true` হলে auto-approve চালু হয়।
+    - status লেখে ছোট হাতে। referral বন্ধ থাকলে কিছুই লেখে না।
+- **rules:**
+  - `products/{id}/reviews`: পড়তে পারে সবাই, client কোনো লেখা করতে পারে না।
+  - `referrals`: client-এর create, update আর delete বন্ধ। পড়ার permission আগের মতোই, শুধু `canAnyOf` দিয়ে লেখা।
+  - `referralCount` এখন customer-এর নিজের update-এ বন্ধ, users.edit staff-এর জন্যও বন্ধ, আর profile তৈরির সময় শুধু ০।
+  - staff ছাড়া কেউ নতুন পণ্যে বা পণ্য বদলের সময় চারটা rating-এর ঘর লিখতে পারে না।
+  - admin Notifications-এর নিয়ম users-এর role-বদলের নিয়মের ঠিক পরে সরানো হয়েছে, ১০০০-সীমার কারণে। নিয়মের ক্রমে মানে বদলায় না।
+- **অ্যাপ:**
+  - **পণ্যের পাতা:**
+    - review যায় callable দিয়ে। নিজের review দেখা যায় আর বদলানো যায়।
+    - ১০০০ অক্ষর গোনা হয় function-এর মতোই। লাল সতর্কবার্তা দেখায় আর ১০০১-এ Submit বন্ধ থাকে।
+    - "Verified buyer" চিহ্ন দেখায়, লম্বা নাম "…" দিয়ে কাটা হয়, admin-এর জন্য মোছার বোতাম থাকে।
+    - client আর review, points, rating বা email লেখে না।
+  - **admin settings:**
+    - Approve আর Reject callable ডাকে। error বাংলায় দেখায় কার্ডের ভেতরে আর snackbar-এ।
+    - `referredUserId` পড়ে, না থাকলে `refereeId`। মুছে যাওয়া user লাল লেখায় দেখায়।
+    - নতুন দুটো ঘর: "Review Reward" আর "Auto-approve Referrals", দুটোই `settings/app`-এ save হয়।
+    - পুরোনো batch-এর কোড মুছে দেওয়া হয়েছে।
+  - **Dashboard আর Analytics:** status গোনে বড়-ছোট হাতের অক্ষরে তফাত না করে।
+
+**test** (সব পাস):
+
+- **rules:** `node tools/rules-test/run.js`।
+  - নতুন rules-এ ১৭৯/১৭৯। এর মধ্যে `step_h.test.js` ২৬টা।
+  - `firestore.rules.live-438c4999`-এ "আগের অবস্থা"-র প্রত্যাশা দিয়ে চালালেও ১৭৯/১৭৯:
+    - ৮টা আক্রমণ সফল হয়: নিজের জন্য referral তৈরি (দুই রকম), users.edit দিয়ে referral বদল, super admin-এর client থেকে referral মোছা, `referralCount` বাড়ানো, মোছা আর তৈরির সময় বসানো, ভুয়া rating-সহ পণ্য তৈরি।
+    - customer আর guest review পড়তে পারে না।
+    - admin আর `wallet.edit` staff referral-এর তালিকা পড়তে পারে না।
+- **emulator-এ function:** `node tools/rules-test/run-steph.js` ২৩/২৩। এতে আছে:
+  - ক্রেতা নয়, pending অর্ডার, নামে মেলে কিন্তু productId-এ মেলে না।
+  - প্রথমবার points, বদলালে না।
+  - ৬ নম্বর review-এ points নেই; Dhaka-র মধ্যরাতের পরে আবার points।
+  - একসঙ্গে দুটো review-এ ঠিক ৫টা পুরস্কার।
+  - `reviewReward` অঙ্ক।
+  - admin-এর মোছা, আর মোছার পরে নতুন review-এ points না পাওয়া।
+  - trigger-এ তৈরি, বদল আর মোছার পরে গড়; মোছা পণ্য তৈরি না হওয়া।
+  - `applyReferralReward`: pending, auto, বন্ধ।
+  - approve: permission, দ্বিতীয়বার, auto পথে আগে দেওয়া points, একসঙ্গে দুটো approve, মুছে যাওয়া user, নিজের referral।
+- **আগের emulator test:** cash ১১/১১, ledger ১১/১১।
+- **functions-এর unit test:** ৭১৮/৭১৮।
+- **Dart test:** ৫১৬/৫১৬, `flutter analyze`-এ বদলানো ফাইলে কোনো সমস্যা নেই।
+- **screenshot:** worktree-র `screenshots/step-h/`-এ ৪২টা (৩৬০px আর ১৩৬৬px), commit হয়নি।
+  - তোলা হয়েছে লোকাল emulator build দিয়ে, demo project `demo-chalakchar-ui`-এ। একটা অস্থায়ী emulator hook ছিল, commit হয়নি, কাজ শেষে সরানো হয়েছে।
+  - browser থেকে Firestore, Auth, Functions বা নিজের ডোমেইনে কোনো লাইভ অনুরোধ যায়নি (block করা ছিল আর log দেখা হয়েছে)। বাইরে গেছে শুধু gstatic-এর CanvasKit, font আর Firebase JS SDK, আর Google Sign-In-এর script।
+  - কোনো preview channel deploy হয়নি।
+
+**index:** নতুন কোনো composite index লাগে না।
+
+- `orders where userId ==` চলে single-field index-এ।
+- review-এর তালিকা (`orderBy createdAt`, একটা subcollection) চলে single-field index-এ।
+- দিনের সীমা গোনা হয় একটা নির্দিষ্ট id-র ডকুমেন্টে, কোনো query লাগে না।
+
+**জানা ঝুঁকি / বাকি:**
+
+- **পণ্য return হলে review-এর points ফেরত যায় না।** review-ও থেকে যায়। admin review মুছলেও points থাকে (মালিকের সিদ্ধান্ত)।
+- **`settings/referral.maxRewardPerUser` কোথাও ব্যবহার হয় না।** (লাইভে মান ০।)
+- **`referralFirstOrderRewarded`** শুধু auto পথে লেখা হয়, কোথাও পড়া হয় না।
+- **ভুয়া পণ্য তৈরি:** `vendorProductCreateOwner`-এ `data.vendorId == request.auth.uid` থাকায় যেকোনো লগইন করা user পণ্য তৈরি করতে পারে।
+  - এতে vendor কি না, দেখা হয় না।
+  - নিজের পণ্য বদলানোর নিয়মে `ownsVendorProduct()` আছে, যা কোথাও সংজ্ঞায়িত নয়, আর এটা ১০০০-সীমায়ও আটকায়। ফলে লাইভে vendor নিজের পণ্য বদলাতে পারে না।
+  - এ দুটো আলাদা কাজ, মালিকের সিদ্ধান্ত লাগবে।
+- **লম্বা প্রথম নাম** server-এ ৪০ অক্ষরে কাটা হয়, আর পাতায় এক লাইনে "…" দিয়ে।
+- **`ReferralService.updateReferralSettings`** (`settings/referral` লেখে) কেউ ডাকে না। রেখে দেওয়া হয়েছে।
+
+### ধাপ H: deploy-এর পরিকল্পনা (অনুমতির অপেক্ষায়; এখনো কিছু deploy হয়নি)
+
+সব command চলবে `../cc_steph` থেকে (branch `step-h`)। প্রতিটা ধাপের আগে export নিতে হবে, আর প্রতিটা ধাপের পরে লাইভে যাচাই করতে হবে। ক্রম: rules → functions → hosting।
+
+1. **Rules**
+   - export: `gcloud firestore export gs://chalakchar-mart-backups/steph-rules-<YYYYMMDD-HHMM> --project chalakchar-mart`
+   - deploy: `firebase deploy --only firestore:rules --project chalakchar-mart`
+   - rollback: ruleset `438c4999-aa60-440c-aad1-5acd04e03d69` (Console → Rules → History → Restore), অথবা `git show origin/step-g:firestore.rules > firestore.rules`, তারপর deploy আর `git checkout firestore.rules`।
+   - **পুরোনো hosting-এর সঙ্গে নিরাপদ:** client থেকে review লেখা আগেই বন্ধ ছিল, client কখনো referral তৈরি করে না, আর পুরোনো admin batch আগেও আটকাত।
+   - যাচাই:
+     - লাইভের source-এর sha256 = branch-এর ফাইল।
+     - লগইন ছাড়া `products/<id>/reviews` list → 200 (খালি)।
+     - লগইন ছাড়া `referrals` → 403।
+     - admin পাতা খোলে।
+     - customer-এর নিজের নাম বদলানো চলে।
+2. **Functions**
+   - export: `gs://chalakchar-mart-backups/steph-fn-<YYYYMMDD-HHMM>`
+   - deploy: `firebase deploy --only functions:submitProductReview,functions:deleteProductReview,functions:onProductReviewWritten,functions:approveReferral,functions:rejectReferral,functions:applyReferralReward --project chalakchar-mart`
+   - তারপর: `firebase functions:delete onProductReviewCreated --region asia-south1 --project chalakchar-mart`। নতুন trigger চালু হওয়ার পরে মুছতে হবে। মাঝের সময়ে দুটো trigger একই হিসাব লিখবে, তাতে ক্ষতি নেই।
+   - **এখান থেকেই auto-approve বন্ধ হয়ে যায়,** কারণ `settings/app`-এ `referralAutoApprove` নেই। hosting আসার আগ পর্যন্ত নতুন referral pending থাকবে।
+   - rollback:
+     - `cc_stepg` (origin/step-g) থেকে `firebase deploy --only functions:applyReferralReward,functions:onProductReviewCreated`।
+     - তারপর `firebase functions:delete submitProductReview deleteProductReview onProductReviewWritten approveReferral rejectReferral --region asia-south1`।
+   - যাচাই: log-এ error নেই; callable লগইন ছাড়া ডাকলে `unauthenticated` আসে। লাইভ ডেটায় review বা referral লেখা হবে না।
+3. **Hosting**
+   - build: `flutter clean && flutter build web --release`। কোনো `--dart-define` নয়। এই build-এ seo-1, seo-2, seo-3, ledger-1, brand-1, ধাপ G আর ধাপ H আছে।
+   - আগে preview: `firebase hosting:channel:deploy steph --expires 7d`।
+   - preview-এর `main.dart.js`-এ grep: `submitProductReview` আর `approveReferral` থাকবে, `emuLogin` আর `USE_EMULATORS` থাকবে না।
+   - তারপর: `firebase hosting:clone chalakchar-mart:steph chalakchar-mart:live --project chalakchar-mart`
+   - rollback: `firebase hosting:clone chalakchar-mart@d9aabec1a0fd54c3 chalakchar-mart:live --project chalakchar-mart` (seo-3)।
+     - **`bd482832093239e5`-এ নয়:** সেটা seo-3-এর আগের version, তাতে ফিরলে SEO পিছিয়ে যাবে।
+   - যাচাই:
+     - পণ্যের পাতার Reviews ট্যাব guest আর customer-এর জন্য খোলে, console error নেই।
+     - wallet.edit বা super admin-এর admin পাতায় referral-এর তালিকা আর Approve দেখা যায়।
+     - settings-এ নতুন দুটো ঘর আছে।
+     - লাইভ আর preview-এর `main.dart.js` হুবহু এক।
+   - এরপর মালিক ঠিক করবেন `reviewReward` আর auto-approve-এর মান।
 
 ## 14b ধাপ I: অর্ডার তৈরি function দিয়ে
 
