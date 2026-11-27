@@ -53,7 +53,8 @@ brand-1, ledger-1, steps C–G; not d4ead6c). Status: committed, NOT deployed.
 
 ## Deploy (each step needs the owner's go)
 
-1. Firestore export.
+1. Firestore export. Done: `gs://chalakchar-mart-backups/seo3-fn-20261127-0550`
+   (full database, SUCCESSFUL 05:51:01 UTC, 970 documents, ~4.1 MB).
 2. `firebase deploy --only functions:productSeo,functions:pageSeo,functions:homeSeo,functions:sitemap`
    from `seo-3`. Rollback: the same four from `step-g`.
 3. Hosting build (flutter clean; build --release --pwa-strategy=none) to
