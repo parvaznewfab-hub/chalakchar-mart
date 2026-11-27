@@ -152,8 +152,6 @@ class _ProductDetailsPageState extends State<ProductDetailsPage>
     WebSeoService.setProductSeo(
       product: product,
       productId: productId,
-      price: ProductService.getDisplayPrice(product, unit: _selectedUnit),
-      stock: ProductService.getStock(product, unit: _selectedUnit),
     );
   }
 

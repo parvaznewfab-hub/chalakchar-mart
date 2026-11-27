@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
 
 import 'seo_titles.dart';
@@ -17,7 +15,6 @@ class SeoDom {
   void setMetaByProperty(String property, String content) =>
       dom.setMetaByProperty(property, content);
   void setCanonical(String url) => dom.setCanonical(url);
-  void removeElementById(String id) => dom.removeElementById(id);
 }
 
 class WebSeoService {
@@ -37,6 +34,10 @@ class WebSeoService {
 
   static String? _currentTitle;
 
+  /// The <title> the server sent with this page load, read before the app's
+  /// first head write.
+  static String? _servedTitle;
+
   /// Category names by URL slug, learned on category pages, so a category
   /// page reached again by Back gets its real name, not the slug's.
   static final Map<String, String> _categoryNames = {};
@@ -55,6 +56,7 @@ class WebSeoService {
   @visibleForTesting
   static void debugReset() {
     _currentTitle = null;
+    _servedTitle = null;
     _categoryNames.clear();
     debugDom = null;
     debugIsWeb = null;
@@ -115,6 +117,7 @@ class WebSeoService {
   }) {
     if (!_isWeb) return;
     final d = _dom;
+    _servedTitle ??= d.getDocumentTitle().trim();
     final url = '$baseUrl${path.isEmpty ? '/' : path}';
     _currentTitle = title;
     d.setDocumentTitle(title);
@@ -129,12 +132,16 @@ class WebSeoService {
     d.setMetaByName('twitter:description', description);
     d.setMetaByName('twitter:image', _defaultImage);
     d.setCanonical(url);
-    d.removeElementById('product-json-ld');
   }
 
   /// Category page, once its real name is known (the route observer used
-  /// the slug's name until then). [exists] false: the server's 404 title
-  /// and noindex.
+  /// the slug's name until then). [exists] false changes nothing: the
+  /// server already sent the right head for a missing category (404 title,
+  /// noindex), and a category the app has not found yet (an empty first
+  /// snapshot while Firestore is still connecting, as in a crawler's
+  /// renderer) must keep the server's title and robots.
+  ///
+  /// Robots belong to the server alone: the app never writes them.
   static void setCategorySeo({
     required String slug,
     required String name,
@@ -144,13 +151,17 @@ class WebSeoService {
     if (!_isWeb) return;
     final path = '/category/${_categorySlug(slug)}';
     if (!exists) {
-      if (_currentTitle == SeoTitles.notFoundTitle) return;
-      setPageSeo(
-        path: path,
-        title: SeoTitles.notFoundTitle,
-        description: SeoTitles.notFoundDescription,
-      );
-      setRobots('noindex, follow');
+      // Only when the server itself answered "not found" for this page
+      // load: put its 404 title back (the route observer wrote the slug's
+      // name over it). Robots stay as the server sent them.
+      if (_servedTitle == SeoTitles.notFoundTitle &&
+          _currentTitle != SeoTitles.notFoundTitle) {
+        setPageSeo(
+          path: path,
+          title: SeoTitles.notFoundTitle,
+          description: SeoTitles.notFoundDescription,
+        );
+      }
       return;
     }
     _categoryNames[_categorySlug(slug)] = name.trim();
@@ -166,12 +177,6 @@ class WebSeoService {
   static String _text(dynamic value, [String fallback = '']) {
     final result = (value ?? '').toString().trim();
     return result.isEmpty ? fallback : result;
-  }
-
-  static double _toDouble(dynamic value, [double fallback = 0]) {
-    if (value == null) return fallback;
-    if (value is num) return value.toDouble();
-    return double.tryParse(value.toString()) ?? fallback;
   }
 
   static String _firstImage(Map<String, dynamic> product) {
@@ -195,15 +200,6 @@ class WebSeoService {
     return '${clean.substring(0, 152).trim()}...';
   }
 
-  /// Sets the `<meta name="robots">` tag content directly.
-  ///
-  /// Used to mark private/user-specific routes (e.g. /login, /cart) as
-  /// noindex while leaving the rest of the site indexable.
-  static void setRobots(String content) {
-    if (!_isWeb) return;
-    _dom.setMetaByName('robots', content);
-  }
-
   /// Head tags for a non-product [path] after in-app navigation: the same
   /// title/description the server sends for it, canonical for [path], and
   /// nothing left over from a product page.
@@ -215,16 +211,12 @@ class WebSeoService {
   static void setProductSeo({
     required Map<String, dynamic> product,
     required String productId,
-    required double price,
-    required int stock,
   }) {
     if (!_isWeb) return;
 
     final productName = _text(product['name'], 'Product');
-    final metaTitle = _text(
-      product['metaTitle'],
-      '$productName | Buy Online - $siteName',
-    );
+    // Same <title> as productSeo (functions/seo/pages.js productTitle).
+    final metaTitle = SeoTitles.productTitle(product['name'], product['metaTitle']);
 
     final descriptionSource = _text(
       product['metaDescription'],
@@ -237,18 +229,11 @@ class WebSeoService {
     final metaDescription = _cleanDescription(descriptionSource);
     final url = '$baseUrl/product/$productId';
     final image = _firstImage(product);
-    final category = _text(product['category']);
-    final brand = _text(product['brand'] ?? product['manufacturer'], siteName);
-    final currency = 'BDT';
-    final availability = stock > 0
-        ? 'https://schema.org/InStock'
-        : 'https://schema.org/OutOfStock';
 
     _currentTitle = metaTitle;
     dom.setDocumentTitle(metaTitle);
     dom.setMetaByName('title', metaTitle);
     dom.setMetaByName('description', metaDescription);
-    dom.setMetaByName('robots', 'index, follow');
 
     final keywords = product['searchKeywords'] is List
         ? (product['searchKeywords'] as List).map((e) => e.toString()).join(', ')
@@ -269,46 +254,8 @@ class WebSeoService {
     dom.setMetaByName('twitter:image', image);
 
     dom.setCanonical(url);
-
-    final schema = <String, dynamic>{
-      '@context': 'https://schema.org',
-      '@type': 'Product',
-      'name': productName,
-      'image': [image],
-      'description': metaDescription,
-      'sku': productId,
-      'category': category,
-      'brand': {
-        '@type': 'Brand',
-        'name': brand,
-      },
-      'offers': {
-        '@type': 'Offer',
-        'url': url,
-        'priceCurrency': currency,
-        'price': _toDouble(price).toStringAsFixed(2),
-        'availability': availability,
-        'itemCondition': 'https://schema.org/NewCondition',
-        'seller': {
-          '@type': 'Organization',
-          'name': siteName,
-        },
-      },
-    };
-
-    final ratingCount = int.tryParse(_text(product['ratingCount'] ?? product['reviewCount'])) ?? 0;
-    final ratingAvg = _toDouble(product['ratingAvg']);
-    if (ratingCount > 0 && ratingAvg > 0) {
-      schema['aggregateRating'] = {
-        '@type': 'AggregateRating',
-        'ratingValue': ratingAvg.toStringAsFixed(1),
-        'reviewCount': ratingCount,
-      };
-    }
-
-    dom.setJsonLd(
-      'product-json-ld',
-      const JsonEncoder.withIndent('  ').convert(schema),
-    );
+    // No Product JSON-LD here: productSeo's HTML already carries the one
+    // Product schema (offers, breadcrumb, supplier text removed); a second
+    // one from the app would duplicate it with raw seller text.
   }
 }

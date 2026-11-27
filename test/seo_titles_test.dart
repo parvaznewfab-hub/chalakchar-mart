@@ -96,11 +96,42 @@ void main() {
       expect(WebSeoService.currentTitle, 'Motherboard Price in Bangladesh | ChalakChar Mart');
     });
 
-    test('not-found category gets the server 404 title', () {
+    test('category not found (yet) keeps the title the server sent', () {
+      // An empty first snapshot in a crawler's renderer must not turn a
+      // real category page into "Page not found".
       WebSeoService.debugIsWeb = true;
-      WebSeoService.debugDom = _NullDom();
-      WebSeoService.setCategorySeo(slug: 'nope', name: '', exists: false);
+      WebSeoService.debugDom = _NullDom(served: 'Mobile Parts Price in Bangladesh | ChalakChar Mart');
+      WebSeoService.setCategorySeo(slug: 'mobile-parts', name: '', exists: false);
+      expect(WebSeoService.currentTitle, 'Mobile Parts Price in Bangladesh | ChalakChar Mart');
+    });
+
+    test('server answered 404: its "not found" title is put back over the slug title', () {
+      WebSeoService.debugIsWeb = true;
+      WebSeoService.debugDom = _NullDom(served: SeoTitles.notFoundTitle);
+      WebSeoService.resetPageSeo('/category/doesnotexist'); // route observer
+      expect(WebSeoService.currentTitle, 'Doesnotexist Price in Bangladesh | ChalakChar Mart');
+      WebSeoService.setCategorySeo(slug: 'doesnotexist', name: '', exists: false);
       expect(WebSeoService.currentTitle, SeoTitles.notFoundTitle);
+    });
+  });
+
+  group('SeoTitles.productTitle (same rule as functions/seo/pages.js)', () {
+    test('name cut short by the import: full name + site name', () {
+      expect(
+        SeoTitles.productTitle(
+          '6.6" LCD Display For Samsung Galaxy A14 4G 5G A145F A145P A146P A146B A146U LCD',
+          '6.6" LCD Display For Samsung Galaxy A14 4G 5G A145F A145P',
+        ),
+        '6.6" LCD Display For Samsung Galaxy A14 4G 5G A145F A145P A146P A146B A146U LCD | ChalakChar Mart',
+      );
+    });
+
+    test('admin-written metaTitle wins', () {
+      expect(SeoTitles.productTitle('iPhone 12 LCD', 'iPhone 12 LCD Display'), 'iPhone 12 LCD Display');
+    });
+
+    test('entities decoded once, no metaTitle', () {
+      expect(SeoTitles.productTitle('6.6&quot; A &amp; B', null), '6.6" A & B | ChalakChar Mart');
     });
   });
 }
@@ -119,6 +150,4 @@ class _NullDom extends SeoDom {
   void setMetaByProperty(String property, String content) {}
   @override
   void setCanonical(String url) {}
-  @override
-  void removeElementById(String id) {}
 }

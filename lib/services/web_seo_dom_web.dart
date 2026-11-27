@@ -34,15 +34,5 @@ void setCanonical(String url) {
   if (existing == null) html.document.head?.append(link);
 }
 
-void setJsonLd(String id, String json) {
-  html.document.getElementById(id)?.remove();
-  final script = html.ScriptElement()
-    ..id = id
-    ..type = 'application/ld+json'
-    ..text = json;
-  html.document.head?.append(script);
-}
-
-void removeElementById(String id) {
-  html.document.getElementById(id)?.remove();
-}
+// No JSON-LD writer: structured data comes only from the server HTML
+// (functions/seo/pages.js).

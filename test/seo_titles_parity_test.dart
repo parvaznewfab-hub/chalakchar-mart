@@ -5,11 +5,42 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// The app's page titles must match the server's first HTML, or the tab
 /// title and meta tags change when Flutter starts. Reads the sources:
-/// functions/index.js (pageSeo, POLICY_PAGE_SEO) and web/index.html.
+/// functions/seo/pages.js + html.js (pageSeo, POLICY_PAGE_SEO, limitText)
+/// and web/index.html.
 void main() {
   // Windows checkouts may have CRLF line ends.
-  final js = File('functions/index.js').readAsStringSync().replaceAll('\r\n', '\n');
+  final js = [
+    File('functions/seo/pages.js').readAsStringSync(),
+    File('functions/seo/html.js').readAsStringSync(),
+  ].join('\n').replaceAll('\r\n', '\n');
   final indexHtml = File('web/index.html').readAsStringSync().replaceAll('\r\n', '\n');
+
+  test('lib/: the app never writes the robots meta (the server decides it)', () {
+    final offenders = <String>[];
+    for (final f in Directory('lib').listSync(recursive: true).whereType<File>()) {
+      if (!f.path.endsWith('.dart')) continue;
+      final src = f.readAsStringSync();
+      if (RegExp(r'''setMetaByName\(\s*['"]robots['"]''').hasMatch(src) ||
+          src.contains('setRobots(')) {
+        offenders.add(f.path);
+      }
+    }
+    expect(offenders, isEmpty);
+  });
+
+  test('lib/: the app adds no JSON-LD (the server sends the one Product schema)', () {
+    final offenders = <String>[];
+    for (final f in Directory('lib').listSync(recursive: true).whereType<File>()) {
+      if (!f.path.endsWith('.dart')) continue;
+      final src = f.readAsStringSync();
+      if (src.contains('application/ld+json') ||
+          src.contains('setJsonLd') ||
+          RegExp(r'''['"]@type['"]\s*:\s*['"]Product['"]''').hasMatch(src)) {
+        offenders.add(f.path);
+      }
+    }
+    expect(offenders, isEmpty);
+  });
 
   String decodeHtml(String s) => s
       .replaceAll('&amp;', '&')
@@ -73,7 +104,7 @@ void main() {
     test('default description and limit', () {
       expect(
         js,
-        contains(r'`ChalakChar Mart থেকে ${name} কিনুন — মডেল মিলিয়ে অর্ডার, ক্যাশ অন ডেলিভারি, সারা বাংলাদেশে হোম ডেলিভারি।`,' '\n        160'),
+        contains(r'`ChalakChar Mart থেকে ${name} কিনুন — মডেল মিলিয়ে অর্ডার, ক্যাশ অন ডেলিভারি, সারা বাংলাদেশে হোম ডেলিভারি।`,' '\n    160'),
       );
       expect(
         SeoTitles.categoryDescription('Name'),

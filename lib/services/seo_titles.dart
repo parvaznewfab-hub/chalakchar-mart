@@ -75,7 +75,36 @@ class SeoTitles {
       .map((w) => w[0].toUpperCase() + w.substring(1))
       .join(' ');
 
-  /// functions/index.js limitText: collapse whitespace; if longer than
+  /// productSeo's <title> (functions/seo/pages.js productTitle): an
+  /// admin-written metaTitle wins; one that is only the name cut short
+  /// (imports save the first 60 characters) gives way to the full name.
+  static String productTitle(dynamic name, dynamic metaTitle) {
+    final fullName = plainText(name);
+    final productName = fullName.isEmpty ? 'Product' : fullName;
+    final meta = plainText(metaTitle);
+    if (meta.isNotEmpty && !productName.startsWith(meta)) return meta;
+    return '$productName | $siteName';
+  }
+
+  /// functions/seo/html.js plainText: tags removed, entities decoded,
+  /// whitespace collapsed.
+  static String plainText(dynamic value) {
+    var s = (value ?? '').toString().replaceAll(RegExp(r'<[^>]*>'), ' ');
+    s = s
+        .replaceAllMapped(RegExp(r'&#x([0-9a-fA-F]+);'),
+            (m) => String.fromCharCode(int.parse(m[1]!, radix: 16)))
+        .replaceAllMapped(
+            RegExp(r'&#(\d+);'), (m) => String.fromCharCode(int.parse(m[1]!)))
+        .replaceAll('&quot;', '"')
+        .replaceAll('&apos;', "'")
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&amp;', '&');
+    return s.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  /// functions/seo/html.js limitText: collapse whitespace; if longer than
   /// [max], cut to max-3, trim, add "...". Lengths are UTF-16 code units in
   /// both JS and Dart.
   static String limitText(String value, int max) {

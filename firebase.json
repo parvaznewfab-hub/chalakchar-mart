@@ -20,6 +20,12 @@
         ]
       },
       {
+        "source": "/@(login|cart)",
+        "headers": [
+          { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
+        ]
+      },
+      {
         "source": "/@(index.html|flutter_bootstrap.js|flutter_service_worker.js|flutter.js|main.dart.js|version.json|manifest.json)",
         "headers": [
           { "key": "Cache-Control", "value": "no-cache" }

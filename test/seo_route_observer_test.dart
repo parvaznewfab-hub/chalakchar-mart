@@ -11,7 +11,6 @@ class FakeSeoDom extends SeoDom {
   final Map<String, String> byName = {};
   final Map<String, String> byProperty = {};
   String canonical = '';
-  final Set<String> elementIds = {};
 
   FakeSeoDom({this.title = ''});
 
@@ -26,8 +25,6 @@ class FakeSeoDom extends SeoDom {
       byProperty[property] = content;
   @override
   void setCanonical(String url) => canonical = url;
-  @override
-  void removeElementById(String id) => elementIds.remove(id);
 }
 
 Widget _app({
@@ -90,8 +87,7 @@ void main() {
     await tester.pumpAndSettle();
     fake
       ..title = 'iPhone 12 LCD | Buy Online - ChalakChar Mart'
-      ..canonical = 'https://chalakcharmart.com/product/abc'
-      ..elementIds.add('product-json-ld');
+      ..canonical = 'https://chalakcharmart.com/product/abc';
     fake.byName.addAll({
       'title': 'iPhone 12 LCD',
       'description': 'product description',
@@ -122,7 +118,6 @@ void main() {
     expect(fake.byProperty['og:url'], 'https://chalakcharmart.com/');
     expect(fake.byProperty['og:image'], 'https://chalakcharmart.com/og-image-1200x630.png');
     expect(fake.canonical, 'https://chalakcharmart.com/');
-    expect(fake.elementIds, isNot(contains('product-json-ld')));
   });
 
   testWidgets('product route: observer leaves the product page its own tags', (tester) async {
@@ -148,20 +143,25 @@ void main() {
     expect(fake.title, 'Mobile Parts Price in Bangladesh | ChalakChar Mart');
   });
 
-  testWidgets('/cart and /login are noindex, other pages index', (tester) async {
+  testWidgets('the app never writes robots (the server decides them)', (tester) async {
     final navKey = GlobalKey<NavigatorState>();
     await tester.pumpWidget(_app(navKey: navKey));
-    expect(fake.byName['robots'], 'index, follow');
 
-    for (final path in ['/cart', '/login']) {
+    for (final path in ['/cart', '/login', '/about-us', '/category/mobile-parts', '/product/abc']) {
       navKey.currentState!.pushNamed(path);
       await tester.pumpAndSettle();
-      expect(fake.byName['robots'], 'noindex, nofollow', reason: path);
-      expect(fake.title, 'ChalakChar Mart', reason: path);
       navKey.currentState!.pop();
       await tester.pumpAndSettle();
-      expect(fake.byName['robots'], 'index, follow', reason: 'back from $path');
     }
+    WebSeoService.setCategorySeo(slug: 'mobile-parts', name: '', exists: false);
+    WebSeoService.setCategorySeo(slug: 'mobile-parts', name: 'Mobile Parts');
+    WebSeoService.setProductSeo(
+      product: {'name': 'Hidden product'},
+      productId: 'hidden',
+    );
+
+    expect(fake.byName.containsKey('robots'), isFalse);
+    expect(fake.title, isNot(SeoTitles.notFoundTitle));
   });
 
   testWidgets('root rebuild (theme switch) keeps the product title', (tester) async {
@@ -173,8 +173,6 @@ void main() {
     WebSeoService.setProductSeo(
       product: {'name': 'iPhone 12 LCD', 'metaTitle': 'iPhone 12 LCD Display'},
       productId: 'abc',
-      price: 2399,
-      stock: 3,
     );
     expect(WebSeoService.currentTitle, 'iPhone 12 LCD Display');
 

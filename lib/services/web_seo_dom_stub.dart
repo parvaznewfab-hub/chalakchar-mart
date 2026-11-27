@@ -9,7 +9,3 @@ void setMetaByName(String name, String content) {}
 void setMetaByProperty(String property, String content) {}
 
 void setCanonical(String url) {}
-
-void setJsonLd(String id, String json) {}
-
-void removeElementById(String id) {}
