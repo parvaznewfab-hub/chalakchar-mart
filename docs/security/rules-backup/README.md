@@ -127,12 +127,30 @@ git checkout storage.rules
 | 2026-11-25 03:59 UTC (`93d2402`, branch `step-g`) | Functions, ধাপ G: নতুন `onOrderCreatedCash`, `onOrderStatusCash` (শুধু এই দুটো) | তৈরি | (ছিল না) |
 | 2026-11-25 03:59 UTC (`93d2402`, branch `step-g`, preview `stepg` থেকে clone) | Hosting live, ধাপ G (cart থেকে points লেখা বাদ, admin-এর লাল সতর্কবার্তা) | version `bd482832093239e5` | version `784e6fe0f776880e` |
 | 2026-11-27 06:25 UTC (branch `seo-3`, preview `seo3` থেকে clone; বিবরণ `docs/seo/seo-3.md`) | Hosting live, seo-3 (functions `productSeo`, `pageSeo`, `homeSeo`, `sitemap` ০৫:৫৪ UTC) | version `d9aabec1a0fd54c3` | version `bd482832093239e5` |
-| — (ধাপ H, এখনো deploy হয়নি; পরিকল্পনা "ধাপ H: deploy-এর পরিকল্পনা"-য়) | rules → functions → hosting | — | rules `438c4999…`, hosting `d9aabec1a0fd54c3` |
+| 2026-11-27 18:34 UTC (`f4082fa`, branch `step-h`) | Firestore, ধাপ H (reviews শুধু পড়া; referrals-এ client-এর লেখা বন্ধ; `referralCount`; rating-এর ঘর) | `fa5f0e22-cc67-4abc-92c2-d21caad63af0` | `438c4999-aa60-440c-aad1-5acd04e03d69` |
+| 2026-11-27 18:42 UTC (`f4082fa`, branch `step-h`) | Functions, ধাপ H: নতুন `submitProductReview`, `deleteProductReview`, `onProductReviewWritten`, `approveReferral`, `rejectReferral`; আপডেট `applyReferralReward`; মোছা `onProductReviewCreated` | — | step-g-এর `applyReferralReward` আর `onProductReviewCreated` |
+| — (ধাপ H, এখনো deploy হয়নি) | Hosting | — | `d9aabec1a0fd54c3` |
 
 brand-1-এর hosting ফেরাতে: `firebase hosting:clone chalakchar-mart@6f1f9ea547faf2d0 chalakchar-mart:live --project chalakchar-mart`।
 এতে ledger-1-এর পাতা থেকে যায়, শুধু লোগো আর রং আগের মতো হয়।
 
 ধাপ F-এর rules ফেরাতে: `docs/security/rules-backup/firestore.rules.live-be7e9c8a` ফাইলটা `firestore.rules`-এ বসিয়ে `firebase deploy --only firestore:rules`, অথবা console-এ ruleset `be7e9c8a-bd31-4dfd-81ea-26114d212272` আবার release। deploy-এর আগে export: `gs://chalakchar-mart-backups/stepf-rules-20261124-174314` (SUCCESSFUL, ১৭:৪৪ UTC)। লাইভ ruleset-এর sha256 `20b67d56…` = branch-এর ফাইল।
+
+ধাপ H ফেরাতে (উল্টো ক্রমে):
+- **functions:**
+  - `../cc_stepg` (origin/step-g) থেকে: `firebase deploy --only functions:applyReferralReward,functions:onProductReviewCreated --project chalakchar-mart`।
+  - তারপর: `firebase functions:delete submitProductReview deleteProductReview onProductReviewWritten approveReferral rejectReferral --region asia-south1 --project chalakchar-mart`।
+  - মনে রাখার বিষয়: পুরোনো `applyReferralReward` আবার `settings/referral` পড়বে, তাই auto-approve আবার কার্যত চালু হবে।
+- **rules:** `git show origin/step-g:firestore.rules > firestore.rules`, তারপর `firebase deploy --only firestore:rules --project chalakchar-mart` আর `git checkout firestore.rules`। অথবা Console → Rules → History → `438c4999…` → Restore।
+- **deploy-এর আগের export:**
+  - rules: `gs://chalakchar-mart-backups/steph-rules-20261127-1833` (SUCCESSFUL, ৯৬৫টা ডকুমেন্ট)।
+  - functions: `gs://chalakchar-mart-backups/steph-fn-20261127-1839` (SUCCESSFUL, ৯৬৫টা ডকুমেন্ট)।
+- **লাইভে যাচাই:**
+  - লাইভ ruleset-এর sha256 `b5b6c626…` = branch-এর ফাইল।
+  - লগইন ছাড়া reviews (list আর query) → 200; referrals → 403।
+  - `onProductReviewWritten` ACTIVE (`document.v1.written`) হওয়ার পরেই `onProductReviewCreated` মোছা হয়েছে।
+  - লগইন ছাড়া `submitProductReview` আর `approveReferral` → 401 UNAUTHENTICATED।
+  - function-এর সংখ্যা ৫৯ থেকে ৬৩।
 
 ধাপ G ফেরাতে (উল্টো ক্রমে): hosting `firebase hosting:clone chalakchar-mart@784e6fe0f776880e chalakchar-mart:live --project chalakchar-mart`; functions `firebase functions:delete onOrderCreatedCash onOrderStatusCash --region asia-south1`; rules `firestore.rules.live-700f57c7` বসিয়ে `firebase deploy --only firestore:rules`। deploy-এর আগে export: `gs://chalakchar-mart-backups/stepg-rules-20261125-035525` (SUCCESSFUL, ০৩:৫৬ UTC)। লাইভ ruleset-এর sha256 `eb09b8aa…` = branch-এর ফাইল। functions deploy-এর ঠিক আগে Cash খরচ হওয়া অর্ডার ০টা (মোট ৭টা)। hosting-এর পরে লাইভ আর preview-এর `main.dart.js`, `main.dart.js_1.part.js`, `flutter_bootstrap.js` হুবহু এক; home, category, product, login, admin-এ console error ০; দুই function-এর log-এ warning বা error নেই।
 
