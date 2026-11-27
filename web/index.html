@@ -48,8 +48,10 @@
 <!--
   Crawlable home content (same idea as productSeo's .related-seo block).
   The Flutter view covers the whole page once it renders, so this never
-  shifts the app's layout; it is removed after Flutter's first frame so
-  screen readers don't read it twice.
+  shifts the app's layout. The text stays in the page after Flutter's first
+  frame (a crawler's rendered page then still has the home text and links;
+  it is the same content the home screen shows). Only the loading logo is
+  removed then.
 -->
 <style>
   .home-seo{max-width:960px;margin:24px auto;padding:0 16px;font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#555}
@@ -62,8 +64,8 @@
   .home-seo .brand-logo{display:block;width:120px;height:120px;margin:8px auto 16px}
 </style>
 <main class="home-seo" id="home-seo">
-  <!-- Loading view until Flutter's first frame (removed with this block). -->
-  <img class="brand-logo" src="icons/logo-square-512.png" width="120" height="120" alt="চালাকচর মার্ট">
+  <!-- Loading view until Flutter's first frame (removed then). -->
+  <img class="brand-logo" id="home-seo-logo" src="icons/logo-square-512.png" width="120" height="120" alt="চালাকচর মার্ট">
   <h1>ChalakChar Mart — মোবাইল ও ল্যাপটপ পার্টস অনলাইন শপ</h1>
   <p>চালাকচর বাজার, মনোহরদী, নরসিংদীর অনলাইন শপ। মোবাইল ও ল্যাপটপের ডিসপ্লে, ব্যাটারি, মাদারবোর্ড, কম্পিউটার এক্সেসরিজ ও দৈনন্দিন পণ্য।</p>
   <p>মডেল মিলিয়ে অর্ডার করুন — ক্যাশ অন ডেলিভারি, সারা বাংলাদেশে হোম ডেলিভারি।</p>
@@ -83,7 +85,7 @@
 </main>
 <script>
   window.addEventListener("flutter-first-frame", function () {
-    var el = document.getElementById("home-seo");
+    var el = document.getElementById("home-seo-logo");
     if (el) el.remove();
   });
 </script>
