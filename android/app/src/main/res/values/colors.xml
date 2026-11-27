@@ -3,4 +3,6 @@
     <color name="ic_launcher_background">#135C2A</color>
     <!-- Launch splash background (drawable/launch_background.xml). -->
     <color name="splash_background">#135C2A</color>
+    <!-- FCM notification accent (AndroidManifest default_notification_color). -->
+    <color name="notification_color">#135C2A</color>
 </resources>
