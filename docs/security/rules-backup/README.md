@@ -458,6 +458,27 @@ Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --re
 - **লম্বা প্রথম নাম** server-এ ৪০ অক্ষরে কাটা হয়, আর পাতায় এক লাইনে "…" দিয়ে।
 - **`ReferralService.updateReferralSettings`** (`settings/referral` লেখে) কেউ ডাকে না। রেখে দেওয়া হয়েছে।
 
+**admin Settings পাতা ভাঙা ছিল** (মালিকের পাওয়া, ২৭ নভেম্বর; ঠিক করা `a25786b`):
+
+- **কারণ:** লাইভে `settings/app.importSettings.roundingMode` = `"round"` (শুধু পড়ে দেখা)।
+  - মানটা বসিয়েছে `functions/scripts/roundPricesToTaka.js` (`e42022d`, ১৫ নভেম্বর)। এটাই দোকানের "পুরো টাকা, .৫ হলে ওপরে" নিয়ম, আর server (`applyImportPriceRule`) এই মান চেনে।
+  - কিন্তু admin-এর "Price Rounding" dropdown-এ ছিল শুধু `none`/`00`/`99`।
+  - Flutter-এর DropdownButton মান তালিকায় ঠিক একবার না পেলে assert করে। তাই debug build-এ লাল error আসে, release build-এ পাতা ধূসর বা ফাঁকা দেখায়।
+  - **লাইভের admin Settings পাতা তাই ১৫ নভেম্বর থেকেই ভাঙা।** ধাপ H-এর hosting এটা ঠিক করবে।
+  - 9a32684-এ এটা ঠিক হয়নি। তখনকার screenshot-এর demo ডেটায় `importSettings` ছিল না, তাই ডিফল্ট `none` দেখিয়েছিল আর সমস্যা ধরা পড়েনি।
+- **সমাধান:**
+  - `"round"` এখন আসল বিকল্প: "Whole taka, nearest (.5 up)"।
+  - পাতার চারটা dropdown-ই (Price Rounding, Default Audience, Default Publish Time, referral-এর Status) চলে `SafeDropdownField` দিয়ে:
+    - একই value দুবার থাকলে একটাই রাখে।
+    - অচেনা মান হলে কিছু নির্বাচিত দেখায় না ("Choose…"), নিচে লেখে "অজানা মান: <মান>"।
+  - save-এর সময় এই তিনটা ঘর লেখা হয় শুধু মান বৈধ হলে। অচেনা মান থাকলে ঘরটা লেখাই হয় না, তাই Firestore-এ আগের মান থাকে (merge write)।
+- **test:** `test/safe_dropdown_test.dart` ৭টা। এর একটা দেখায় যে সাধারণ DropdownButtonFormField-এ `"round"` দিলে হুবহু মালিকের দেখা assert-টাই আসে।
+- **screenshot:** `11-*` (৩৬০ আর ১৩৬৬)। অবস্থা তিনটা:
+  - লাইভের মতো (`round`)
+  - ঘর নেই (ডিফল্ট `none`)
+  - অচেনা মান (`ceil_to_5`, আর audience `vip_only`)
+  - console-এ error ০।
+
 ### ধাপ H: deploy-এর পরিকল্পনা (অনুমতির অপেক্ষায়; এখনো কিছু deploy হয়নি)
 
 সব command চলবে `../cc_steph` থেকে (branch `step-h`)। প্রতিটা ধাপের আগে export নিতে হবে, আর প্রতিটা ধাপের পরে লাইভে যাচাই করতে হবে। ক্রম: rules → functions → hosting।
@@ -520,6 +541,31 @@ Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --re
 - **admin Delivery Partners পাতা** (ধাপ F যাচাইয়ের সময় মালিকের পাওয়া, ২৫ নভেম্বর):
   - কাগজের তথ্য (NID ইত্যাদি) লোড হওয়ার আগে কয়েক সেকেন্ড "not uploaded" দেখায়। লোড হওয়ার সময় "লোড হচ্ছে" দেখানো উচিত।
   - সবুজ বারে "Partners" আর "Withdraws" ট্যাবের লেখা প্রায় দেখা যায় না, রং বদলাতে হবে।
+- **মালিকের নতুন তালিকা** (ধাপ H-এর পরে, ২৭ নভেম্বর; এখনো ঠিক করা হয়নি):
+  - customer হোম পাতার ওপরের অংশ হালকা বেগুনি। সবুজ brand-এর রঙে বদলাতে হবে।
+  - Profile-এ এলাকা না থাকলে "-> ->" দেখায়। "Not set" দেখানো উচিত।
+  - Profile-এ role-এর ট্যাগ কাঁচা "DELIVERYPARTNER" দেখায়। পড়ার মতো নাম চাই।
+  - Cart পাতার ওপরের অংশ status bar-এর নিচে ঢুকে যায়, কারণ SafeArea নেই।
+  - পণ্যের পাতার ছবির সারিতে কিছু ছবি ফাঁকা সাদা দেখায়। সম্ভবত ভাঙা লিংক।
+  - "Mobile parts" সারিতে SSD দেখায়। ক্যাটাগরির ভুল হতে পারে।
+  - admin Dashboard লোডের প্রথম প্রায় ১৫ সেকেন্ড সব ঘরে ০ দেখায়। তখন লোড হওয়ার চিহ্ন দেখানো উচিত।
+  - admin Dashboard-এর কার্ডে লেখা আর টাকার অঙ্ক কেটে যায় ("৳52…")।
+  - admin Products-এর খোঁজার ঘরে ওষুধের আমলের লেখা "generic, manufacturer" রয়ে গেছে।
+
+## জরুরি (ধাপ I-এর আগে, আলাদা ধাপে): ভুয়া পণ্য আর vendor-এর নিজের পণ্য বদলানো
+
+- **ভুয়া পণ্য:** `vendorProductCreateOwner()`-এ `data.vendorId == request.auth.uid` আছে। তাই যেকোনো লগইন করা user নিজের uid-কে `vendorId` বসিয়ে `products`-এ পণ্য তৈরি করতে পারে, `status: approved` বা `isActive: true` সমেত।
+  - এতে vendor কি না, দেখা হয় না।
+  - লাইভ `438c4999`-এ emulator দিয়ে যাচাই করা।
+  - ধাপ H শুধু rating-এর চারটা ঘর বন্ধ করেছে। পণ্য তৈরি এখনো খোলা।
+- **vendor নিজের পণ্য বদলাতে পারে না:** products-এর update আর delete নিয়মে `ownsVendorProduct()` আছে, কিন্তু function-টা `firestore.rules`-এ কোথাও সংজ্ঞায়িত নয়। নিয়মটা ১০০০-expression-এর সীমাতেও আটকায়। ফলে লাইভে vendor নিজের পণ্য বদলাতে বা মুছতে পারে না।
+- **কাজ:**
+  1. পণ্য তৈরি শুধু অনুমোদিত vendor-এর জন্য (`isVendor()` বা vendor ডকুমেন্টের `status == approved`), নিজের `vendorId` দিয়ে।
+  2. নতুন পণ্য সবসময় pending বা unpublished থাকবে, admin অনুমোদন দেবে।
+  3. `ownsVendorProduct()` লেখা, আর vendor কোন ঘর বদলাতে পারবে তার তালিকা।
+  4. emulator test।
+  5. লাইভে খোঁজা: কোনো customer আগে এমন পণ্য বানিয়েছে কি না (`vendorId` = কোনো customer-এর uid)।
+
 
 ## 14b ধাপ E (পরে): catch-all-কে "অনুমোদিত তালিকা" বানানো
 
