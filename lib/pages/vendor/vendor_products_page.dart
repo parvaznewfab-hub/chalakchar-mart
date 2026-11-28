@@ -209,6 +209,8 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
     final dialogApprovalStatus = _text(data?['approvalStatus'], id == null ? 'pending' : 'approved').toLowerCase();
     bool isActive = dialogApprovalStatus == 'approved' && data?['isActive'] == true;
     bool saving = false;
+    // Shown inside the dialog: a SnackBar sits under the dialog on phones.
+    String? saveError;
     bool uploading = false;
 
     final List<Map<String, TextEditingController>> variants = [];
@@ -288,6 +290,7 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
           }
 
           Future<void> save() async {
+            setDialogState(() => saveError = null);
             final productName = name.text.trim();
             if (productName.isEmpty) {
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Product name required')));
@@ -440,7 +443,7 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
             } catch (e) {
               debugPrint('SAVE ERROR: $e');
               if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(vendorProductErrorBn(e))));
+                setDialogState(() => saveError = vendorProductErrorBn(e));
               }
             } finally {
               setDialogState(() => saving = false);
@@ -778,6 +781,20 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
               ),
             ),
             actions: [
+              if (saveError != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.error_outline_rounded, color: Colors.red, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(saveError!, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700)),
+                      ),
+                    ],
+                  ),
+                ),
               TextButton(onPressed: saving ? null : () => Navigator.pop(context), child: const Text('Cancel')),
               ElevatedButton.icon(
                 onPressed: saving ? null : save,
