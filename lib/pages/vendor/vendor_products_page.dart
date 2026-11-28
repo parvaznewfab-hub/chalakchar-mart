@@ -9,7 +9,7 @@ import '../../services/image_upload_service.dart';
 import '../../services/category_service.dart';
 import '../../services/category_resolver_service.dart';
 import '../../services/product_service.dart';
-import '../../utils/variant_merge.dart';
+import '../../utils/vendor_product_rules.dart';
 
 class VendorProductsPage extends StatefulWidget {
   const VendorProductsPage({super.key});
@@ -160,36 +160,22 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
   }
 
   Future<void> _toggleProduct(String id, bool active) async {
-    // Vendor can show/hide only their own approved product.
+    // Vendor can show/hide only their own approved product (step H2 rules).
     // Do not update approvalStatus, isPublished or showOnHome from vendor side.
-    await db.collection('products').doc(id).update({
-      'isActive': active,
-      'isVisible': active,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-  }
-
-  Future<void> _deleteProduct(String id) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Delete product?'),
-        content: const Text('This will remove the product permanently.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-
-    if (ok == true) {
-      await db.collection('products').doc(id).delete();
+    try {
+      await db.collection('products').doc(id).update({
+        'isActive': active,
+        'isVisible': active,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(vendorProductErrorBn(e))));
     }
   }
+
+  // Step H2: no delete for vendors (owner's decision 2026-11-28): orders and
+  // the ledger keep the product id. Hide it instead; staff can delete.
 
   Future<Map<String, dynamic>> _vendorInfo() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -215,10 +201,6 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
     if (!mounted) return;
 
     final name = TextEditingController(text: _text(data?['name']));
-    final generic = TextEditingController(text: _text(data?['generic']));
-    final manufacturer = TextEditingController(text: _text(data?['manufacturer']));
-    final type = TextEditingController(text: _text(data?['type']));
-    final strength = TextEditingController(text: _text(data?['strength']));
     final overview = TextEditingController(text: _text(data?['overview']));
 
     String? category = _text(data?['category']).isEmpty ? null : _text(data?['category']);
@@ -263,6 +245,11 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
       builder: (_) => StatefulBuilder(
         builder: (context, setDialogState) {
           Future<void> pickImage({bool main = false}) async {
+            if (images.length >= kVendorMaxImages) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('সর্বোচ্চ $kVendorMaxImages টা ছবি দেওয়া যায়।')));
+              return;
+            }
             final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
             if (picked == null) return;
 
@@ -284,6 +271,11 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
           }
 
           void addVariant() {
+            if (variants.length >= kVendorMaxVariants) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('সর্বোচ্চ $kVendorMaxVariants টা variant দেওয়া যায়।')));
+              return;
+            }
             setDialogState(() {
               variants.add({
                 'name': TextEditingController(text: 'Default'),
@@ -322,18 +314,14 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
             }
 
             // ১. রুলস-ফ্রেন্ডলি ভ্যারিয়েন্ট লিস্ট তৈরি (কোনো এক্সট্রা ইন্টারনাল আইডি ছাড়া)
+            // Step H2 rules: a vendor's variant holds name / price / mrp / stock only.
             final variantList = <Map<String, dynamic>>[
               for (var i = 0; i < variants.length; i++)
-                mergeVariantEdit(
-                  variantOriginals[i],
-                  {
-                    'name': variants[i]['name']!.text.trim().isEmpty
-                        ? 'Default'
-                        : variants[i]['name']!.text.trim(),
-                    'price': _toDouble(variants[i]['price']!.text),
-                    'mrp': _toDouble(variants[i]['mrp']!.text),
-                    'stock': _toInt(variants[i]['stock']!.text),
-                  },
+                vendorVariant(
+                  name: variants[i]['name']!.text.trim(),
+                  price: _toDouble(variants[i]['price']!.text),
+                  mrp: _toDouble(variants[i]['mrp']!.text),
+                  stock: _toInt(variants[i]['stock']!.text),
                 ),
             ];
 
@@ -382,10 +370,6 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
                 'name': productName,
                 'category': resolvedCategoryName,
                 if (resolvedCategoryId != null) 'categoryId': resolvedCategoryId,
-                'generic': generic.text.trim(),
-                'manufacturer': manufacturer.text.trim(),
-                'type': type.text.trim(),
-                'strength': strength.text.trim(),
                 'overview': overview.text.trim(),
                 'image': imageUrl,
                 'imageUrl': imageUrl,
@@ -423,29 +407,38 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
               };
 
               if (id == null) {
-                // নতুন প্রোডাক্ট তৈরির সময় ক্রিয়েট টাইম যুক্ত করা
+                // নতুন প্রোডাক্ট: সবসময় pending আর লুকানো, admin অনুমোদন দেবেন।
                 cleanPayload['createdAt'] = FieldValue.serverTimestamp();
                 await db.collection('products').add(cleanPayload);
               } else {
-                // আপডেট করার সময় ওনারশিপ ফিল্ডগুলো রুলস অনুযায়ী পরিবর্তন করা সম্পূর্ণ নিষিদ্ধ (!changedAny)
-                cleanPayload.remove('vendorId');
-                cleanPayload.remove('sellerId');
-                cleanPayload.remove('vendorOwnerId');
-                cleanPayload.remove('vendorOwnerIds');
-                cleanPayload.remove('sellerUid');
-                cleanPayload.remove('isMarketplace');
-                cleanPayload.remove('approvalStatus');
-                cleanPayload.remove('isPublished');
-                cleanPayload.remove('showOnHome');
-
-                await db.collection('products').doc(id).update(cleanPayload);
+                // Step H2: only the editable fields. Name, images, category or
+                // overview changed -> back to pending (the rules require it).
+                const editable = [
+                  'name', 'category', 'categoryId', 'overview', 'image', 'imageUrl', 'images',
+                  'variants', 'price', 'piecePrice', 'oldPrice', 'mrp', 'unit', 'stock',
+                  'vendorName', 'shopName',
+                ];
+                final content = <String, dynamic>{
+                  for (final k in editable)
+                    if (cleanPayload.containsKey(k)) k: cleanPayload[k],
+                };
+                final update = vendorProductUpdate(
+                  before: data ?? const <String, dynamic>{},
+                  content: content,
+                  wantActive: isActive,
+                );
+                await db.collection('products').doc(id).update(update);
+                if (update['approvalStatus'] == 'pending' && dialogApprovalStatus == 'approved' && context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('নাম, ছবি, category বা বিবরণ বদলেছে, তাই পণ্যটা আবার admin-এর অনুমোদনের অপেক্ষায় গেল।')));
+                }
               }
 
               if (context.mounted) Navigator.pop(context);
             } catch (e) {
               debugPrint('SAVE ERROR: $e');
               if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $e')));
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(vendorProductErrorBn(e))));
               }
             } finally {
               setDialogState(() => saving = false);
@@ -619,42 +612,6 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
                     TextField(
                       controller: name,
                       decoration: const InputDecoration(labelText: 'Product Name', border: OutlineInputBorder()),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: generic,
-                            decoration: const InputDecoration(labelText: 'Generic', border: OutlineInputBorder()),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: TextField(
-                            controller: manufacturer,
-                            decoration: const InputDecoration(labelText: 'Manufacturer', border: OutlineInputBorder()),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: type,
-                            decoration: const InputDecoration(labelText: 'Type', border: OutlineInputBorder()),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: TextField(
-                            controller: strength,
-                            decoration: const InputDecoration(labelText: 'Strength', border: OutlineInputBorder()),
-                          ),
-                        ),
-                      ],
                     ),
                     const SizedBox(height: 12),
                     StreamBuilder<List<CategoryModel>>(
@@ -1041,11 +998,6 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
                       ? (displayActive ? Colors.green : Colors.orange)
                       : Colors.grey,
                 ),
-              ),
-              IconButton(
-                tooltip: 'Delete',
-                onPressed: () => _deleteProduct(id),
-                icon: const Icon(Icons.delete_outline, color: Colors.red),
               ),
             ],
           );

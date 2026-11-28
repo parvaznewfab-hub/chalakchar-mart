@@ -205,7 +205,10 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
         canViewProducts = results[0] || results[1];
         canEditProducts = results[1];
         canDeleteProducts = results[2] || results[1];
-        canBulkProducts = results[3] || results[1];
+        // Step H2: CSV / JSON import writes products like a manual save, so
+        // it needs both products.bulk and products.edit (the rules allow
+        // product writes with products.edit only).
+        canBulkProducts = results[3] && results[1];
         canChangeProductStatus = results[4] || results[1];
         permissionLoading = false;
       });
@@ -324,7 +327,7 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
 
 
   Future<void> _pickCSVFile() async {
-    if (_denyIf(!canBulkProducts, 'You do not have products.bulk permission.')) return;
+    if (_denyIf(!canBulkProducts, 'CSV/JSON import-এর জন্য products.bulk আর products.edit, দুটো permission-ই লাগবে।')) return;
 
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -484,7 +487,7 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
   }
 
   Future<void> _showJsonBulkDialog() async {
-    if (_denyIf(!canBulkProducts, 'You do not have products.bulk permission.')) return;
+    if (_denyIf(!canBulkProducts, 'CSV/JSON import-এর জন্য products.bulk আর products.edit, দুটো permission-ই লাগবে।')) return;
 
     final controller = TextEditingController();
 

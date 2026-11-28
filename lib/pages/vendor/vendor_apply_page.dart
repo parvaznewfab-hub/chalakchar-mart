@@ -308,8 +308,10 @@ class _VendorApplyPageState extends State<VendorApplyPage> {
 
       final payload = {...publicPayload, ...privatePayload};
 
+      // Step H2: users.vendorId is set by staff when they approve the vendor
+      // (the rules refuse it from the user); the application only marks
+      // the seller status.
       await db.collection('users').doc(user.uid).set({
-        'vendorId': vendorId,
         'sellerStatus': nextStatus,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));

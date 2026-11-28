@@ -397,9 +397,9 @@ class AuthService {
       'address': address.trim(),
     });
 
+    // Step H2: no vendorId from the user (staff set it on approval).
     await _db.collection('users').doc(user.uid).set({
       'sellerStatus': 'pending',
-      'vendorId': user.uid,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
