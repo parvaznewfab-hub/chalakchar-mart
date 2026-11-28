@@ -331,7 +331,9 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
                 ProductService.displayVariantOf(variantList) ?? variantList.first;
             final totalStock = variants.fold<int>(
               0,
-                  (currentTotal, v) => currentTotal + _toInt(v['stock']),
+                  // v['stock'] is the text field's controller: read its text (before
+                  // step H2 this summed the controllers, so stock was always 0).
+                  (currentTotal, v) => currentTotal + _toInt(v['stock']!.text),
             );
             final firstPrice = _toDouble(firstVariant['price']);
             final firstMrp = _toDouble(firstVariant['mrp'], firstPrice);

@@ -57,8 +57,17 @@ Map<String, dynamic> vendorProductUpdate({
   required bool wantActive,
 }) {
   final status = _s(before['approvalStatus']).toLowerCase();
-  final review = vendorReviewFieldsChanged(before, content);
-  final out = <String, dynamic>{...content, 'updatedAt': FieldValue.serverTimestamp()};
+  // The category resolver hands back a categoryId even when the vendor kept
+  // the same category; an id the product did not carry yet is no category
+  // change, so neither field is sent then (it would send the product back
+  // to "pending" for nothing).
+  final edited = Map<String, dynamic>.from(content);
+  if (_s(edited['category']).toLowerCase() == _s(before['category']).toLowerCase()) {
+    edited.remove('category');
+    edited.remove('categoryId');
+  }
+  final review = vendorReviewFieldsChanged(before, edited);
+  final out = <String, dynamic>{...edited, 'updatedAt': FieldValue.serverTimestamp()};
   if (review) {
     out['approvalStatus'] = 'pending';
     out['isActive'] = false;

@@ -29,6 +29,22 @@ void main() {
     }
   });
 
+  test('same category with a resolver-added categoryId: no category fields sent, stays approved', () {
+    final out = vendorProductUpdate(before: approved, content: {
+      'category': 'Mobile Parts', 'categoryId': 'catMobile', 'price': 1790.0,
+    }, wantActive: true);
+    expect(out.containsKey('category'), isFalse);
+    expect(out.containsKey('categoryId'), isFalse);
+    expect(out.containsKey('approvalStatus'), isFalse);
+    expect(out['isActive'], isTrue);
+  });
+
+  test('a real category change sends the id along and goes back to pending', () {
+    final out = vendorProductUpdate(before: approved, content: {'category': 'Computer Accessories', 'categoryId': 'catComputer'}, wantActive: true);
+    expect(out['categoryId'], 'catComputer');
+    expect(out['approvalStatus'], 'pending');
+  });
+
   test('a pending product stays hidden whatever the switch says', () {
     final out = vendorProductUpdate(before: {...approved, 'approvalStatus': 'pending'}, content: {'price': 1.0}, wantActive: true);
     expect(out['isActive'], isFalse);
