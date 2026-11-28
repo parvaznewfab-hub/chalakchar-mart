@@ -1,6 +1,6 @@
 const { setGlobalOptions } = require("firebase-functions/v2");
 const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
-const { onDocumentCreated, onDocumentUpdated, onDocumentDeleted, onDocumentWritten } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentUpdated, onDocumentDeleted, onDocumentWritten, onDocumentCreatedWithAuthContext } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
@@ -4789,7 +4789,15 @@ async function applyProductModelKeys(ref, product, productId) {
   }
 }
 
-exports.onProductCreated = onDocumentCreated("products/{productId}", async (event) => {
+// Step H2: replaces onProductCreated (Firebase cannot change a function's
+// trigger type in place, hence the new name). Same price guard and model
+// keys; automatic marketing (customer push + social queue) only for shop
+// products written by the backend or by staff (functions/products/
+// productMarketingGuard.js). Before, any signed-in user could create a
+// live product and have it pushed and posted to Facebook / Instagram.
+const productMarketingGuard = require("./products/productMarketingGuard");
+
+exports.onProductCreatedChecked = onDocumentCreatedWithAuthContext("products/{productId}", async (event) => {
   const productId = event.params.productId;
   const product = event.data?.data() || {};
 
@@ -4798,14 +4806,20 @@ exports.onProductCreated = onDocumentCreated("products/{productId}", async (even
   if (event.data) await applyProductPriceGuard(event.data.ref, product, productId);
   if (event.data) await applyProductModelKeys(event.data.ref, product, productId);
 
-  if (!shouldMarketProduct(product)) {
+  const decision = await productMarketingGuard.newProductMarketingDecision({
+    authType: event.authType,
+    authId: event.authId,
+    product,
+    productBlockReason: autoMarketingBlockReason,
+    deps: { db },
+  });
+  if (!decision.market) {
     logger.info("Product marketing skipped", {
       productId,
+      reason: decision.reason,
+      authType: event.authType || null,
       isActive: product.isActive,
-      isVisible: product.isVisible,
-      isPublished: product.isPublished,
       approvalStatus: product.approvalStatus,
-      autoMarketingDisabled: product.autoMarketingDisabled,
     });
     return;
   }
@@ -4889,7 +4903,11 @@ exports.onProductStockUpdated = onDocumentUpdated("products/{productId}", async 
     }, { merge: true });
   }
 
-  if (beforeStock <= 0 && afterStock > 0 && after.backInStockNotifiedAt == null) {
+  // Step H2: no customer push for a vendor's product (owner's decision);
+  // the admin low-stock alert above still runs.
+  const vendorProduct = productMarketingGuard.isVendorProduct(after);
+
+  if (!vendorProduct && beforeStock <= 0 && afterStock > 0 && after.backInStockNotifiedAt == null) {
     await notifyWishlistUsers(
       productId,
       after,
@@ -4918,7 +4936,7 @@ exports.onProductStockUpdated = onDocumentUpdated("products/{productId}", async 
     logger.info("Wishlist discount marketing suppressed for sync write", { productId, afterDiscount, beforeDiscount });
   }
 
-  if (!discountMarketingSuppressed && discountIncreased) {
+  if (!vendorProduct && !discountMarketingSuppressed && discountIncreased) {
     const discountKey = `discount_${afterDiscount}`;
 
     if (after.lastDiscountMarketingKey !== discountKey) {
