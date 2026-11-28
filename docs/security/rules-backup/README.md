@@ -547,6 +547,164 @@ Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --re
      - লাইভ আর preview-এর `main.dart.js` হুবহু এক।
    - এরপর মালিক ঠিক করবেন `reviewReward` আর auto-approve-এর মান।
 
+## 14b ধাপ H2: products-এর rules, vendor-এর পরিচয় আর পণ্যের ছবি
+
+### ধাপ H2: তদন্ত আর কোড (২৮ নভেম্বর, branch `step-h2`, worktree `../cc_steph2`)
+
+- **শুরুর মিল:**
+  - branch `step-h2` তৈরি `origin/step-h` (`9b3a76e`) থেকে, d4ead6c নেই।
+  - লাইভ Firestore ruleset `fa5f0e22` = branch-এর `firestore.rules` (sha256 `b5b6c626…`)।
+  - লাইভ Storage ruleset `2ce1afb0` = branch-এর `storage.rules` (sha256 `7ae2db76…`)।
+  - লাইভ Firestore rules-এর কপি `firestore.rules.live-fa5f0e22` শুধু লোকালে, commit হয়নি।
+
+**তদন্তে যা পাওয়া গেছে** (লাইভ rules-এর কপিতে emulator দিয়ে প্রমাণিত, `step_h2.test.js` আর `storage_h2.test.js`):
+
+- **ভুয়া পণ্য:**
+  - guest বাদে যেকোনো লগইন করা user approved আর live পণ্য তৈরি করতে পারত।
+  - এর মধ্যে আছে customer, rider, pending বা suspended vendor, আর শুধু `products.view` থাকা staff।
+  - নিজের uid দিয়েই শুধু নয়; অন্য vendor-এর বা দোকানের নিজের (`super_admin`) নামেও পারত।
+  - commission, featured, sponsored, marketing-এর লেখা আর SEO-র ঘরও নিজের ইচ্ছামতো বসাতে পারত।
+  - কারণ `vendorProductCreateOwner()` দেখত শুধু `data.vendorId == request.auth.uid` (বা owner-এর ঘর), vendor কি না দেখত না।
+- **এর ফল:**
+  - দোকান, SSR আর sitemap-এ ভুয়া পণ্য দেখাত।
+  - `onProductCreated` সর্বোচ্চ ১০০০ জন customer-কে push পাঠাত, আর `marketing_outbox` বানাত।
+  - লাইভের ইতিহাসে `cloud_function_product_created` সারিতে `facebook: posted`, `instagram: posted`, `whatsapp: queued` দেখা যায়। অর্থাৎ caption নিজে লিখে দোকানের page-এ post করানো যেত।
+- **vendor নিজের পণ্য বদলাতে, লুকাতে বা মুছতে পারত না:** `ownsVendorProduct()` কোথাও সংজ্ঞায়িত ছিল না।
+- **`products.status` থাকা staff দাম আর rating-ও বদলাতে পারত।**
+- **`users.vendorId`:**
+  - customer নিজের profile-এ এই ঘর বসাতে পারত।
+  - ফলে Firestore-এ নিজেকে vendor দেখাতে পারত। সেই vendor-এর `vendor_private` পড়া, payout চাওয়া (নিজের `payoutAccount` দিয়ে), অর্ডার আর notification দেখা যেত।
+  - Storage-এও নিজেকে vendor দেখাতে পারত।
+- **pending vendor আবেদন দখল:** যে কেউ `vendors/{V}`-এর `ownerId` নিজের নামে বদলে দিতে পারত।
+- **Storage:**
+  - "vendor" (যার মধ্যে ভুয়া `users.vendorId` থাকা customer-ও পড়ে) দোকানের `products/` আর `product_images/`-এর যেকোনো ছবির ওপর লিখতে পারত।
+  - যেকোনো customer `vendor_products/{নিজের uid}/`-এ ছবি রাখতে পারত, যা সবাই দেখতে পারে।
+- **লাইভের ডেটা** (শুধু পড়া, ২৮ নভেম্বর):
+  - ২২১টা পণ্য, সবগুলোর `vendorId = 'super_admin'`।
+  - vendor ১টা (approved), তার পণ্য ০টা।
+  - rating-এর ঘর সব ০, সন্দেহজনক কিছু নেই।
+  - **এই ফাঁক দিয়ে কেউ কিছু বসায়নি।**
+
+**মালিকের সিদ্ধান্ত (২৮ নভেম্বর):**
+
+1. approved পণ্যে দাম, stock আর variant সরাসরি বদলানো যাবে। নাম, ছবি বা category বদলালে পণ্য আবার pending হবে, আর rules সেটা বাধ্য করবে।
+   - আমি overview-কেও এই তালিকায় রেখেছি, কারণ এটাও দোকানে দেখানো লেখা।
+2. vendor পণ্য মুছতে পারবে না, শুধু লুকাতে পারবে।
+3. `products.status` শুধু status-এর ঘরে সীমিত।
+4. vendor-এর পণ্য অনুমোদিত হলেও নিজে থেকে marketing বা push হবে না।
+5. `onProductCreated`-এ কে লিখেছে তা দেখার সুরক্ষা।
+6. Storage-এ `products/` আর `product_images/`-এ শুধু staff লিখবে। vendor লিখবে শুধু `vendor_products/{নিজের V}/`-এ।
+7. vendor-এর পণ্য তৈরি চালু থাকবে, pending দিয়ে।
+
+সঙ্গে বাড়তি তিনটা:
+- client `users.vendorId` বসাতে পারবে না।
+- vendor-এর ছবি শুধু নিজের ফোল্ডারের।
+- ওষুধ-আমলের ঘর বাদ।
+- CSV/JSON-এর জন্য `products.bulk` আর `products.edit` দুটোই লাগবে।
+- পুরোনো `admin_panel_page` সরানো।
+
+**কোড:**
+
+- **Firestore rules** (`8ae6d70`):
+  - **vendor-এর পরিচয়:** এখন দেখা হয় `vendors/{V}` ডকুমেন্ট থেকে (`ownerId`, `status`, `isActive`), helper `ownsVendorDoc` আর `ownsApprovedVendor`। `users.vendorId`-এর ওপর আর কোথাও ভরসা নেই: `vendor_private`, withdraw, অর্ডার পড়া, `vendor_notifications`, পণ্য।
+  - **পণ্য তৈরি:** `products.edit`-ওয়ালা staff, অথবা approved vendor-এর নিজের নতুন পণ্য।
+    - ঘরের অনুমোদিত তালিকা (hasOnly), যাতে ওষুধ-আমল, marketing, SEO, commission বা rating-এর ঘর নেই।
+    - `approvalStatus == 'pending'`, আর সব প্রকাশের ঘর false।
+    - owner-এর ঘর = নিজে।
+    - ছবি শুধু `https://firebasestorage.googleapis.com/v0/b/chalakchar-mart.firebasestorage.app/o/vendor_products%2F{V}%2F…`, সর্বোচ্চ ৮টা।
+    - variant-এ শুধু `name`/`price`/`mrp`/`stock`, সর্বোচ্চ ১২টা।
+  - **পণ্য বদলানো:**
+    - `products.edit`: সব।
+    - `products.status`: শুধু status-এর ঘর।
+    - vendor:
+      - নিজের পণ্যে নিজের ঘর।
+      - কখনো approve বা publish করতে পারে না।
+      - নাম, ছবি, category বা overview বদলালে পণ্য pending আর লুকানো হবে।
+      - approved না হলে পণ্য লুকানোই থাকে।
+  - **মোছা:** শুধু `products.delete` (superAdmin সহ)।
+  - **users:**
+    - client `vendorId` লিখতে পারে না।
+    - তৈরির সময় `sellerStatus` শুধু `none`/`new`/`pending`/`submitted`, আর `vendorStatus`/`isVendor` থাকে না।
+  - **vendors:** owner `ownerId`/`userId` বদলাতে পারে না।
+- **Storage rules:**
+  - `products/` আর `product_images/`: শুধু staff।
+  - `vendor_products/{V}/`: শুধু approved আর চালু vendor-এর owner।
+- **Functions** (`8647a7e`):
+  - নতুন `onProductCreatedChecked` (`onDocumentCreatedWithAuthContext`), `onProductCreated`-এর জায়গায়।
+    - স্বয়ংক্রিয় marketing চলে শুধু function, import বা script (service account), অথবা অ্যাপের staff (admin, superAdmin, owner, `products.edit`)-এর লেখা দোকানের পণ্যে।
+    - vendor-এর পণ্যে কখনো নয়।
+  - `onProductStockUpdated`: vendor-এর পণ্যে customer-দের wishlist push বন্ধ।
+  - নিয়মটা আছে `functions/products/productMarketingGuard.js`-এ।
+- **অ্যাপ** (`9d6d6f4`, `5543eb5`):
+  - **vendor-এর "My Products":**
+    - ওষুধ-আমলের ঘর নেই।
+    - সাদামাটা variant।
+    - ৮টা ছবি আর ১২টা variant-এর সীমা।
+    - update হয় `vendorProductUpdate` দিয়ে (`lib/utils/vendor_product_rules.dart`)।
+    - মোছার বোতাম নেই।
+    - rules বাতিল করলে বাংলায় error।
+  - **ধরা পড়া দুটো পুরোনো bug:**
+    - stock সবসময় ০ লেখা হতো (controller-এর লেখা না পড়ে controller যোগ করা হতো)।
+    - category resolver-এর `categoryId` শুধু দাম বদলেও পণ্যকে pending করে দিত।
+  - আবেদনের পাতা আর `requestSellerAccount` আর `users.vendorId` লেখে না।
+  - CSV/JSON-এর জন্য `products.bulk` আর `products.edit` দুটোই লাগে।
+  - `admin_panel_page.dart` আর `admin_button_page.dart` সরানো।
+
+**test:**
+- rules: `node tools/rules-test/run.js`
+  - নতুন rules-এ ২২৫/২২৫। এর মধ্যে আগের ১৭৯টা; তাদের দুটো নতুন সিদ্ধান্ত অনুযায়ী বদলানো (`step_f`-এর আবেদনের link, `step_h`-এর vendor payload)।
+  - লাইভের কপি `fa5f0e22`-এ ২১৪/২১৪, যেখানে আক্রমণগুলো সফল হয় আর vendor-এর নিজের বদল আটকায়।
+- Storage: `node tools/rules-test/run-storage.js` ১৭/১৭।
+- function-এর emulator test: `run-steph2.js` ৪/৪। unit test ৪/৪।
+- `step_h2.test.js` আর `storage_h2.test.js` প্রত্যাশা বাছে rules ফাইলের sha256 দেখে।
+- **শেষ run (২৮ নভেম্বর):**
+  - rules ২২৫/২২৫, লাইভের কপি ২১৪/২১৪, Storage ১৭/১৭।
+  - emulator: H ২৩/২৩, H2 ৪/৪, cash ১১/১১, ledger ১১/১১।
+  - functions-এর unit test ৭২২/৭২২, Dart ৫৩২/৫৩২।
+  - `flutter analyze lib test` পরিষ্কার।
+- vendor-এর save-এর error এখন dialog-এর ভেতরে দেখায় (`df80840`)। আগে SnackBar ফোনে dialog-এর নিচে ঢাকা পড়ত।
+- screenshot: `screenshots/step-h2/`, ৩৬০ আর ১৩৬৬ মাপে, md5 সব আলাদা।
+
+**জানা কথা:**
+- লাইভে একজন user-এর `vendorId` তার নিজের uid, অথচ vendor ডকুমেন্ট নেই (ধাপ F-এ গোনা)। নতুন rules-এ এর কোনো প্রভাব নেই, কারণ ভরসা এখন `vendors` ডকুমেন্টের ওপর।
+- ধাপ E-র catch-all আগের মতোই।
+
+### ধাপ H2: deploy-এর পরিকল্পনা (অনুমতির অপেক্ষায়; কিছুই deploy হয়নি)
+
+চারটা আলাদা deploy, এই ক্রমে। প্রতিটার আগে `gcloud firestore export gs://chalakchar-mart-backups/steph2-<ধাপ>-<YYYYMMDD-HHMM> --project chalakchar-mart` (SUCCESSFUL না হওয়া পর্যন্ত এগোনো যাবে না)। সব command `../cc_steph2` থেকে।
+
+1. **Firestore rules**
+   - deploy: `firebase deploy --only firestore:rules --project chalakchar-mart`
+   - rollback: ruleset `fa5f0e22-cc67-4abc-92c2-d21caad63af0` (Console → Rules → History → Restore), অথবা `git show origin/step-h:firestore.rules > firestore.rules`, deploy, তারপর `git checkout firestore.rules`।
+   - **hosting আসার আগ পর্যন্ত:**
+     - পুরোনো অ্যাপের vendor আবেদন `users.vendorId` লিখতে গিয়ে আটকাবে (vendors ডকুমেন্ট save হবে, users-এরটা নয়)।
+     - পুরোনো vendor পাতা নতুন পণ্যে ওষুধ-আমলের ঘর পাঠায়, তাই সেটাও আটকাবে।
+     - লাইভে vendor-এর পণ্য ০টা আর আবেদন খুব কম, তাই hosting তাড়াতাড়ি পরে দেওয়া ভালো।
+   - যাচাই:
+     - লাইভ source-এর sha256 = branch।
+     - লগইন ছাড়া products পড়া 200।
+     - admin-এর Products আর Vendor Products পাতা খোলে।
+     - লাইভ source-এর কপিতে emulator suite পাস।
+2. **Storage rules**
+   - deploy: `firebase deploy --only storage --project chalakchar-mart`
+   - rollback: ruleset `2ce1afb0-379e-4ad8-82e3-206be53d8a01`, অথবা `git show origin/step-h:storage.rules > storage.rules`, deploy, তারপর `git checkout storage.rules`।
+   - যাচাই: লাইভ source-এর sha256 = branch; পণ্যের একটা ছবি লগইন ছাড়া 200।
+3. **Functions**
+   - deploy: `firebase deploy --only functions:onProductCreatedChecked,functions:onProductStockUpdated --project chalakchar-mart`
+   - নতুন trigger ACTIVE হলে: `firebase functions:delete onProductCreated --region asia-south1 --project chalakchar-mart`
+   - মাঝের কয়েক মিনিটে দুটো trigger-ই চলবে। সে সময় admin নতুন পণ্য না বানালেই দুবার marketing-এর ঝুঁকি নেই।
+   - rollback:
+     - `../cc_steph` (origin/step-h) থেকে `firebase deploy --only functions:onProductCreated,functions:onProductStockUpdated`।
+     - তারপর `firebase functions:delete onProductCreatedChecked --region asia-south1`।
+   - যাচাই: function-এর log-এ error নেই, ACTIVE, event `document.v1.created`।
+4. **Hosting**
+   - `flutter clean && flutter build web --release` (কোনো `--dart-define` নয়)।
+   - preview: `firebase hosting:channel:deploy steph2 --expires 7d`।
+   - `main.dart.js`-এ grep: emulator-এর চিহ্ন নেই, vendor পাতার নতুন বাংলা লেখা আছে।
+   - তারপর `firebase hosting:clone chalakchar-mart:steph2 chalakchar-mart:live`।
+   - rollback: `firebase hosting:clone chalakchar-mart@1ef9e5dcd524900a chalakchar-mart:live --project chalakchar-mart`।
+   - যাচাই: লাইভ = preview (sha256); www থেকে 301; sitemap ৯১টা URL; X-Robots আগের মতো।
+
 ## 14b ধাপ I: অর্ডার তৈরি function দিয়ে
 
 - ধাপ G-এর পরেও coupon আর delivery charge client-এর দেওয়া অঙ্কই থাকে। `cashCheck` শুধু সূত্র মেলায়, coupon বৈধ কি না আর delivery charge ঠিক কি না দেখে না।
@@ -590,6 +748,8 @@ Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --re
 
 ## জরুরি (ধাপ I-এর আগে, আলাদা ধাপে): ভুয়া পণ্য আর vendor-এর নিজের পণ্য বদলানো
 
+> **অবস্থা (২৮ নভেম্বর):** ধাপ H2-এ কোড, rules আর test হয়েছে (branch `step-h2`)। এখনো deploy হয়নি। উপরের "ধাপ H2" অংশ দেখুন।
+
 - **ভুয়া পণ্য:** `vendorProductCreateOwner()`-এ `data.vendorId == request.auth.uid` আছে। তাই যেকোনো লগইন করা user নিজের uid-কে `vendorId` বসিয়ে `products`-এ পণ্য তৈরি করতে পারে, `status: approved` বা `isActive: true` সমেত।
   - এতে vendor কি না, দেখা হয় না।
   - লাইভ `438c4999`-এ emulator দিয়ে যাচাই করা।
@@ -602,6 +762,19 @@ Function সরাতে: `firebase functions:delete getIdentityDocumentUrl --re
   4. emulator test।
   5. লাইভে খোঁজা: কোনো customer আগে এমন পণ্য বানিয়েছে কি না (`vendorId` = কোনো customer-এর uid)।
 
+
+## পরের কাজ: ৭৪টা পণ্য `needsReview: true` হয়েও লাইভে (এখন হাত দেওয়া হবে না)
+
+- ২৮ নভেম্বর লাইভে গোনা (শুধু পড়া):
+  - ২২১টা পণ্যের মধ্যে ৭৪টা `needsReview: true`, অথচ `isActive`, `isPublished` আর `isVisible` তিনটাই true।
+  - আরও ১৬টা `needsReview: true` আর `isActive: false`।
+- `needsReview` স্বয়ংক্রিয় marketing আটকায়, কিন্তু দোকান, SSR আর sitemap-এ দেখানো আটকায় না।
+- আগের পরিকল্পনা (memory "needsReview bulk clear"):
+  1. তালিকা বানানো।
+  2. মালিকের অনুমোদন।
+  3. `lastWriteSource` দিয়ে একসঙ্গে বাতিল করা, যাতে marketing না চলে।
+  4. admin-এ "Mark reviewed" বোতাম।
+- প্রতিটা লেখার আগে dry-run আর backup।
 
 ## 14b ধাপ E (পরে): catch-all-কে "অনুমোদিত তালিকা" বানানো
 
