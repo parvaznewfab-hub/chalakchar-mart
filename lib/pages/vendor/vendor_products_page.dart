@@ -868,7 +868,10 @@ class _VendorProductsPageState extends State<VendorProductsPage> {
                 child: docs.isEmpty
                     ? _empty()
                     : ListView.builder(
-                  padding: const EdgeInsets.all(14),
+                  // Room under the last card for the "Add Product" FAB (56 +
+                  // its 16 margin), so the last product's Edit / hide buttons
+                  // are never covered on a phone.
+                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 96),
                   itemCount: docs.length,
                   itemBuilder: (context, index) {
                     final doc = docs[index];
