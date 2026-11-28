@@ -158,8 +158,12 @@ describe('step H (ক): product rating fields', opts, () => {
   });
 
   test('vendor still creates own product without rating fields (both rule sets)', async () => {
+    // step H2: the full pending shape vendor_products_page writes.
     allowed(await db('vendU1').create('products/v3', {
-      name: 'V3', price: 1, vendorId: 'vend1', vendorOwnerId: 'vendU1', isActive: false,
+      name: 'V3', category: 'Mobile Parts', price: 1, mrp: 1, stock: 1, image: '', imageUrl: '', images: [],
+      variants: [{ name: 'Default', price: 1, mrp: 1, stock: 1 }],
+      vendorId: 'vend1', sellerId: 'vend1', vendorOwnerId: 'vendU1', vendorOwnerIds: ['vendU1'], sellerUid: 'vendU1',
+      isMarketplace: true, approvalStatus: 'pending', isActive: false, isVisible: false, isPublished: false, showOnHome: false,
     }));
   });
 

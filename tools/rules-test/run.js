@@ -10,7 +10,7 @@ const path = require('node:path');
 const repo = path.resolve(__dirname, '..', '..');
 const rulesFile = process.argv[2] || 'firestore.rules';
 const testDir = path.join('tools', 'rules-test');
-const inner = `node --test --test-concurrency=1 ${testDir}/holes.test.js ${testDir}/rules.test.js ${testDir}/step_b.test.js ${testDir}/rollback_b.test.js ${testDir}/step_d.test.js ${testDir}/ledger.test.js ${testDir}/step_f.test.js ${testDir}/step_g.test.js ${testDir}/step_h.test.js`;
+const inner = `node --test --test-concurrency=1 ${testDir}/holes.test.js ${testDir}/rules.test.js ${testDir}/step_b.test.js ${testDir}/rollback_b.test.js ${testDir}/step_d.test.js ${testDir}/ledger.test.js ${testDir}/step_f.test.js ${testDir}/step_g.test.js ${testDir}/step_h.test.js ${testDir}/step_h2.test.js`;
 
 const r = spawnSync(
   'firebase',

@@ -175,9 +175,13 @@ describe('step F: the app\'s real writes still work', opts, () => {
   });
 
   test('customer: seller application links the user doc (vendor_apply_page:311, auth_service:400)', async () => {
-    allowed(await db('fresh').set('users/fresh', { vendorId: 'fresh', sellerStatus: 'pending', updatedAt: SERVER_TS }, { merge: true }));
-    // A doc without vendorId (older shape) may still link its OWN id.
-    allowed(await db('noVid').set('users/noVid', { vendorId: 'noVid', sellerStatus: 'pending', updatedAt: SERVER_TS }, { merge: true }));
+    // Step H2: the user doc no longer takes a vendorId from the user (staff
+    // set it on approval); the application sets sellerStatus only.
+    const H2_RULES = !/rules-backup/.test(RULES_FILE);
+    (H2_RULES ? denied : allowed)(await db('fresh').set('users/fresh', { vendorId: 'fresh', sellerStatus: 'pending', updatedAt: SERVER_TS }, { merge: true }), 'with own vendorId');
+    // A doc without vendorId (older shape) linking its OWN id.
+    (H2_RULES ? denied : allowed)(await db('noVid').set('users/noVid', { vendorId: 'noVid', sellerStatus: 'pending', updatedAt: SERVER_TS }, { merge: true }), 'older shape');
+    allowed(await db('fresh').set('users/fresh', { sellerStatus: 'pending', updatedAt: SERVER_TS }, { merge: true }), 'sellerStatus only');
   });
 
   test('vendor: application re-save, pending and approved (vendor_apply_page:302)', async () => {

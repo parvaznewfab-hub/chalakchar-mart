@@ -13,7 +13,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { describe, test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
-const { db, allowed } = require('./emu');
+const { seed } = require('./emu');
 const { resetWorld } = require('./fixtures');
 
 const STORAGE_RULES = path.resolve(__dirname, '..', '..', 'storage.rules');
@@ -57,8 +57,10 @@ describe('storage step H2: product images', () => {
     no(await upload('cust2', 'products/new.jpg'), 'products/');
   });
 
-  test(`${tag} a customer who set own users.vendorId counts as a vendor and overwrites a shop product image`, async () => {
-    allowed(await db('cust1').update('users/cust1', { vendorId: 'cust1' }));
+  test(`${tag} a profile with any users.vendorId counts as a vendor and overwrites a shop product image`, async () => {
+    // Before step H2 the customer could set this field themself; now only
+    // staff can, but old data may still carry one. It must give nothing.
+    await seed({ 'users/cust1': { role: 'user', roles: ['user'], isActive: true, isBanned: false, vendorId: 'cust1' } });
     attack(await upload('cust1', 'products/shop.jpg'), 'overwrite products/shop.jpg');
     attack(await upload('cust1', 'product_images/shop2.jpg'), 'overwrite product_images/shop2.jpg');
   });
@@ -77,5 +79,15 @@ describe('storage step H2: product images', () => {
 
   test('the approved vendor uploads into own vendor_products folder (both rule sets)', async () => {
     ok(await upload('vendU1', 'vendor_products/vend1/a.jpg'));
+  });
+
+  test(`${GAP_OPEN ? '[2ce1afb0: open]' : '[fixed: closed]'} a pending applicant uploads into vendor_products/{own vendor id}/`, async () => {
+    // vendors/vendNew: owner vendNew, status pending
+    (GAP_OPEN ? ok : no)(await upload('vendNew', 'vendor_products/vendNew/a.jpg'));
+  });
+
+  test('staff still upload shop product images (both rule sets)', async () => {
+    ok(await upload('admin', 'products/new-shop.jpg'), 'admin products/');
+    ok(await upload('admin', 'product_images/new-shop.jpg'), 'admin product_images/');
   });
 });

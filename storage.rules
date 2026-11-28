@@ -39,17 +39,6 @@ service firebase.storage {
         || hasRole('owner');
     }
 
-    function isVendor() {
-      return signedIn()
-        && userExists(request.auth.uid)
-        && (
-          hasRole('vendor')
-          || userDoc(request.auth.uid).data.sellerStatus == 'approved'
-          || (userDoc(request.auth.uid).data.vendorId is string
-              && userDoc(request.auth.uid).data.vendorId.size() > 0)
-        );
-    }
-
     function vendorDoc(vendorId) {
       return firestore.get(/databases/(default)/documents/vendors/$(vendorId));
     }
@@ -58,6 +47,14 @@ service firebase.storage {
       return signedIn()
         && firestore.exists(/databases/(default)/documents/vendors/$(vendorId))
         && vendorDoc(vendorId).data.ownerId == request.auth.uid;
+    }
+
+    // Step H2: the caller owns vendors/{vendorId} and it is approved and
+    // active (read from the vendors doc, never from users.vendorId).
+    function isApprovedVendorOwner(vendorId) {
+      return isVendorOwner(vendorId)
+        && vendorDoc(vendorId).data.get('status', '') in ['approved', 'Approved']
+        && vendorDoc(vendorId).data.get('isActive', true) != false;
     }
 
     // ---- 14b step B: who may see vendor / rider identity documents ----
@@ -183,20 +180,21 @@ service firebase.storage {
     }
 
     // =========================
-    // PUBLIC PRODUCT IMAGES
-    // Admin/staff can upload official products.
-    // Approved vendors can upload only safe product images; delete remains staff-only here.
-    // Prefer vendor_products/{vendorId}/... for vendor-owned images.
+    // PUBLIC PRODUCT IMAGES (shop products)
+    // Step H2: staff only. Before, any "vendor" could upload here and
+    // overwrite any shop image, and a customer counted as a vendor once
+    // they had put any id in their own users.vendorId.
+    // Vendors use vendor_products/{vendorId}/ (below).
     // =========================
     match /products/{fileName} {
       allow read: if true;
-      allow create, update: if (isStaff() || isVendor()) && isImageUnder10MB();
+      allow create, update: if isStaff() && isImageUnder10MB();
       allow delete: if isStaff();
     }
 
     match /product_images/{fileName} {
       allow read: if true;
-      allow create, update: if (isStaff() || isVendor()) && isImageUnder10MB();
+      allow create, update: if isStaff() && isImageUnder10MB();
       allow delete: if isStaff();
     }
 
@@ -233,10 +231,13 @@ service firebase.storage {
     // =========================
     // VENDOR PRODUCT IMAGES
     // =========================
+    // Step H2: only the owner of an approved, active vendor (vendors doc),
+    // only in that vendor's own folder. Before, any customer could store
+    // public files under vendor_products/{own uid}/.
     match /vendor_products/{vendorId}/{fileName} {
       allow read: if true;
-      allow create, update: if (isVendorOwner(vendorId) || isOwner(vendorId)) && isImageUnder10MB();
-      allow delete: if isVendorOwner(vendorId) || isStaff();
+      allow create, update: if isApprovedVendorOwner(vendorId) && isImageUnder10MB();
+      allow delete: if isApprovedVendorOwner(vendorId) || isStaff();
     }
 
     // =========================

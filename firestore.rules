@@ -246,88 +246,157 @@ service cloud.firestore {
         );
     }
 
-    function isVendor() {
-      return notBanned()
-        && (
-          hasRole('vendor')
-          || me().sellerStatus in ['approved', 'Approved']
-          || me().vendorStatus in ['approved', 'Approved']
-          || (me().vendorId is string && me().vendorId != '')
-        );
+    // ---- Step H2: vendor identity ------------------------------------
+    // Who owns a vendor is read from vendors/{V} itself (ownerId, status),
+    // never from users/{uid}.vendorId: before step H2 a customer could put
+    // any id in that field of their own profile and pass for a vendor.
+    function vendorPath(v) {
+      return /databases/$(database)/documents/vendors/$(v);
     }
 
-    function myVendorId() {
-      return me().vendorId;
+    // The caller owns vendors/{v} (any status: applicants too).
+    function ownsVendorDoc(v) {
+      return request.auth != null
+        && v is string && v != ''
+        && exists(vendorPath(v))
+        && get(vendorPath(v)).data.get('ownerId', '') == request.auth.uid;
     }
 
-    // Vendor identity convention:
-    // - request.auth.uid = vendor owner user UID
-    // - me().vendorId = vendors/{vendorId} document id
-    // - products.vendorId / orders.vendorIds = vendors/{vendorId}
-    // - vendorOwnerId/vendorOwnerIds/sellerUid = owner UID fallback
+    // The caller owns vendors/{v}, it is approved and active, and the
+    // caller's own account is not blocked.
+    function ownsApprovedVendor(v) {
+      return ownsVendorDoc(v)
+        && get(vendorPath(v)).data.get('status', '') in ['approved', 'Approved']
+        && get(vendorPath(v)).data.get('isActive', true) != false
+        && notBanned();
+    }
+
+    // Withdraw requests (vendorWithdrawRequests): the approved vendor's owner.
     function ownsVendorId(vendorId) {
-      return isVendor()
-        && vendorId is string
-        && (
-          vendorId == request.auth.uid
-          || (me().vendorId is string && vendorId == me().vendorId)
-        );
+      return ownsApprovedVendor(vendorId);
     }
 
-    function vendorProductCreateOwner(data) {
-      return signedIn()
-        && userExists(request.auth.uid)
-        && data.vendorId is string
-        && (
-          data.vendorOwnerId == request.auth.uid
-          || data.sellerUid == request.auth.uid
-          || data.ownerId == request.auth.uid
-          || data.userId == request.auth.uid
-          || (data.vendorOwnerIds is list && request.auth.uid in data.vendorOwnerIds)
-          || data.vendorId == request.auth.uid
-          || (me().vendorId is string && data.vendorId == me().vendorId)
-          || (
-            exists(/databases/$(database)/documents/vendors/$(data.vendorId))
-            && (
-              get(/databases/$(database)/documents/vendors/$(data.vendorId)).data.ownerId == request.auth.uid
-              || get(/databases/$(database)/documents/vendors/$(data.vendorId)).data.userId == request.auth.uid
-            )
-          )
-        );
+    // ---- Step H2: vendor products -------------------------------------
+    // Everything vendor_products_page.dart writes for a new product (no
+    // pharmacy-era generic / manufacturer / type / strength).
+    function vendorProductCreateKeys() {
+      return ['name', 'category', 'categoryId', 'overview', 'image', 'imageUrl', 'images', 'variants',
+        'price', 'piecePrice', 'oldPrice', 'mrp', 'unit', 'stock', 'vendorName', 'shopName',
+        'vendorId', 'sellerId', 'vendorOwnerId', 'vendorOwnerIds', 'sellerUid', 'isMarketplace',
+        'approvalStatus', 'isActive', 'showOnHome', 'isVisible', 'isPublished', 'createdAt', 'updatedAt'];
     }
 
-    function ownsVendorData(data) {
-      return isVendor()
-        && (
-          data.ownerId == request.auth.uid
-          || data.userId == request.auth.uid
-          || data.vendorOwnerId == request.auth.uid
-          || data.sellerUid == request.auth.uid
-          || data.vendorId == request.auth.uid
-          || (data.vendorOwnerIds is list && request.auth.uid in data.vendorOwnerIds)
-          || (me().vendorId is string && data.vendorId == me().vendorId)
-          || (me().vendorId is string && data.sellerId == me().vendorId)
-          || (me().vendorId is string && data.vendorIds is list && me().vendorId in data.vendorIds)
-          || (me().vendorId is string && data.sellerIds is list && me().vendorId in data.sellerIds)
-        );
+    // What the vendor may change on their own product.
+    function vendorProductEditKeys() {
+      return ['name', 'category', 'categoryId', 'overview', 'image', 'imageUrl', 'images', 'variants',
+        'price', 'piecePrice', 'oldPrice', 'mrp', 'unit', 'stock', 'vendorName', 'shopName',
+        'approvalStatus', 'isActive', 'isVisible', 'updatedAt'];
     }
 
-    function vendorInOrder(data) {
-      return isVendor()
-        && (
-          data.vendorId == request.auth.uid
-          || data.vendorOwnerId == request.auth.uid
-          || data.sellerId == request.auth.uid
-          || data.sellerUid == request.auth.uid
-          || data.vendorUid == request.auth.uid
-          || (data.vendorOwnerIds is list && request.auth.uid in data.vendorOwnerIds)
-          || (data.sellerIds is list && request.auth.uid in data.sellerIds)
-          || (data.vendorIds is list && request.auth.uid in data.vendorIds)
-          || (me().vendorId is string && data.vendorId == me().vendorId)
-          || (me().vendorId is string && data.sellerId == me().vendorId)
-          || (me().vendorId is string && data.vendorIds is list && me().vendorId in data.vendorIds)
-          || (me().vendorId is string && data.sellerIds is list && me().vendorId in data.sellerIds)
-        );
+    // Changing any of these sends the product back to "pending" (owner's
+    // decision 2026-11-28: name, images, category; overview added because
+    // it is shop text too). Price, stock and variants change directly.
+    function vendorProductReviewKeys() {
+      return ['name', 'category', 'categoryId', 'overview', 'image', 'imageUrl', 'images'];
+    }
+
+    // products.status staff: only these.
+    function productStatusKeys() {
+      return ['isActive', 'isVisible', 'isPublished', 'showOnHome', 'needsReview',
+        'approvalStatus', 'approvedAt', 'approvedBy', 'rejectedAt', 'rejectedBy',
+        'rejectedReason', 'hiddenReason', 'updatedAt'];
+    }
+
+    // A vendor's image: empty, or a file in their own vendor_products/{v}/
+    // folder of this project's bucket. No outside addresses (a vendor
+    // could otherwise show anything on the shop under our name).
+    function vendorImageOk(v, url) {
+      return url == '' || (url is string && url.matches(
+        '^https://firebasestorage[.]googleapis[.]com/v0/b/chalakchar-mart[.]firebasestorage[.]app/o/vendor_products%2F'
+        + v + '%2F[^/?#%]+([?][^#]*)?$'));
+    }
+
+    function vendorImagesOk(v, imgs) {
+      return imgs is list && imgs.size() <= 8
+        && (imgs.size() < 1 || vendorImageOk(v, imgs[0]))
+        && (imgs.size() < 2 || vendorImageOk(v, imgs[1]))
+        && (imgs.size() < 3 || vendorImageOk(v, imgs[2]))
+        && (imgs.size() < 4 || vendorImageOk(v, imgs[3]))
+        && (imgs.size() < 5 || vendorImageOk(v, imgs[4]))
+        && (imgs.size() < 6 || vendorImageOk(v, imgs[5]))
+        && (imgs.size() < 7 || vendorImageOk(v, imgs[6]))
+        && (imgs.size() < 8 || vendorImageOk(v, imgs[7]));
+    }
+
+    function vendorProductImagesOk(v, d) {
+      return v.matches('^[A-Za-z0-9_-]{1,128}$')
+        && vendorImageOk(v, d.get('image', ''))
+        && vendorImageOk(v, d.get('imageUrl', ''))
+        && vendorImagesOk(v, d.get('images', []));
+    }
+
+    // Variants as the vendor page writes them: name / price / mrp / stock
+    // only (a variant image would be another way to show an outside image).
+    function vendorVariantOk(x) {
+      return x is map && x.keys().hasOnly(['name', 'price', 'mrp', 'stock']);
+    }
+
+    function vendorVariantsOk(vs) {
+      return vs is list && vs.size() <= 12
+        && (vs.size() < 1 || vendorVariantOk(vs[0]))
+        && (vs.size() < 2 || vendorVariantOk(vs[1]))
+        && (vs.size() < 3 || vendorVariantOk(vs[2]))
+        && (vs.size() < 4 || vendorVariantOk(vs[3]))
+        && (vs.size() < 5 || vendorVariantOk(vs[4]))
+        && (vs.size() < 6 || vendorVariantOk(vs[5]))
+        && (vs.size() < 7 || vendorVariantOk(vs[6]))
+        && (vs.size() < 8 || vendorVariantOk(vs[7]))
+        && (vs.size() < 9 || vendorVariantOk(vs[8]))
+        && (vs.size() < 10 || vendorVariantOk(vs[9]))
+        && (vs.size() < 11 || vendorVariantOk(vs[10]))
+        && (vs.size() < 12 || vendorVariantOk(vs[11]));
+    }
+
+    // A new vendor product: the caller owns the approved vendor it names,
+    // and it always starts pending and hidden (admin approves it).
+    function vendorProductCreateOk(d) {
+      let v = d.get('vendorId', '');
+      return request.auth != null
+        && d.keys().hasOnly(vendorProductCreateKeys())
+        && ownsApprovedVendor(v)
+        && d.get('sellerId', v) == v
+        && d.get('vendorOwnerId', '') == request.auth.uid
+        && d.get('sellerUid', request.auth.uid) == request.auth.uid
+        && d.get('vendorOwnerIds', [request.auth.uid]) == [request.auth.uid]
+        && d.get('isMarketplace', true) == true
+        && d.get('approvalStatus', '') == 'pending'
+        && d.get('isActive', false) == false
+        && d.get('isVisible', false) == false
+        && d.get('isPublished', false) == false
+        && d.get('showOnHome', false) == false
+        && vendorProductImagesOk(v, d)
+        && vendorVariantsOk(d.get('variants', []));
+    }
+
+    // The vendor changes their own product (never deletes it). Never
+    // approves it, never touches owner / marketing / SEO / rating /
+    // commission fields; name, images, category or overview -> pending.
+    // Not approved -> stays hidden.
+    function vendorProductEditOk() {
+      let before = resource.data;
+      let after = request.resource.data;
+      let v = before.get('vendorId', '');
+      let changed = after.diff(before).affectedKeys();
+      let status = after.get('approvalStatus', '');
+      return request.auth != null
+        && before.get('vendorOwnerId', '') == request.auth.uid
+        && changed.hasOnly(vendorProductEditKeys())
+        && ownsApprovedVendor(v)
+        && (!changed.hasAny(['approvalStatus']) || status == 'pending')
+        && (!changed.hasAny(vendorProductReviewKeys()) || status == 'pending')
+        && (status == 'approved' || (after.get('isActive', false) == false && after.get('isVisible', false) == false))
+        && vendorProductImagesOk(v, after)
+        && vendorVariantsOk(after.get('variants', []));
     }
 
     function deliveryPartnerPath(uid) {
@@ -390,7 +459,8 @@ service cloud.firestore {
       return u.get('isActive', true) != false
         && u.get('isBanned', false) != true
         && (
-          (vid is string && vid != '' && vid in vendorIds)
+          // step H2: users.vendorId only counts when vendors/{vid} names the caller.
+          (vid is string && vid != '' && vid in vendorIds && ownsVendorDoc(vid))
           || request.auth.uid in vendorIds
           || request.auth.uid in data.get('vendorOwnerIds', [])
         );
@@ -513,11 +583,8 @@ service cloud.firestore {
         && notBanned()
         && (
           vendorId == request.auth.uid
-          || (userExists(request.auth.uid) && me().get('vendorId', '') == vendorId)
-          || (
-            exists(/databases/$(database)/documents/vendors/$(vendorId))
-            && get(/databases/$(database)/documents/vendors/$(vendorId)).data.get('ownerId', '') == request.auth.uid
-          )
+          // step H2: no users.vendorId branch; the vendors doc names the owner.
+          || ownsVendorDoc(vendorId)
         );
     }
 
@@ -758,6 +825,10 @@ service cloud.firestore {
           !request.resource.data.keys().hasAny(['referralCount'])
           || request.resource.data.referralCount == 0
         )
+        // step H2: nothing that makes a vendor (staff set these on approval).
+        && request.resource.data.get('vendorId', '') in ['', null]
+        && request.resource.data.get('sellerStatus', 'none') in ['none', 'new', 'pending', 'submitted']
+        && !request.resource.data.keys().hasAny(['vendorStatus', 'isVendor'])
         && (!request.resource.data.keys().hasAny(['whatsappOptIn']) || request.resource.data.whatsappOptIn == false)
         && (!request.resource.data.keys().hasAny(['whatsappNumber']) || request.resource.data.whatsappNumber == '');
 
@@ -823,28 +894,25 @@ service cloud.firestore {
             && request.resource.data.sellerStatus in ['none', 'new', 'pending', 'submitted']
           )
         )
-        && (
-          !affectedAny(['vendorId'])
-          || request.resource.data.vendorId == uid
-        )
+        // step H2: users.vendorId is never written by the user (staff set it
+        // when they approve a vendor).
+        && !affectedAny(['vendorId'])
 
         && (!affectedAny(['whatsappOptIn']) || request.resource.data.whatsappOptIn is bool)
         && (!affectedAny(['whatsappNumber']) || !request.resource.data.keys().hasAny(['whatsappNumber']) || request.resource.data.whatsappNumber.matches('^8801[0-9]{9}$'))
         && (!request.resource.data.keys().hasAny(['uid']) || request.resource.data.uid == uid);
 
 
-      // Allow a signed-in user to link their own pending seller application.
-      // This is needed after creating vendors/{uid} from VendorApplyPage.
-      // User cannot approve themselves; only pending/submitted is allowed here.
+      // A signed-in user marks their own seller application as pending /
+      // submitted (vendor_apply_page, auth_service.requestSellerAccount).
+      // Step H2: without vendorId; staff set it when they approve.
       allow update: if signedIn()
         && request.auth.uid == uid
         && affectedOnly([
           'sellerStatus',
-          'vendorId',
           'updatedAt'
         ])
         && resource.data.get('sellerStatus', '') != 'approved'
-        && request.resource.data.vendorId == uid
         && request.resource.data.sellerStatus in ['pending', 'submitted'];
 
 
@@ -1027,6 +1095,10 @@ service cloud.firestore {
         && request.resource.data.isActive == false
         && request.resource.data.isVerified == false
         && !affectedAny([
+          // step H2: the owner cannot be changed (no taking over someone
+          // else's pending application).
+          'ownerId',
+          'userId',
           'commissionPercent',
           'commissionRate',
           'totalSales',
@@ -1040,8 +1112,14 @@ service cloud.firestore {
 
       // Vendor owner can update only profile/docs fields, not approval/money/status fields.
       // (Profile/docs themselves now go to vendor_private, below.)
-      allow update: if ownsVendorData(resource.data)
+      // Step H2: the owner as named on this vendors doc (not users.vendorId).
+      allow update: if signedIn()
+        && notBanned()
+        && (resource.data.get('ownerId', '') == request.auth.uid
+            || resource.data.get('userId', '') == request.auth.uid)
         && !affectedAny([
+          'ownerId',
+          'userId',
           'status',
           'isActive',
           'isVerified',
@@ -1287,33 +1365,21 @@ service cloud.firestore {
 match /products/{productId} {
   allow read: if true;
 
-  // step H: the rating fields come only from the review trigger
-  // (onProductReviewWritten). A non-staff writer (vendor, or anyone passing
-  // vendorProductCreateOwner) may not set them; no app page does.
-  allow create: if can('products.edit')
-    || (
-      signedIn()
-      && !request.resource.data.keys().hasAny(['ratingAvg', 'ratingCount', 'reviewCount', 'ratingTotal'])
-      && userExists(request.auth.uid)
-      && vendorProductCreateOwner(request.resource.data)
-    );
+  // Step H2. Staff with products.edit: anything (rating fields too).
+  // Anyone else: only an approved vendor's own new product, pending and
+  // hidden, with own-folder images (vendorProductCreateOk). Before H2 any
+  // signed-in user could create a live, approved product under any name.
+  allow create: if canAnyOf(['products.edit'])
+    || vendorProductCreateOk(request.resource.data);
 
-  allow update: if can('products.edit')
-    || can('products.status')
-    || (
-      signedIn()
-      && !affectedAny(['ratingAvg', 'ratingCount', 'reviewCount', 'ratingTotal'])
-      && userExists(request.auth.uid)
-      && ownsVendorProduct(resource.data)
-    );
+  // products.edit: anything. products.status: only the status fields.
+  // The vendor: own product, own fields (vendorProductEditOk).
+  allow update: if canAnyOf(['products.edit'])
+    || (canAnyOf(['products.status']) && affectedOnly(productStatusKeys()))
+    || vendorProductEditOk();
 
-  allow delete: if can('products.delete')
-    || isSuperAdmin()
-    || (
-      signedIn()
-      && userExists(request.auth.uid)
-      && ownsVendorProduct(resource.data)
-    );
+  // Only staff delete (owner's decision: vendors hide, never delete).
+  allow delete: if canAnyOf(['products.delete']);
 }
 
     // 14b step H: product reviews (id = the reviewer's uid). Everyone may
@@ -1540,7 +1606,7 @@ match /products/{productId} {
         && (
           resource.data.vendorId == request.auth.uid
           || resource.data.vendorOwnerId == request.auth.uid
-          || (me().vendorId is string && resource.data.vendorId == me().vendorId)
+          || ownsVendorDoc(resource.data.get('vendorId', ''))
           || can('notifications.view')
           || can('vendors.view')
         );
@@ -1551,7 +1617,7 @@ match /products/{productId} {
           || can('vendors.edit')
           || request.resource.data.vendorOwnerId == request.auth.uid
           || request.resource.data.vendorId == request.auth.uid
-          || (me().vendorId is string && request.resource.data.vendorId == me().vendorId)
+          || ownsVendorDoc(request.resource.data.get('vendorId', ''))
         );
 
       allow update: if signedIn()
@@ -1559,7 +1625,7 @@ match /products/{productId} {
           can('notifications.manage')
           || resource.data.vendorOwnerId == request.auth.uid
           || resource.data.vendorId == request.auth.uid
-          || (me().vendorId is string && request.resource.data.vendorId == me().vendorId)
+          || ownsVendorDoc(resource.data.get('vendorId', ''))
         );
 
       allow delete: if can('notifications.delete') || can('notifications.manage');

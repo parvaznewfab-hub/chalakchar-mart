@@ -9,7 +9,7 @@ const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 
 const repo = path.resolve(__dirname, '..', '..');
-const inner = `node --test --test-concurrency=1 ${path.join('tools', 'rules-test', 'storage.test.js')}`;
+const inner = `node --test --test-concurrency=1 ${path.join('tools', 'rules-test', 'storage.test.js')} ${path.join('tools', 'rules-test', 'storage_h2.test.js')}`;
 
 const r = spawnSync(
   'firebase',
